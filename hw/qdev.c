@@ -327,6 +327,7 @@ BusState *sysbus_get_default(void)
     if (!main_system_bus) {
         main_system_bus = qbus_create(&system_bus_info, NULL,
                                       "main-system-bus");
+        main_system_bus->allow_hotplug = 1;
     }
     return main_system_bus;
 }
