@@ -70,6 +70,21 @@ but should be used with extreme caution.  Note that this command only
 resizes image files, it can not resize block devices like LVM volumes.
 ETEXI
 
+    {
+        .name       = "block_notify_size",
+        .args_type  = "device:B,size:o",
+        .params     = "device size",
+        .help       = "notify guest of size change to underlying block device",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_block_notify_size,
+    },
+
+STEXI
+@item block_notify_size
+@findex block_notify_size
+Notify guest of new size for a block device, while guest is running.  
+Usually requires guest action to see the updated size.
+ETEXI
 
     {
         .name       = "eject",

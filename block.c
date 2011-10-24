@@ -1165,6 +1165,25 @@ int64_t bdrv_get_allocated_file_size(BlockDriverState *bs)
     return -ENOTSUP;
 }
 
+/* Notify qemu drivers of new block device size
+*/
+int bdrv_notify_size(BlockDriverState *bs, int64_t offset)
+{
+    BlockDriver *drv = bs->drv;
+    int ret;
+    if (!drv)
+        return -ENOMEDIUM;
+    if (bs->read_only)
+        return -EACCES;
+    if (bdrv_in_use(bs))
+        return -EBUSY;
+    ret = refresh_total_sectors(bs, offset >> BDRV_SECTOR_BITS);
+    if (bs->change_cb) {
+        bs->change_cb(bs->change_opaque, CHANGE_SIZE);
+    }
+    return ret;
+}
+
 /**
  * Length of a file in bytes. Return < 0 if error or unknown.
  */

@@ -849,3 +849,29 @@ int do_block_resize(Monitor *mon, const QDict *qdict, QObject **ret_data)
 
     return 0;
 }
+
+int do_block_notify_size(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    int64_t size = qdict_get_int(qdict, "size");
+    BlockDriverState *bs;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        qerror_report(QERR_DEVICE_NOT_FOUND, device);
+        return -1;
+    }
+
+    if (size < 0) {
+        qerror_report(QERR_UNDEFINED_ERROR);
+        return -1;
+    }
+    
+    if (bdrv_notify_size(bs, size)) {
+        qerror_report(QERR_UNDEFINED_ERROR);
+        return -1;
+    }
+
+    return 0;
+}
+
