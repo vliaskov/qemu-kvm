@@ -1,0 +1,257 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper. 
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+#
+# This version is for a hypothetical package that can build a kernel modules
+# architecture-dependant package via make-kpkg, as well as an
+# architecture-independent module source package, and other packages
+# either dep/indep for things like common files or userspace components
+# needed for the kernel modules.
+
+# Uncomment this to turn on verbose mode. 
+#export DH_VERBOSE=1
+
+# where all bios and other support files are installed
+bdir := /usr/share/kvm
+tdir := debian/qemu-kvm
+tbdir := ${tdir}$(bdir)
+
+# where various other packages keeps their data files
+ipxe := /usr/lib/ipxe
+seabios := /usr/share/seabios
+vgabios := /usr/share/vgabios
+
+DEB_BUILD_ARCH     ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+BASE_ARCH := $(DEB_BUILD_ARCH)
+QEMU_ARCH := $(BASE_ARCH)
+
+ifeq (i386,$(DEB_BUILD_ARCH))
+	BASE_ARCH := x86
+	QEMU_ARCH := i386
+endif
+ifeq (amd64,$(DEB_BUILD_ARCH))
+	BASE_ARCH := x86
+	QEMU_ARCH := x86_64
+endif
+ifeq (x86,$(BASE_ARCH))
+	QEMU_TARGET = x86_64-softmmu
+	QEMU_EXE = $(QEMU_TARGET)/qemu-system-x86_64
+endif
+
+ifeq (powerpc,$(DEB_BUILD_ARCH))
+	QEMU_TARGET = XXXfixme
+	QEMU_EXE = $(QEMU_TAEGET)/qemu-system-ppcemb
+endif
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+    NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+    MAKEFLAGS += -j$(NUMJOBS)
+endif
+
+# make build the default target
+build:
+
+config: build/config-host.mak
+build/config-host.mak: configure
+	dh_testdir
+	mkdir -p build/
+	cd build && ../configure --prefix=/usr \
+		    --datadir=${bdir} \
+		    --sysconfdir=/etc \
+		    --audio-drv-list="alsa oss sdl pa" \
+		    --audio-card-list="ac97 es1370 sb16 cs4231a adlib gus hda" \
+		    --disable-strip \
+		    --disable-xen \
+		    --disable-blobs \
+		    --disable-guest-agent \
+		    $(QEMU_KVM_CONFIGURE_OPTIONS)
+	cat build/config-host.mak
+
+build: build/build-stamp
+build/build-stamp: build/config-host.mak
+	dh_testdir
+
+# main executable and support tools
+	$(MAKE) -C build/ ROMS=
+
+# arch-specific stuff
+
+ifeq (powerpc,$(BASE_ARCH))
+	$(MAKE) -C build/pc-bios bamboo.dtd
+endif
+
+	touch $@
+
+clean:
+	dh_testdir
+	rm -rf build/
+	# clean up upstream leftovers
+	rm -f scripts/*.pyc
+	dh_clean
+
+install: build/install-stamp
+build/install-stamp: build/build-stamp
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+# qemu builds only a few files and we will rename them all anyway,
+# so install it all here manually.
+
+	install -Dp build/$(QEMU_EXE) ${tdir}/usr/bin/kvm
+	install -Dp build/qemu.1 ${tdir}/usr/share/man/man1/kvm.1
+	sed 's|@@|img|g' debian/kvm-utils.run > ${tdir}/usr/bin/kvm-img
+	sed 's|@@|nbd|g' debian/kvm-utils.run > ${tdir}/usr/bin/kvm-nbd
+	sed 's|@@|io|g'  debian/kvm-utils.run > ${tdir}/usr/bin/kvm-io
+	chmod 0755 ${tdir}/usr/bin/kvm-*
+	dh_installman debian/kvm-img.1 debian/kvm-nbd.8
+
+	install -Dp -m 0755 debian/kvm-ifup ${tdir}/etc/kvm/kvm-ifup
+	install -Dp -m 0755 debian/kvm-ifdown ${tdir}/etc/kvm/kvm-ifdown
+
+	# Install the userspace utilities
+	install -m 0755 kvm/kvm_stat ${tdir}/usr/bin/
+
+# use keymaps from qemu-keymaps package
+	dh_link /usr/share/qemu/keymaps ${bdir}/keymaps
+
+ifeq (x86,$(BASE_ARCH))
+
+	# link appropriate bios files from seabios package
+	dh_link ${seabios}/bios.bin ${bdir}/bios.bin \
+	  ${seabios}/optionrom/extboot.bin ${bdir}/extboot.bin \
+	  ${seabios}/optionrom/linuxboot.bin ${bdir}/linuxboot.bin \
+	  ${seabios}/optionrom/multiboot.bin ${bdir}/multiboot.bin \
+	  ${seabios}/optionrom/vapic.bin ${bdir}/vapic.bin \
+
+	# link to vgabios files and vgabios.bin too, for now
+	dh_link \
+	  ${vgabios}/vgabios.cirrus.bin ${bdir}/vgabios-cirrus.bin \
+	  ${vgabios}/vgabios.stdvga.bin ${bdir}/vgabios-stdvga.bin \
+	  ${vgabios}/vgabios.vmware.bin ${bdir}/vgabios-vmware.bin \
+	  ${vgabios}/vgabios.qxl.bin ${bdir}/vgabios-qxl.bin \
+	  ${vgabios}/vgabios.bin ${bdir}/vgabios.bin
+
+# pxe roms are x86-specific.  package ipxe.
+	dh_link \
+	 $(ipxe)/e1000_82540.rom $(bdir)/pxe-e1000.rom \
+	 $(ipxe)/eepro100.rom $(bdir)/pxe-eepro100.rom \
+	 $(ipxe)/ne2k_isa.rom $(bdir)/pxe-ne2k_isa.rom \
+	 $(ipxe)/ns8390.rom $(bdir)/pxe-ne2k_pci.rom \
+	 $(ipxe)/pcnet32.rom $(bdir)/pxe-pcnet.rom \
+	 $(ipxe)/rtl8139.rom $(bdir)/pxe-rtl8139.rom \
+	 $(ipxe)/virtio-net.rom $(bdir)/pxe-virtio.rom \
+
+endif
+
+ifeq (powerpc,$(BASE_ARCH))
+	cp build/pc-bios/bamboo.dtd ${tbdir}/bamboo.dtd
+endif
+
+	touch $@
+
+binary-indep:
+
+binary-arch: build/install-stamp
+	dh_testdir -s
+	dh_testroot -s
+#	dh_installdebconf -s
+	dh_installdocs -a build/qemu-doc.html build/qemu-tech.html \
+		docs/*.txt docs/specs
+#	dh_installexamples -s
+#	dh_installmenu -s
+#	dh_installlogrotate -s
+#	dh_installemacsen -s
+#	dh_installpam -s
+#	dh_installmime -s
+	dh_installudev
+	dh_installinit -s --noscripts
+#	dh_installcron -s
+#	dh_installinfo -s
+	dh_bugfiles
+	dh_installchangelogs
+	dh_strip -s --dbg-package=qemu-kvm-dbg
+	dh_lintian
+	dh_link -s
+	dh_compress -s
+	dh_fixperms -s
+#	dh_makeshlibs -s
+	dh_installdeb -s
+#	dh_perl -s
+	dh_shlibdeps -s
+	dh_gencontrol -s -Nkvm
+	dh_gencontrol -pkvm -- -v1:$(DEB_VERSION)
+	dh_md5sums -s
+	dh_builddeb -s
+
+binary: binary-indep binary-arch
+
+# get-orig-source adapted from /usr/share/gnome-pkg-tools/1/rules/sf-get-source.mk from the gnome-pkg-tools package
+# copied from CDBS' buildvars
+DEB_SOURCE_PACKAGE ?= $(strip $(shell egrep '^Source: ' debian/control | cut -f 2 -d ':'))
+DEB_VERSION ?= $(shell dpkg-parsechangelog | egrep '^Version:' | cut -f 2 -d ' ')
+DEB_NOEPOCH_VERSION ?= $(shell echo $(DEB_VERSION) | cut -d: -f2-)
+DEB_UPSTREAM_VERSION ?= $(shell echo $(DEB_NOEPOCH_VERSION) | sed 's/+[^-]*-[^-]*$$//')
+
+# where to store the resulting .orig tarball
+DEB_TARBALL_DOWNLOAD_DIR ?= ../tarballs
+TARBALL_EXT ?= tar.gz
+
+#SF_PROJECT ?= $(DEB_SOURCE_PACKAGE)
+SF_PROJECT = kvm
+SF_MODULE ?= $(DEB_SOURCE_PACKAGE)
+SF_TARBALL ?= $(SF_MODULE)-$(DEB_UPSTREAM_VERSION).$(TARBALL_EXT)
+SF_DOWNLOAD_URL ?= http://$$sf_mirror.dl.sourceforge.net/$(SF_PROJECT)/$(SF_TARBALL)
+SF_MIRRORS ?= dfn heanet internap jaist kent mesh nchc ovh puzzle superb-east superb-west surfnet switch ufpr waix
+SF_TARBALL_DESTINATION = $(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.$(TARBALL_EXT)
+SF_DOWNLOAD_COMMAND ?= for sf_mirror in $(SF_MIRRORS); do wget -nv -T10 -t1 -O $(SF_TARBALL_DESTINATION).tmp $(SF_DOWNLOAD_URL) && break; done
+
+get-orig-tarball: $(SF_TARBALL_DESTINATION)
+$(SF_TARBALL_DESTINATION):
+	dh_testdir
+	@@echo 'Source package:                      $(DEB_SOURCE_PACKAGE)'
+	@@echo 'Source package:                      $(DEB_VERSION)'
+	@@echo 'Source version without epoch:        $(DEB_NOEPOCH_VERSION)'
+	@@echo 'Upstream version (for orig tarball): $(DEB_UPSTREAM_VERSION)'
+	mkdir -p $(DEB_TARBALL_DOWNLOAD_DIR)
+	$(SF_DOWNLOAD_COMMAND)
+	mv $(SF_TARBALL_DESTINATION).tmp $(SF_TARBALL_DESTINATION)
+
+get-orig-source: $(SF_TARBALL_DESTINATION)
+	case "$(TARBALL_EXT)" in \
+	tar.bz2|tbz) \
+	  bzcat $(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.$(TARBALL_EXT) | \
+	  gzip -9 >$(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.tar.gz ; \
+	  rm -f $(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.$(TARBALL_EXT) \
+	  ;;\
+	esac
+	cd $(DEB_TARBALL_DOWNLOAD_DIR) && \
+	  tar xzf $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.tar.gz
+	cd $(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)-$(DEB_UPSTREAM_VERSION) && \
+	  rm -f \
+		pc-bios/*.bin \
+		pc-bios/*.rom \
+		pc-bios/openbios-* \
+		pc-bios/*.dtb \
+		pc-bios/video.x \
+		pc-bios/optionrom/*.bin \
+		.git?*
+	cd $(DEB_TARBALL_DOWNLOAD_DIR) && \
+	  tar c $(DEB_SOURCE_PACKAGE)-$(DEB_UPSTREAM_VERSION) | \
+	  gzip -9 >$(DEB_TARBALL_DOWNLOAD_DIR)/$(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION)+dfsg.orig.tar.gz
+
+
+.PHONY: config build clean binary-indep binary-arch binary install
+
