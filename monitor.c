@@ -1115,6 +1115,28 @@ static int do_change(Monitor *mon, const QDict *qdict, QObject **ret_data)
     return ret;
 }
 
+static int do_detach(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    int ret;
+
+    ret = do_detach_block(mon, device);
+
+    return ret;
+}
+
+static int do_reattach(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    const char *target = qdict_get_str(qdict, "target");
+    const char *arg = qdict_get_try_str(qdict, "arg");
+    int ret;
+
+    ret = do_reattach_block(mon, device, target, arg);
+
+    return ret;
+}
+
 static int set_password(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
     const char *protocol  = qdict_get_str(qdict, "protocol");

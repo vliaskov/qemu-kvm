@@ -712,6 +712,49 @@ int do_block_set_passwd(Monitor *mon, const QDict *qdict,
     return 0;
 }
 
+int do_detach_block(Monitor *mon, const char *device)
+{
+    BlockDriverState *bs;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        qerror_report(QERR_DEVICE_NOT_FOUND, device);
+        return -1;
+    }
+    if (eject_device(mon, bs, 1) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int do_reattach_block(Monitor *mon, const char *device,
+                    const char *filename, const char *fmt)
+{
+    BlockDriverState *bs;
+    BlockDriver *drv = NULL;
+    int bdrv_flags;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        qerror_report(QERR_DEVICE_NOT_FOUND, device);
+        return -1;
+    }
+    if (fmt) {
+        drv = bdrv_find_whitelisted_format(fmt);
+        if (!drv) {
+            qerror_report(QERR_INVALID_BLOCK_FORMAT, fmt);
+            return -1;
+        }
+    }
+    bdrv_flags = bdrv_is_read_only(bs) ? 0 : BDRV_O_RDWR;
+    bdrv_flags |= bdrv_is_snapshot(bs) ? BDRV_O_SNAPSHOT : 0;
+    if (bdrv_open(bs, filename, bdrv_flags, drv) < 0) {
+        qerror_report(QERR_OPEN_FILE_FAILED, filename);
+        return -1;
+    }
+    return monitor_read_bdrv_key_start(mon, bs, NULL, NULL);
+}
+
 int do_change_block(Monitor *mon, const char *device,
                     const char *filename, const char *fmt)
 {

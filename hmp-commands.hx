@@ -152,6 +152,34 @@ Password: ********
 ETEXI
 
     {
+        .name       = "detach",
+        .args_type  = "device:B",
+        .params     = "device",
+        .help       = "detach a block device",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_detach,
+    },
+
+STEXI
+@item detach @var{device} @var{setting}
+@findex detach
+ETEXI
+
+    {
+        .name       = "reattach",
+        .args_type  = "device:B,target:F,arg:s?",
+        .params     = "device filename [format]",
+        .help       = "reattach to a block device, optional format",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_reattach,
+    },
+
+STEXI
+@item reattach @var{device} @var{setting}
+@findex reattach
+ETEXI
+
+    {
         .name       = "screendump",
         .args_type  = "filename:F",
         .params     = "filename",
