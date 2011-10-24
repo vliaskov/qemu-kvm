@@ -1,3 +1,14 @@
+qemu-kvm (0.15.1+dfsg-1) UNRELEASED; urgency=low
+
+  * new upstream bugfix release 0.15.1
+  * refreshed debian/patches/04_use_etc_kvm_kvm-ifup.patch
+  * added two-pieces fix for CVE-2011-3346:
+    scsi-disk-commonize-iovec-creation-between-reads-and-writes-103b40f51e-CVE-2011-3346.diff
+    scsi-disk-lazily-allocate-bounce-buffer-7285477ab1-CVE-2011-3346.diff
+    backported from upstream
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 21 Oct 2011 17:06:43 +0400
+
 qemu-kvm (0.15.0+dfsg-2) experimental; urgency=low
 
   * applied build-move-QEMU_INCLUDES-before-QEMU_CFLAGS-76dc3cf82c.diff
