@@ -96,13 +96,25 @@ cc_i386=i386-pc-linux-gnu-gcc
 target_list="x86_64-softmmu"
 
 kvm_version() {
-    local fname="$(dirname "$0")/KVM_VERSION"
+    local dir="$(dirname "$0")"
+    local fname="$dir/KVM_VERSION"
+    local ver
+    local debch="$dir/debian/changelog"
+    local deb
+
+    if test -f "$debch"; then
+        deb=$(sed -n -e 's/^[^(]* (\([^)]*\)) .*/\1/p' -e1q "$debch")
+	if test -n "$deb"; then
+            deb=" Debian $deb"
+	fi
+    fi
 
     if test -f "$fname"; then
-        cat "$fname"
+        ver=$(cat "$fname")
     else
-        echo "qemu-kvm-devel"
+        ver=qemu-kvm-devel
     fi
+    echo "$ver$deb"
 }
 
 # Default value for a variable defining feature "foo".
