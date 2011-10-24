@@ -343,5 +343,6 @@ extern int singlestep;
 
 /* cpu-exec.c */
 extern volatile sig_atomic_t exit_request;
+extern CPUState *disabled_cpu;
 
 #endif

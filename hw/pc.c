@@ -1205,3 +1205,45 @@ void pc_pci_device_init(PCIBus *pci_bus)
         extboot_init(info->bdrv);
     }
 }
+
+int pc_replug_cpu(CPUState *env)
+{
+    if (!env) {
+        fprintf(stderr, "Unable to find x86 CPU definition\n");
+        return 0;
+    }
+
+    if (vm_running) {
+        pause_all_vcpus();
+    }
+
+    replug_vcpu(env);
+
+    cpu_synchronize_post_init(env);
+
+    if (vm_running) {
+        resume_all_vcpus();
+    }
+    return 1;
+}
+
+int pc_unplug_cpu(CPUState *env)
+{
+    if (!env) {
+        fprintf(stderr, "Unable to find x86 CPU definition\n");
+        return 0;
+    }
+
+    if (vm_running) {
+        pause_all_vcpus();
+    }
+
+    unplug_vcpu(env);
+
+    cpu_synchronize_post_init(env);
+
+    if (vm_running) {
+        resume_all_vcpus();
+    }
+    return 1;
+}

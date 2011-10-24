@@ -602,19 +602,30 @@ void qemu_system_cpu_hot_add(int cpu, int state)
     CPUState *env;
     PIIX4PMState *s = global_piix4_pm_state;
 
-    if (state && !qemu_get_cpu(cpu)) {
-        env = pc_new_cpu(global_cpu_model);
-        if (!env) {
-            fprintf(stderr, "cpu %d creation failed\n", cpu);
-            return;
+    if (state) {
+        if ((env = qemu_get_cpu(cpu))) {
+            if (!pc_replug_cpu(env)) {
+                fprintf(stderr, "cpu %d not found\n", cpu);
+                return;
+            }
         }
-        env->cpuid_apic_id = cpu;
+        else {        
+            env = pc_new_cpu(global_cpu_model);
+            if (!env) {
+                fprintf(stderr, "cpu %d creation failed\n", cpu);
+                return;
+            }
+            env->cpuid_apic_id = cpu;
+        }
     }
 
     if (state)
         enable_processor(s, cpu);
-    else
-        disable_processor(s, cpu);
+    else {
+         disable_processor(s, cpu);
+        env = qemu_get_cpu(cpu);
+        pc_unplug_cpu(env);
+    }
 
     pm_update_sci(s);
 }

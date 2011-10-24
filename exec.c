@@ -117,6 +117,7 @@ RAMList ram_list = { .blocks = QLIST_HEAD_INITIALIZER(ram_list) };
 #endif
 
 CPUState *first_cpu;
+CPUState *disabled_cpu = NULL;
 /* current CPU in the current thread. It is only valid inside
    cpu_exec() */
 CPUState *cpu_single_env;
@@ -626,6 +627,17 @@ CPUState *qemu_get_cpu(int cpu)
         env = env->next_cpu;
     }
 
+    if(env)
+        return env;
+
+    env = disabled_cpu;
+
+    while (env) {
+        if (env->cpu_index == cpu)
+            break;
+        env = env->next_cpu;
+    }
+       
     return env;
 }
 
@@ -644,6 +656,12 @@ void cpu_exec_init(CPUState *env)
         penv = &(*penv)->next_cpu;
         cpu_index++;
     }
+    *penv = env;
+    penv = &disabled_cpu;
+    while (*penv != NULL) {
+        penv = &(*penv)->next_cpu;
+        cpu_index++;
+    }
     env->cpu_index = cpu_index;
     env->numa_node = 0;
     QTAILQ_INIT(&env->breakpoints);
@@ -651,7 +669,6 @@ void cpu_exec_init(CPUState *env)
 #ifndef CONFIG_USER_ONLY
     env->thread_id = qemu_get_thread_id();
 #endif
-    *penv = env;
 #if defined(CONFIG_USER_ONLY)
     cpu_list_unlock();
 #endif
