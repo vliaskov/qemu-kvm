@@ -92,7 +92,7 @@ static DeviceState *qdev_create_from_info(BusState *bus, DeviceInfo *info)
     qdev_prop_set_globals(dev);
     QLIST_INSERT_HEAD(&bus->children, dev, sibling);
     if (qdev_hotplug) {
-        assert(bus->allow_hotplug);
+        // assert(bus->allow_hotplug);
         dev->hotplugged = 1;
         qdev_hot_added = true;
     }
