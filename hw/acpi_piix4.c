@@ -24,6 +24,7 @@
 #include "sysemu.h"
 #include "range.h"
 #include "ioport.h"
+#include "fw_cfg.h"
 
 //#define DEBUG
 
@@ -539,6 +540,7 @@ static void pcirmv_write(void *opaque, uint32_t addr, uint32_t val)
 }
 
 extern const char *global_cpu_model;
+extern FWCfgState *fw_cfg;
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
                                 PCIHotplugState state);
@@ -580,6 +582,8 @@ static void enable_processor(PIIX4PMState *s, int cpu)
 
     *gpe->sts = *gpe->sts | PIIX4_CPU_HOTPLUG_STATUS;
     g->cpus_sts[cpu/8] |= (1 << (cpu%8));
+    hotplugged_cpus++;
+    fw_cfg_update_s16(fw_cfg, FW_CFG_HPLUG_CPUS, (int16_t)hotplugged_cpus);
 }
 
 static void disable_processor(PIIX4PMState *s, int cpu)
@@ -589,6 +593,8 @@ static void disable_processor(PIIX4PMState *s, int cpu)
 
     *gpe->sts = *gpe->sts | PIIX4_CPU_HOTPLUG_STATUS;
     g->cpus_sts[cpu/8] &= ~(1 << (cpu%8));
+    hotplugged_cpus--;
+    fw_cfg_update_s16(fw_cfg, FW_CFG_HPLUG_CPUS, (int16_t)hotplugged_cpus);
 }
 
 void qemu_system_cpu_hot_add(int cpu, int state)

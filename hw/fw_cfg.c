@@ -239,6 +239,28 @@ int fw_cfg_add_i16(FWCfgState *s, uint16_t key, uint16_t value)
     return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
 }
 
+int fw_cfg_add_s16(FWCfgState *s, uint16_t key, int16_t value)
+{
+    int16_t *copy;
+
+    copy = qemu_malloc(sizeof(value));
+    *copy = cpu_to_le16(value);
+    return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
+}
+
+int fw_cfg_update_s16(FWCfgState *s, uint16_t key, int16_t data)
+{
+    int arch = !!(key & FW_CFG_ARCH_LOCAL);
+    int16_t *p;
+
+    key &= FW_CFG_ENTRY_MASK;
+
+    p = (int16_t*)s->entries[arch][key].data;
+    *p = cpu_to_le16(data);
+    
+    return 1;
+}
+
 int fw_cfg_add_i32(FWCfgState *s, uint16_t key, uint32_t value)
 {
     uint32_t *copy;
@@ -351,6 +373,7 @@ FWCfgState *fw_cfg_init(uint32_t ctl_port, uint32_t data_port,
     fw_cfg_add_i16(s, FW_CFG_NOGRAPHIC, (uint16_t)(display_type == DT_NOGRAPHIC));
     fw_cfg_add_i16(s, FW_CFG_NB_CPUS, (uint16_t)smp_cpus);
     fw_cfg_add_i16(s, FW_CFG_MAX_CPUS, (uint16_t)max_cpus);
+    fw_cfg_add_s16(s, FW_CFG_HPLUG_CPUS, (int16_t)hotplugged_cpus);
     fw_cfg_add_i16(s, FW_CFG_BOOT_MENU, (uint16_t)boot_menu);
 
 
