@@ -9,7 +9,6 @@ Build-Depends: debhelper (>= 7.2.3~), pkg-config, texinfo, python,
  libbrlapi-dev, libpci-dev, libsasl2-dev, libattr1-dev, xfslibs-dev,
  libaio-dev,
  linux-libc-dev (>= 2.6.32),
- librados-dev, librbd-dev,
  libglib2.0-dev
 Standards-Version: 3.9.2.0
 Homepage: http://www.linux-kvm.org/
