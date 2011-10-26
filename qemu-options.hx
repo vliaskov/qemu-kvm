@@ -2408,14 +2408,26 @@ Write device configuration to @var{file}.
 ETEXI
 DEF("nodefconfig", 0, QEMU_OPTION_nodefconfig,
     "-nodefconfig\n"
-    "                do not load default config files at startup\n",
+    "                do not load default config file at startup\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -nodefconfig
 @findex -nodefconfig
-Normally QEMU loads a configuration file from @var{sysconfdir}/qemu.conf and
-@var{sysconfdir}/target-@var{ARCH}.conf on startup.  The @code{-nodefconfig}
-option will prevent QEMU from loading these configuration files at startup.
+Normally QEMU loads a configuration file from @var{sysconfdir}/qemu.conf on
+startup.  The @code{-nodefconfig} option will prevent QEMU from loading this
+configuration file at startup.
+ETEXI
+DEF("notargetconfig", 0, QEMU_OPTION_notargetconfig,
+    "-notargetconfig\n"
+    "                do not load default target config file at startup\n",
+    QEMU_ARCH_ALL)
+STEXI
+@item -notargetconfig
+@findex -notargetconfig
+Normally QEMU loads a configuration file from
+@var{sysconfdir}/target-@var{ARCH}.conf on startup.
+The @code{-notargetconfig} option will prevent QEMU from loading this
+configuration file at startup.
 ETEXI
 #ifdef CONFIG_SIMPLE_TRACE
 DEF("trace", HAS_ARG, QEMU_OPTION_trace,

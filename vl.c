@@ -2098,6 +2098,7 @@ int main(int argc, char **argv, char **envp)
     int show_vnc_port = 0;
 #endif
     int defconfig = 1;
+    int targetconfig = 1;
     const char *trace_file = NULL;
     const char *log_mask = NULL;
     const char *log_file = NULL;
@@ -2149,6 +2150,9 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_nodefconfig:
                 defconfig=0;
                 break;
+            case QEMU_OPTION_notargetconfig:
+                targetconfig=0;
+                break;
             }
         }
     }
@@ -2160,6 +2164,10 @@ int main(int argc, char **argv, char **envp)
         if (ret < 0 && ret != -ENOENT) {
             exit(1);
         }
+    }
+
+    if (targetconfig) {
+        int ret;
 
         ret = qemu_read_config_file(arch_config_name);
         if (ret < 0 && ret != -ENOENT) {
