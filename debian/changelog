@@ -1,5 +1,14 @@
 qemu-kvm (0.15.1+dfsg-1) UNRELEASED; urgency=low
 
+  * split arg -nodefconfig:
+    -nodefconfig is for qemu.conf and -notargetconfig is for target-*.conf.
+    the latter is supposed to have the cpu definitions and should be read by
+    libvirt when it calls kvm with -nodefconfig.
+
+ -- Elmar Gerdes <elmar.gerdes@profitbricks.com>  Thu, 27 Oct 2011 13:19:28 +0200
+
+qemu-kvm (0.15.1+dfsg-1) UNRELEASED; urgency=low
+
   * new upstream bugfix release 0.15.1
   * refreshed debian/patches/04_use_etc_kvm_kvm-ifup.patch
   * added two-pieces fix for CVE-2011-3346:
