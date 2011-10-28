@@ -1,3 +1,9 @@
+qemu-kvm (0.15.1+dfsg-1-2) stable; urgency=low
+
+  * fix dh_link for /etc/kvm/target-x86_64.conf
+
+ -- Elmar Gerdes <elmar.gerdes@profitbricks.com>  Fri, 28 Oct 2011 17:33:23 +0200
+
 qemu-kvm (0.15.1+dfsg-1-1) stable; urgency=low
 
   * adding target-x86*conf for elmars patch

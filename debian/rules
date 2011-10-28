@@ -154,9 +154,9 @@ ifeq (x86,$(BASE_ARCH))
 	 $(ipxe)/rtl8139.rom $(bdir)/pxe-rtl8139.rom \
 	 $(ipxe)/virtio-net.rom $(bdir)/pxe-virtio.rom \
 
-	# we need target-*conf for emlars last changes
+	# we need target-*conf for elmar's last changes
 	install -Dp -m 0644 sysconfigs/target/target-x86_64.conf ${tdir}/etc/qemu/target-x86_64.conf
-	dh_link ${tdir}/etc/qemu/target-x86_64.conf ${tdir}/etc/kvm/target-x86_64.conf
+	dh_link /etc/qemu/target-x86_64.conf /etc/kvm/target-x86_64.conf
 
 endif
 
