@@ -66,6 +66,8 @@ int do_reattach_block(Monitor *mon, const char *device,
                     const char *filename, const char *fmt);
 int do_detach_block(Monitor *mon, const QDict *qdict, const char *device);
 int do_drive_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
+int do_block_set_io_throttle(Monitor *mon,
+                             const QDict *qdict, QObject **ret_data);
 int do_snapshot_blkdev(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_block_resize(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_block_notify_size(Monitor *mon, const QDict *qdict, QObject **ret_data);
