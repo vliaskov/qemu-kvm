@@ -1,3 +1,11 @@
+qemu-kvm (0.15.1+dfsg-1-3) stable; urgency=low
+
+  * update to 0.15.1 upstream release
+  * add CPU hotplug, hot-unplug support
+  * mark as 0.15.1 profitbricks release
+
+ -- Vasilis Liaskovitis <vasilis.liaskovitis@profitbricks.com>  Mon, 14 Nov 2011 13:26:10 +0200
+
 qemu-kvm (0.15.1+dfsg-1-2) stable; urgency=low
 
   * fix dh_link for /etc/kvm/target-x86_64.conf
