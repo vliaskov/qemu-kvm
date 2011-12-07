@@ -679,22 +679,23 @@ out:
     return ret;
 }
 
-static int eject_device(Monitor *mon, BlockDriverState *bs, int force)
+static void eject_device(BlockDriverState *bs, int force, Error **errp)
 {
     /* remove this check to allow non-safe block device detach */
     /*if (!bdrv_dev_has_removable_media(bs)) {
-        qerror_report(QERR_DEVICE_NOT_REMOVABLE, bdrv_get_device_name(bs));
-        return -1;
+        error_set(errp, QERR_DEVICE_NOT_REMOVABLE, bdrv_get_device_name(bs));
+        return;
     }*/
+
     if (bdrv_dev_is_medium_locked(bs) && !bdrv_dev_is_tray_open(bs)) {
         bdrv_dev_eject_request(bs, force);
         if (!force) {
-            qerror_report(QERR_DEVICE_LOCKED, bdrv_get_device_name(bs));
-            return -1;
+            error_set(errp, QERR_DEVICE_LOCKED, bdrv_get_device_name(bs));
+            return;
         }
     }
+
     bdrv_close(bs);
-    return 0;
 }
 
 int do_eject(Monitor *mon, const QDict *qdict, QObject **ret_data)
@@ -702,13 +703,22 @@ int do_eject(Monitor *mon, const QDict *qdict, QObject **ret_data)
     BlockDriverState *bs;
     int force = qdict_get_try_bool(qdict, "force", 0);
     const char *filename = qdict_get_str(qdict, "device");
+    Error *err = NULL;
 
     bs = bdrv_find(filename);
     if (!bs) {
         qerror_report(QERR_DEVICE_NOT_FOUND, filename);
         return -1;
     }
-    return eject_device(mon, bs, force);
+
+    eject_device(bs, force, &err);
+    if (error_is_set(&err)) {
+        qerror_report_err(err);
+        error_free(err);
+        return -1;
+    }
+
+    return 0;
 }
 
 int do_block_set_passwd(Monitor *mon, const QDict *qdict,
@@ -756,6 +766,7 @@ int do_reattach_block(Monitor *mon, const char *device,
     BlockDriverState *bs;
     BlockDriver *drv = NULL;
     int bdrv_flags;
+    Error *err = NULL;
 
     bs = bdrv_find(device);
     if (!bs) {
@@ -768,6 +779,12 @@ int do_reattach_block(Monitor *mon, const char *device,
             qerror_report(QERR_INVALID_BLOCK_FORMAT, fmt);
             return -1;
         }
+    }
+    eject_device(bs, 0, &err);
+    if (error_is_set(&err)) {
+        qerror_report_err(err);
+        error_free(err);
+        return -1;
     }
     bdrv_flags = bdrv_is_read_only(bs) ? 0 : BDRV_O_RDWR;
     bdrv_flags |= bdrv_is_snapshot(bs) ? BDRV_O_SNAPSHOT : 0;
