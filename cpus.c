@@ -921,68 +921,6 @@ static int all_vcpus_paused(void)
     return 1;
 }
 
-void add_cpu_list(CPUState *env, CPUState **list);
-void del_cpu_list(CPUState *env, CPUState **list);
-
-void add_cpu_list(CPUState *env, CPUState **list)
-{
-    CPUState *curr = *list;
-
-    if (curr) {
-        while (curr->next_cpu) {
-            curr = curr->next_cpu;
-        }
-        curr->next_cpu = env;
-        env->next_cpu = NULL;
-    }
-    else
-        *list = env;
-}
-
-void del_cpu_list(CPUState *env, CPUState **list)
-{
-    CPUState *curr = *list;
-
-    if (curr == env) {
-        *list = curr->next_cpu;
-    }
-    else {
-        while ((curr != NULL) && (curr->next_cpu != env)){
-            curr = curr->next_cpu;
-        }
-        if (curr) {
-            curr->next_cpu = env->next_cpu;
-            env->next_cpu = NULL;
-        }
-    }    
-}
-
-/* used to re-enable a CPU that was previously hotplugged and unplugged */
-void replug_vcpu(void *p)
-{
-    CPUState *env = (CPUState*)p;
-
-    /*remove cpu from disabled_cpu list */
-    del_cpu_list(env, &disabled_cpu);
-
-    /* add cpu to cpu list */
-    add_cpu_list(env, &first_cpu);
-
-}
-
-/* used to unplug a previously hotplugged CPU */
-void unplug_vcpu(void *p)
-{
-    CPUState *env = (CPUState*)p;
-
-    /*remove cpu from cpu list */
-    del_cpu_list(env, &first_cpu);
-
-    /*add cpu to disabled_cpu list */
-    add_cpu_list(env, &disabled_cpu);
-
-}
-
 void pause_all_vcpus(void)
 {
     CPUState *penv = first_cpu;
