@@ -205,6 +205,7 @@ int rtc_td_hack = 0;
 int usb_enabled = 0;
 int singlestep = 0;
 int smp_cpus = 1;
+int hotplugged_cpus = 0;
 int max_cpus = 0;
 int smp_cores = 1;
 int smp_threads = 1;

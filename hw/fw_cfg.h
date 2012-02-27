@@ -27,6 +27,7 @@
 #define FW_CFG_SETUP_SIZE       0x17
 #define FW_CFG_SETUP_DATA       0x18
 #define FW_CFG_FILE_DIR         0x19
+#define FW_CFG_HPLUG_CPUS       0x1a
 
 #define FW_CFG_FILE_FIRST       0x20
 #define FW_CFG_FILE_SLOTS       0x10
@@ -56,6 +57,8 @@ typedef void (*FWCfgCallback)(void *opaque, uint8_t *data);
 typedef struct FWCfgState FWCfgState;
 int fw_cfg_add_bytes(FWCfgState *s, uint16_t key, uint8_t *data, uint32_t len);
 int fw_cfg_add_i16(FWCfgState *s, uint16_t key, uint16_t value);
+int fw_cfg_add_s16(FWCfgState *s, uint16_t key, int16_t value);
+int fw_cfg_update_s16(FWCfgState *s, uint16_t key, int16_t data);
 int fw_cfg_add_i32(FWCfgState *s, uint16_t key, uint32_t value);
 int fw_cfg_add_i64(FWCfgState *s, uint16_t key, uint64_t value);
 int fw_cfg_add_callback(FWCfgState *s, uint16_t key, FWCfgCallback callback,

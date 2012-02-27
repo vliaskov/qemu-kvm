@@ -537,7 +537,7 @@ struct Rom {
     QTAILQ_ENTRY(Rom) next;
 };
 
-static FWCfgState *fw_cfg;
+FWCfgState *fw_cfg;
 static QTAILQ_HEAD(, Rom) roms = QTAILQ_HEAD_INITIALIZER(roms);
 
 static void rom_insert(Rom *rom)
