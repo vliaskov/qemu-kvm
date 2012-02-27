@@ -38,6 +38,7 @@
 
 #define GPE_BASE 0xafe0
 #define PROC_BASE 0xaf00
+#define PROC_EJ_BASE 0xaf20
 #define GPE_LEN 4
 #define PCI_BASE 0xae00
 #define PCI_EJ_BASE 0xae08
@@ -494,6 +495,30 @@ static void pcihotplug_write(void *opaque, uint32_t addr, uint32_t val)
     PIIX4_DPRINTF("pcihotplug write %x <== %d\n", addr, val);
 }
 
+static uint32_t cpuej_read(void *opaque, uint32_t addr)
+{
+    PIIX4_DPRINTF("cpuej read %x\n", addr);
+    return 0;
+}
+
+static void cpuej_write(void *opaque, uint32_t addr, uint32_t val)
+{
+    PIIX4PMState *s = opaque;
+    CPUState *env;
+    int cpu;
+
+    cpu = ffs(val);
+    /* zero means no bit was set, i.e. no CPU ejection happened */
+    if (!cpu)
+       return;
+    cpu--;
+    env = qemu_get_cpu((uint64_t)cpu);
+    if (s->kvm_enabled && env != NULL) {
+        pc_unplug_cpu(env);
+    }
+    PIIX4_DPRINTF("cpuej write %x <== %d\n", addr, val);
+}
+
 static uint32_t pciej_read(void *opaque, uint32_t addr)
 {
     PIIX4_DPRINTF("pciej read %x\n", addr);
@@ -554,6 +579,10 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_write(PROC_BASE, 32, 1, gpe_writeb, s);
     register_ioport_read(PROC_BASE, 32, 1,  gpe_readb, s);
+    
+    register_ioport_write(PROC_EJ_BASE, 32, 1, cpuej_write, s);
+    register_ioport_read(PROC_EJ_BASE, 32, 1,  cpuej_read, s);
+    
 
     register_ioport_write(PCI_BASE, 8, 4, pcihotplug_write, pci0_status);
     register_ioport_read(PCI_BASE, 8, 4,  pcihotplug_read, pci0_status);
@@ -595,13 +624,21 @@ void qemu_system_cpu_hot_add(int cpu, int state)
     CPUState *env;
     PIIX4PMState *s = global_piix4_pm_state;
 
-    if (state && !qemu_get_cpu(cpu)) {
-        env = pc_new_cpu(global_cpu_model);
-        if (!env) {
-            fprintf(stderr, "cpu %d creation failed\n", cpu);
-            return;
+    if (state) {
+        if ((env = qemu_get_cpu(cpu))) {
+            if (!pc_replug_cpu(env)) {
+                fprintf(stderr, "cpu %d not found\n", cpu);
+                return;
+            }
         }
-        env->cpuid_apic_id = cpu;
+        else {        
+            env = pc_new_cpu(global_cpu_model);
+            if (!env) {
+                fprintf(stderr, "cpu %d creation failed\n", cpu);
+                return;
+            }
+            env->cpuid_apic_id = cpu;
+        }
     }
 
     if (state)

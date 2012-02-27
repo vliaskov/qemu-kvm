@@ -372,6 +372,7 @@ extern int singlestep;
 
 /* cpu-exec.c */
 extern volatile sig_atomic_t exit_request;
+extern CPUState *disabled_cpu;
 
 /* Deterministic execution requires that IO only be performed on the last
    instruction of a TB so that interrupts take effect immediately.  */
