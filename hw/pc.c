@@ -44,6 +44,7 @@
 #include "ui/qemu-spice.h"
 #include "memory.h"
 #include "exec-memory.h"
+#include "cpus.h"
 
 /* output Bochs bios info messages */
 //#define DEBUG_BIOS
@@ -943,6 +944,10 @@ CPUState *pc_new_cpu(const char *cpu_model)
 #endif
     }
 
+    if (runstate_is_running()) {
+        pause_all_vcpus();
+    }
+
     env = cpu_init(cpu_model);
     if (!env) {
         fprintf(stderr, "Unable to find x86 CPU definition\n");
@@ -953,6 +958,11 @@ CPUState *pc_new_cpu(const char *cpu_model)
     }
     qemu_register_reset(pc_cpu_reset, env);
     pc_cpu_reset(env);
+
+    cpu_synchronize_post_init(env);
+    if (runstate_is_running()) {
+        resume_all_vcpus();
+    }
     return env;
 }
 

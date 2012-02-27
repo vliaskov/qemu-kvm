@@ -94,7 +94,8 @@ static void pm_update_sci(PIIX4PMState *s)
                    ACPI_BITMASK_POWER_BUTTON_ENABLE |
                    ACPI_BITMASK_GLOBAL_LOCK_ENABLE |
                    ACPI_BITMASK_TIMER_ENABLE)) != 0) ||
-        (((s->gpe.sts[0] & s->gpe.en[0]) & PIIX4_PCI_HOTPLUG_STATUS) != 0);
+        (((s->gpe.sts[0] & s->gpe.en[0]) &
+          (PIIX4_PCI_HOTPLUG_STATUS | PIIX4_CPU_HOTPLUG_STATUS)) != 0);
 
     qemu_set_irq(s->irq, sci_level);
     /* schedule a timer interruption if needed */

@@ -801,6 +801,7 @@ static void main_system_bus_create(void)
      * in order to make "if (bus != main_system_bus)" work */
     main_system_bus = g_malloc0(system_bus_info.size);
     main_system_bus->qdev_allocated = 1;
+    main_system_bus->allow_hotplug = 1;
     qbus_create_inplace(main_system_bus, &system_bus_info, NULL,
                         "main-system-bus");
 }
