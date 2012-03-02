@@ -172,8 +172,8 @@ void net_host_device_remove(Monitor *mon, const QDict *qdict);
 int do_netdev_add(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_netdev_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
 
-#define DEFAULT_NETWORK_SCRIPT "/etc/kvm/kvm-ifup"
-#define DEFAULT_NETWORK_DOWN_SCRIPT "/etc/kvm/kvm-ifdown"
+#define DEFAULT_NETWORK_SCRIPT "/etc/qemu-ifup"
+#define DEFAULT_NETWORK_DOWN_SCRIPT "/etc/qemu-ifdown"
 
 void qdev_set_nic_properties(DeviceState *dev, NICInfo *nd);
 

@@ -27,13 +27,8 @@
 
 /* FIXME: share this number with kvm */
 /* FIXME: or dynamically alloc/realloc regions */
-#if defined(__ia64__)
-#define KVM_MAX_NUM_MEM_REGIONS 32u
-#define MAX_VCPUS 256
-#else
 #define KVM_MAX_NUM_MEM_REGIONS 32u
 #define MAX_VCPUS 16
-#endif
 
 #include "kvm.h"
 
@@ -267,6 +262,6 @@ extern int kvm_pit_reinject;
 extern unsigned int kvm_shadow_memory;
 
 int kvm_handle_tpr_access(CPUState *env);
-int kvm_tpr_enable_vapic(CPUState *env);
+void kvm_tpr_enable_vapic(CPUState *env);
 
 #endif

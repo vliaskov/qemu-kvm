@@ -62,8 +62,8 @@ typedef struct {
 } PCIDevRegions;
 
 typedef struct {
-    pcibus_t e_physbase;
-    ram_addr_t memory_index;
+    MemoryRegion container;
+    MemoryRegion real_iomem;
     union {
         void *r_virtbase;    /* mmapped access address for memory regions */
         uint32_t r_baseport; /* the base guest port for I/O regions */
@@ -90,9 +90,9 @@ typedef struct AssignedDevice {
     PCIDevRegions real_device;
     int run;
     int girq;
-    unsigned int h_segnr;
-    unsigned char h_busnr;
-    unsigned int h_devfn;
+    uint16_t h_segnr;
+    uint8_t h_busnr;
+    uint8_t h_devfn;
     int irq_requested_type;
     int bound;
     struct {
@@ -104,12 +104,13 @@ typedef struct AssignedDevice {
 #define ASSIGNED_DEVICE_MSIX_MASKED (1 << 2)
         uint32_t state;
     } cap;
+    uint8_t emulate_config_read[PCI_CONFIG_SPACE_SIZE];
+    uint8_t emulate_config_write[PCI_CONFIG_SPACE_SIZE];
     int irq_entries_nr;
     struct kvm_irq_routing_entry *entry;
     void *msix_table_page;
     target_phys_addr_t msix_table_addr;
-    int mmio_index;
-    uint32_t emulate_cmd_mask;
+    MemoryRegion mmio;
     char *configfd_name;
     int32_t bootindex;
     QLIST_ENTRY(AssignedDevice) next;

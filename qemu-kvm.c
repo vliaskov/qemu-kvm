@@ -28,11 +28,6 @@
 #error libkvm: userspace and kernel version mismatch
 #endif
 
-int kvm_irqchip = 1;
-int kvm_pit = 1;
-int kvm_pit_reinject = 1;
-int kvm_nested = 0;
-
 #define ALIGN(x, y) (((x)+(y)-1) & ~((y)-1))
 
 static inline void set_gsi(KVMState *s, unsigned int gsi)
@@ -68,7 +63,7 @@ static int kvm_init_irq_routing(KVMState *s)
 
         /* Round up so we can search ints using ffs */
         gsi_bits = ALIGN(gsi_count, 32);
-        s->used_gsi_bitmap = qemu_mallocz(gsi_bits / 8);
+        s->used_gsi_bitmap = g_malloc0(gsi_bits / 8);
         s->max_gsi = gsi_bits;
 
         /* Mark any over-allocated bits as already in use */
@@ -77,7 +72,7 @@ static int kvm_init_irq_routing(KVMState *s)
         }
     }
 
-    s->irq_routes = qemu_mallocz(sizeof(*s->irq_routes));
+    s->irq_routes = g_malloc0(sizeof(*s->irq_routes));
     s->nr_allocated_irq_routes = 0;
 
     r = kvm_arch_init_irq_routing();
@@ -592,7 +587,7 @@ static void do_set_ioport_access(void *data)
 int kvm_add_ioport_region(unsigned long start, unsigned long size,
                           bool is_hot_plug)
 {
-    KVMIOPortRegion *region = qemu_mallocz(sizeof(KVMIOPortRegion));
+    KVMIOPortRegion *region = g_malloc0(sizeof(KVMIOPortRegion));
     CPUState *env;
     int r = 0;
 
@@ -631,7 +626,7 @@ int kvm_remove_ioport_region(unsigned long start, unsigned long size,
             }
         }
         QLIST_REMOVE(region, entry);
-        qemu_free(region);
+        g_free(region);
         r = 0;
     }
     return r;

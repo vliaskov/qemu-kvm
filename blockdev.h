@@ -70,6 +70,4 @@ int do_snapshot_blkdev(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_block_resize(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_block_notify_size(Monitor *mon, const QDict *qdict, QObject **ret_data);
 
-extern DriveInfo *extboot_drive;
-
 #endif

@@ -43,7 +43,7 @@ ETEXI
         .params     = "",
         .help       = "quit the emulator",
         .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_quit,
+        .mhandler.cmd = hmp_quit,
     },
 
 STEXI
@@ -223,13 +223,12 @@ STEXI
 Output logs to @var{filename}.
 ETEXI
 
-#ifdef CONFIG_SIMPLE_TRACE
     {
         .name       = "trace-event",
         .args_type  = "name:s,option:b",
         .params     = "name on|off",
         .help       = "changes status of a specific trace event",
-        .mhandler.cmd = do_change_trace_event_state,
+        .mhandler.cmd = do_trace_event_set_state,
     },
 
 STEXI
@@ -238,6 +237,7 @@ STEXI
 changes status of a trace event
 ETEXI
 
+#if defined(CONFIG_TRACE_SIMPLE)
     {
         .name       = "trace-file",
         .args_type  = "op:s?,arg:F?",
@@ -333,8 +333,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "stop emulation",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_stop,
+        .mhandler.cmd = hmp_stop,
     },
 
 STEXI
@@ -521,8 +520,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "reset the system",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_system_reset,
+        .mhandler.cmd = hmp_system_reset,
     },
 
 STEXI
@@ -537,8 +535,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "send system power down event",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_system_powerdown,
+        .mhandler.cmd = hmp_system_powerdown,
     },
 
 STEXI
@@ -633,8 +630,7 @@ ETEXI
         .args_type  = "index:i",
         .params     = "index",
         .help       = "set the default CPU",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_cpu_set,
+        .mhandler.cmd = hmp_cpu,
     },
 
 STEXI
@@ -870,7 +866,8 @@ ETEXI
         .params     = "protocol hostname port tls-port cert-subject",
         .help       = "send migration info to spice/vnc client",
         .user_print = monitor_user_noop,
-        .mhandler.cmd_new = client_migrate_info,
+        .mhandler.cmd_async = client_migrate_info,
+        .flags      = MONITOR_CMD_ASYNC,
     },
 
 STEXI
@@ -1362,13 +1359,11 @@ show i8259 (PIC) state
 @item info pci
 show emulated PCI device info
 @item info tlb
-show virtual to physical memory mappings (i386, SH4 and SPARC only)
+show virtual to physical memory mappings (i386, SH4, SPARC, and PPC only)
 @item info mem
 show the active virtual memory mappings (i386 only)
 @item info jit
 show dynamic compiler info
-@item info kvm
-show KVM information
 @item info numa
 show NUMA information
 @item info kvm
@@ -1412,14 +1407,17 @@ show roms
 @end table
 ETEXI
 
-#ifdef CONFIG_SIMPLE_TRACE
+#ifdef CONFIG_TRACE_SIMPLE
 STEXI
 @item info trace
 show contents of trace buffer
+ETEXI
+#endif
+
+STEXI
 @item info trace-events
 show available trace events and their state
 ETEXI
-#endif
 
 STEXI
 @end table
