@@ -930,6 +930,8 @@ void cpu_x86_update_cr4(CPUX86State *env, uint32_t new_cr4);
 void cpu_smm_update(CPUX86State *env);
 uint64_t cpu_get_tsc(CPUX86State *env);
 CPUState *pc_new_cpu(const char *cpu_model);
+int pc_replug_cpu(CPUState *env);
+int pc_unplug_cpu(CPUState *env);
 
 /* used to debug */
 #define X86_DUMP_FPU  0x0001 /* dump FPU state too */

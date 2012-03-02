@@ -1208,3 +1208,45 @@ void pc_pci_device_init(PCIBus *pci_bus)
         pci_create_simple(pci_bus, -1, "lsi53c895a");
     }
 }
+
+int pc_replug_cpu(CPUState *env)
+{
+    if (!env) {
+        fprintf(stderr, "Unable to find x86 CPU definition\n");
+        return 0;
+    }
+
+    if (runstate_is_running()) {
+        pause_all_vcpus();
+    }
+
+    replug_vcpu(env);
+
+    cpu_synchronize_post_init(env);
+
+    if (runstate_is_running()) {
+        resume_all_vcpus();
+    }
+    return 1;
+}
+
+int pc_unplug_cpu(CPUState *env)
+{
+    if (!env) {
+        fprintf(stderr, "Unable to find x86 CPU definition\n");
+        return 0;
+    }
+
+    if (runstate_is_running()) {
+        pause_all_vcpus();
+    }
+
+    cpu_synchronize_state(env);
+
+    unplug_vcpu(env);
+
+    if (runstate_is_running()) {
+        resume_all_vcpus();
+    }
+    return 1;
+}
