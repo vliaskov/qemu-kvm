@@ -44,6 +44,7 @@
 #include "ui/qemu-spice.h"
 #include "memory.h"
 #include "exec-memory.h"
+#include "cpus.h"
 
 /* output Bochs bios info messages */
 //#define DEBUG_BIOS
@@ -626,7 +627,7 @@ static void *bochs_bios_init(void)
      * of nodes, one word for each VCPU->node and one word for each node to
      * hold the amount of memory.
      */
-    numa_fw_cfg = qemu_mallocz((1 + max_cpus + nb_numa_nodes) * 8);
+    numa_fw_cfg = g_malloc0((1 + max_cpus + nb_numa_nodes) * 8);
     numa_fw_cfg[0] = cpu_to_le64(nb_numa_nodes);
     for (i = 0; i < max_cpus; i++) {
         for (j = 0; j < nb_numa_nodes; j++) {
@@ -943,7 +944,7 @@ CPUState *pc_new_cpu(const char *cpu_model)
 #endif
     }
 
-    if (vm_running) {
+    if (runstate_is_running()) {
         pause_all_vcpus();
     }
 
@@ -959,7 +960,7 @@ CPUState *pc_new_cpu(const char *cpu_model)
     pc_cpu_reset(env);
 
     cpu_synchronize_post_init(env);
-    if (vm_running) {
+    if (runstate_is_running()) {
         resume_all_vcpus();
     }
     return env;

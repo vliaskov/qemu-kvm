@@ -249,14 +249,7 @@ static void assigned_dev_ioport_setup(PCIDevice *pci_dev, int region_num,
 
     region->e_size = size;
 
-<<<<<<< HEAD
-    DEBUG("e_phys=0x%" FMT_PCIBUS " r_baseport=%x type=0x%x len=%" FMT_PCIBUS " region_num=%d \n",
-          addr, region->u.r_baseport, type, size, region_num);
-
-    if (first_map && region->region->resource_fd < 0) {
-=======
     if (region->region->resource_fd < 0) {
->>>>>>> upstream/stable-1.0
         r = kvm_add_ioport_region(region->u.r_baseport, region->r_size,
                                   pci_dev->qdev.hotplugged);
         if (r < 0) {

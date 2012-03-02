@@ -2187,6 +2187,7 @@ int main(int argc, char **argv, char **envp)
     int show_vnc_port = 0;
 #endif
     int defconfig = 1;
+    int targetconfig = 1;
     const char *log_mask = NULL;
     const char *log_file = NULL;
     GMemVTable mem_trace = {

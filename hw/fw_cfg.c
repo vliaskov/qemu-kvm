@@ -369,7 +369,7 @@ int fw_cfg_add_s16(FWCfgState *s, uint16_t key, int16_t value)
 {
     int16_t *copy;
 
-    copy = qemu_malloc(sizeof(value));
+    copy = g_malloc(sizeof(value));
     *copy = cpu_to_le16(value);
     return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
 }

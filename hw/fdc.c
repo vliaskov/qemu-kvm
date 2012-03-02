@@ -82,6 +82,7 @@ typedef struct FDrive {
     uint8_t max_track;        /* Nb of tracks           */
     uint16_t bps;             /* Bytes per sector       */
     uint8_t ro;               /* Is read-only           */
+    uint8_t media_changed;    /* Is media changed       */
 } FDrive;
 
 static void fd_init(FDrive *drv)
@@ -525,8 +526,6 @@ static CPUWriteMemoryFunc * const fdctrl_mem_write_strict[3] = {
     NULL,
 };
 
-<<<<<<< HEAD
-=======
 static bool fdrive_media_changed_needed(void *opaque)
 {
     FDrive *drive = opaque;
@@ -545,17 +544,24 @@ static const VMStateDescription vmstate_fdrive_media_changed = {
     }
 };
 
->>>>>>> upstream/stable-1.0
 static const VMStateDescription vmstate_fdrive = {
     .name = "fdrive",
     .version_id = 1,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
-    .fields      = (VMStateField []) {
+    .fields      = (VMStateField[]) {
         VMSTATE_UINT8(head, FDrive),
         VMSTATE_UINT8(track, FDrive),
         VMSTATE_UINT8(sect, FDrive),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (VMStateSubsection[]) {
+        {
+            .vmsd = &vmstate_fdrive_media_changed,
+            .needed = &fdrive_media_changed_needed,
+        } , {
+            /* empty */
+        }
     }
 };
 

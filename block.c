@@ -1373,9 +1373,7 @@ int bdrv_notify_size(BlockDriverState *bs, int64_t offset)
     if (bdrv_in_use(bs))
         return -EBUSY;
     ret = refresh_total_sectors(bs, offset >> BDRV_SECTOR_BITS);
-    if (bs->change_cb) {
-        bs->change_cb(bs->change_opaque, CHANGE_SIZE);
-    }
+    bdrv_dev_resize_cb(bs);
     return ret;
 }
 
