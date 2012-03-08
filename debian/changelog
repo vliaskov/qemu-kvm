@@ -1,3 +1,15 @@
+qemu-kvm (1.0.1) UNRELEASED; urgency=low
+
+  * merge with 1.0 upstream release (stable-1.0 branch)
+  * update CPU hotplug, hot-unplug support
+  * patch from upstream to fix CVE-2012-0029
+  * patch from Gerd Hoffman, fixing guest-triggerable memory
+    corruption in vnc with one of standard display sizes 
+    1440x1050 or 1440x900 or others -- these can be set by 
+    guest if run with -vga std
+
+ -- Vasilis Liaskovitis <vasilis.liaskovitis@profitbricks.com>  Fri, 2 Mar 2012 12:44:10 +0200
+
 qemu-kvm (0.15.1+dfsg-1-3) stable; urgency=low
 
   * update to 0.15.1 upstream release
