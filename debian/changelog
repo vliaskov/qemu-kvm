@@ -1,4 +1,4 @@
-qemu-kvm (1.0.1) UNRELEASED; urgency=low
+qemu-kvm (1.0.1) unstable; urgency=low
 
   * merge with 1.0 upstream release (stable-1.0 branch)
   * update CPU hotplug, hot-unplug support
