@@ -19,9 +19,9 @@ Package: qemu-kvm
 Architecture: i386 amd64
 Pre-Depends: adduser
 Depends: ${shlibs:Depends}, ${misc:Depends}, python,
- seabios (>> 1.6.3), vgabios (>= 0.6c-3),
+ seabios (>> 1.6.3), vgabios (>= 0.6c-3~),
  qemu-keymaps, qemu-utils (>> 0.14.0),
- ipxe-qemu | ipxe (<= 1.0.0+git-20120202.f6840ba-2)
+ ipxe-qemu | ipxe (<< 1.0.0+git-20120202.f6840ba-2)
 Recommends: bridge-utils, iproute
 Suggests: debootstrap, vde2, samba
 Provides: kvm
