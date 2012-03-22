@@ -93,9 +93,13 @@ typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
 
 #ifdef _WIN32
 #define fsync _commit
-#define lseek _lseeki64
+#if !defined(lseek)
+# define lseek _lseeki64
+#endif
 int qemu_ftruncate64(int, int64_t);
-#define ftruncate qemu_ftruncate64
+#if !defined(ftruncate)
+# define ftruncate qemu_ftruncate64
+#endif
 
 static inline char *realpath(const char *path, char *resolved_path)
 {
@@ -232,7 +236,6 @@ typedef struct MACAddr MACAddr;
 typedef struct VLANState VLANState;
 typedef struct VLANClientState VLANClientState;
 typedef struct i2c_bus i2c_bus;
-typedef struct i2c_slave i2c_slave;
 typedef struct ISABus ISABus;
 typedef struct SMBusDevice SMBusDevice;
 typedef struct PCIHostState PCIHostState;
