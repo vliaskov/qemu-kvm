@@ -14,6 +14,8 @@
  */
 
 #include "hmp.h"
+#include "net.h"
+#include "qemu-option.h"
 #include "qemu-timer.h"
 #include "qmp-commands.h"
 
@@ -941,5 +943,24 @@ void hmp_device_del(Monitor *mon, const QDict *qdict)
     Error *err = NULL;
 
     qmp_device_del(id, &err);
+    hmp_handle_error(mon, &err);
+}
+
+void hmp_netdev_add(Monitor *mon, const QDict *qdict)
+{
+    Error *err = NULL;
+    QemuOpts *opts;
+
+    opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict, &err);
+    if (error_is_set(&err)) {
+        goto out;
+    }
+
+    netdev_add(opts, &err);
+    if (error_is_set(&err)) {
+        qemu_opts_del(opts);
+    }
+
+out:
     hmp_handle_error(mon, &err);
 }
