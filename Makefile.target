@@ -58,7 +58,7 @@ else
 TARGET_TYPE=system
 endif
 
-$(QEMU_PROG).stp:
+$(QEMU_PROG).stp: $(SRC_PATH)/trace-events
 	$(call quiet-command,sh $(SRC_PATH)/scripts/tracetool \
 		--$(TRACE_BACKEND) \
 		--binary $(bindir)/$(QEMU_PROG) \
@@ -81,21 +81,27 @@ libobj-y += tcg/tcg.o tcg/optimize.o
 libobj-$(CONFIG_TCG_INTERPRETER) += tci.o
 libobj-y += fpu/softfloat.o
 ifneq ($(TARGET_BASE_ARCH), sparc)
+ifneq ($(TARGET_BASE_ARCH), alpha)
 libobj-y += op_helper.o
+endif
 endif
 libobj-y += helper.o
 ifeq ($(TARGET_BASE_ARCH), i386)
-libobj-y += cpuid.o
+libobj-y += cpu.o
 endif
 libobj-$(TARGET_SPARC64) += vis_helper.o
 libobj-$(CONFIG_NEED_MMU) += mmu.o
 libobj-$(TARGET_ARM) += neon_helper.o iwmmxt_helper.o
+libobj-$(TARGET_ARM) += cpu.o
+libobj-$(TARGET_S390X) += cpu.o
 ifeq ($(TARGET_BASE_ARCH), sparc)
 libobj-y += fop_helper.o cc_helper.o win_helper.o mmu_helper.o ldst_helper.o
-libobj-y += cpu_init.o
+libobj-y += cpu.o
 endif
 libobj-$(TARGET_SPARC) += int32_helper.o
 libobj-$(TARGET_SPARC64) += int64_helper.o
+libobj-$(TARGET_UNICORE32) += cpu.o
+libobj-$(TARGET_ALPHA) += int_helper.o fpu_helper.o sys_helper.o mem_helper.o
 
 libobj-y += disas.o
 libobj-$(CONFIG_TCI_DIS) += tci-dis.o
