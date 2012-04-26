@@ -637,10 +637,11 @@ out:
 
 static int eject_device(Monitor *mon, BlockDriverState *bs, int force)
 {
-    if (!bdrv_dev_has_removable_media(bs)) {
+    /* remove this check to allow non-safe block device detach */
+    /*if (!bdrv_dev_has_removable_media(bs)) {
         qerror_report(QERR_DEVICE_NOT_REMOVABLE, bdrv_get_device_name(bs));
         return -1;
-    }
+    }*/
     if (bdrv_dev_is_medium_locked(bs) && !bdrv_dev_is_tray_open(bs)) {
         bdrv_dev_eject_request(bs, force);
         if (!force) {
