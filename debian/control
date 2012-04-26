@@ -10,7 +10,8 @@ Build-Depends: debhelper (>= 7.2.3~), pkg-config, texinfo, python,
  libaio-dev,
  linux-libc-dev (>= 2.6.32),
  libglib2.0-dev,
- libiscsi-dev
+ libiscsi-dev,
+ libspice-protocol-dev, libspice-server-dev
 Standards-Version: 3.9.2.0
 Homepage: http://www.linux-kvm.org/
 Vcs-Browser: http://git.debian.org/?p=collab-maint/qemu-kvm.git
