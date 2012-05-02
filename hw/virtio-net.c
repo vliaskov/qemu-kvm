@@ -63,6 +63,7 @@ typedef struct VirtIONet
     } mac_table;
     uint32_t *vlans;
     DeviceState *qdev;
+    VLANClientState *old_peer;
 } VirtIONet;
 
 /* TODO
@@ -137,10 +138,38 @@ static void virtio_net_vhost_status(VirtIONet *n, uint8_t status)
     }
 }
 
+static int peer_has_vnet_hdr(VirtIONet *n);
+
 static void virtio_net_set_status(struct VirtIODevice *vdev, uint8_t status)
 {
     VirtIONet *n = to_virtio_net(vdev);
+    uint32_t features;
 
+    /* re-initialize backend netdev if it is has been changed */
+    if (n->old_peer != n->nic->nc.peer) {
+        features = vdev->guest_features;
+
+        if (peer_has_vnet_hdr(n))
+            tap_using_vnet_hdr(n->nic->nc.peer, 1);
+
+        if (n->has_vnet_hdr) {
+            tap_set_offload(n->nic->nc.peer,
+                    (features >> VIRTIO_NET_F_GUEST_CSUM) & 1,
+                    (features >> VIRTIO_NET_F_GUEST_TSO4) & 1,
+                    (features >> VIRTIO_NET_F_GUEST_TSO6) & 1,
+                    (features >> VIRTIO_NET_F_GUEST_ECN)  & 1,
+                    (features >> VIRTIO_NET_F_GUEST_UFO)  & 1);
+        }
+        if ((n->nic->nc.peer->info->type == NET_CLIENT_TYPE_TAP) &&
+                tap_get_vhost_net(n->nic->nc.peer)) {
+            vhost_net_ack_features(tap_get_vhost_net(n->nic->nc.peer), features);
+        }
+        /* vhost will have to be restarted */
+        if (n->vhost_started)
+            n->vhost_started = 0;
+
+        n->old_peer = n->nic->nc.peer;
+    }     
     virtio_net_vhost_status(n, status);
 
     if (!n->tx_waiting) {
@@ -1044,6 +1073,7 @@ VirtIODevice *virtio_net_init(DeviceState *dev, NICConf *conf,
     n->vlans = g_malloc0(MAX_VLAN >> 3);
 
     n->qdev = dev;
+    n->old_peer = conf->peer;
     register_savevm(dev, "virtio-net", -1, VIRTIO_NET_VM_VERSION,
                     virtio_net_save, virtio_net_load, n);
 
