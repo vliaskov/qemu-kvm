@@ -1032,6 +1032,20 @@ STEXI
 Remove host network device.
 ETEXI
 
+    {
+        .name       = "netdev_set",
+        .args_type  = "nicid:s,netdevid:s",
+        .params     = "nicid netdevid",
+        .help       = "attach host network device to nic",
+        .mhandler.cmd = hmp_netdev_set,
+    },
+
+STEXI
+@item netdev_del
+@findex netdev_del
+Attach host network device to nic.
+ETEXI
+
 #ifdef CONFIG_SLIRP
     {
         .name       = "hostfwd_add",

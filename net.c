@@ -674,6 +674,21 @@ VLANClientState *qemu_find_netdev(const char *id)
     return NULL;
 }
 
+VLANClientState *qemu_find_nic(const char *id)
+{
+    VLANClientState *vc;
+
+    QTAILQ_FOREACH(vc, &non_vlan_clients, next) {
+        if (vc->info->type != NET_CLIENT_TYPE_NIC)
+            continue;
+        if (!strcmp(vc->name, id)) {
+            return vc;
+        }
+    }
+
+    return NULL;
+}
+
 static int nic_get_free_idx(void)
 {
     int index;
@@ -1281,6 +1296,49 @@ void qmp_netdev_del(const char *id, Error **errp)
 
     qemu_del_vlan_client(vc);
     qemu_opts_del(qemu_opts_find(qemu_find_opts_err("netdev", errp), id));
+}
+
+void qmp_netdev_set(const char *nicid, const char *netdevid, Error **errp)
+{
+    VLANClientState *vc, *nic;
+    NICState *nicstate;
+    DeviceState *qdev;
+
+    nic = qemu_find_nic(nicid);
+    if (!nic) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, nicid);
+    }
+
+    qdev = qdev_find_recursive(sysbus_get_default(), nicid);
+    if (!qdev) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, nicid);
+    }
+
+    vc = qemu_find_netdev(netdevid);
+    if (!vc) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, netdevid);
+        return;
+    }
+
+    /* for now, only allow tap device assignment*/
+    if (vc->info->type != NET_CLIENT_TYPE_TAP) {
+        error_set(errp, QERR_INVALID_PARAMETER, netdevid);
+        return;
+    }    
+
+    vc->peer = nic;
+    if (nic->peer)
+        nic->peer->peer = NULL;
+    nic->peer = vc;
+
+    nicstate = DO_UPCAST(NICState, nc, nic);
+    if (nicstate->peer_deleted == true)
+        nicstate->peer_deleted = false;
+    nicstate->conf->peer = vc;
+
+    /* this is a hack, qdev properties should not be set after nic
+     * initialization */
+    qdev_prop_parse(qdev, "netdev", netdevid);
 }
 
 static void print_net_client(Monitor *mon, VLANClientState *vc)

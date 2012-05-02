@@ -657,6 +657,31 @@ Example:
 EQMP
 
     {
+        .name       = "netdev_set",
+        .args_type  = "nicid:s,netdevid:s",
+        .mhandler.cmd_new = qmp_marshal_input_netdev_set,
+    },
+
+SQMP
+netdev_set
+----------
+
+Attach host network device to guest nic.
+
+Arguments:
+
+- "nicid": the nic device's ID, must be unique (json-string)
+- "netdevid": the host network device's ID, must be unique (json-string)
+
+Example:
+
+-> { "execute": "netdev_set", "arguments": { "nicid": "nic1", "netdevid": "netdev1" } }
+<- { "return": {} }
+
+
+EQMP
+
+    {
         .name       = "block_resize",
         .args_type  = "device:B,size:o",
         .mhandler.cmd_new = qmp_marshal_input_block_resize,

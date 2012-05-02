@@ -973,3 +973,13 @@ void hmp_netdev_del(Monitor *mon, const QDict *qdict)
     qmp_netdev_del(id, &err);
     hmp_handle_error(mon, &err);
 }
+
+void hmp_netdev_set(Monitor *mon, const QDict *qdict)
+{
+    const char *nicid = qdict_get_str(qdict, "nicid");
+    const char *netdevid = qdict_get_str(qdict, "netdevid");
+    Error *err = NULL;
+
+    qmp_netdev_set(nicid, netdevid, &err);
+    hmp_handle_error(mon, &err);
+}

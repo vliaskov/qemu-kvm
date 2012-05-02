@@ -1765,3 +1765,19 @@
 # Since: 0.14.0
 ##
 { 'command': 'netdev_del', 'data': {'id': 'str'} }
+
+##
+# @netdev_set:
+#
+# Attach a network backend to a network device.
+#
+# @id: the name of the network device to attach to
+# @netdev: the name of the network backend to attach
+#
+# Returns: Nothing on success
+#          If @id is not a valid network device, DeviceNotFound
+#          If @netdev is not a valid network backend, DeviceNotFound
+#
+# Since: 0.14.0
+##
+{ 'command': 'netdev_set', 'data': {'nicid': 'str', 'netdevid': 'str'} }
