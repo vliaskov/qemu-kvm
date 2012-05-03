@@ -69,12 +69,16 @@ build/config-host.mak: configure
 	cd build && ../configure --prefix=/usr \
 		    --datadir=${bdir} \
 		    --sysconfdir=/etc \
-		    --audio-drv-list="alsa oss sdl pa" \
-		    --audio-card-list="ac97 es1370 sb16 cs4231a adlib gus hda" \
 		    --disable-strip \
 		    --disable-xen \
 		    --disable-blobs \
 		    --disable-guest-agent \
+                    --enable-spice \
+                    --enable-libiscsi \
+                    --enable-uuid \
+                    --enable-vhost-net \
+		    --disable-bluez \
+                    --enable-linux-aio \
 		    $(QEMU_KVM_CONFIGURE_OPTIONS)
 	cat build/config-host.mak
 
