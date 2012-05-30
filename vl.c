@@ -126,6 +126,7 @@ int main(int argc, char **argv)
 #include "hw/xen.h"
 #include "hw/qdev.h"
 #include "hw/loader.h"
+#include "hw/dimm.h"
 #include "bt-host.h"
 #include "net.h"
 #include "net/slirp.h"
@@ -181,6 +182,8 @@ DisplayType display_type = DT_DEFAULT;
 int display_remote = 0;
 const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
+ram_addr_t ram_hp_offset;
+
 const char *mem_path = NULL;
 #ifdef MAP_POPULATE
 int mem_prealloc = 0; /* force preallocation of physical target memory */
@@ -250,6 +253,7 @@ QTAILQ_HEAD(, FWBootEntry) fw_boot_order = QTAILQ_HEAD_INITIALIZER(fw_boot_order
 int nb_numa_nodes;
 uint64_t node_mem[MAX_NODES];
 uint64_t node_cpumask[MAX_NODES];
+int nb_hp_dimms;
 
 uint8_t qemu_uuid[16];
 
@@ -519,6 +523,33 @@ static void configure_rtc_date_offset(const char *startdate, int legacy)
         }
         rtc_date_offset = time(NULL) - rtc_start_date;
     }
+}
+
+static void configure_dimm(QemuOpts *opts)
+{
+    const char *value, *id;
+    uint64_t size, node;
+
+    id = qemu_opts_id(opts);
+    value = qemu_opt_get(opts, "size");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid size for dimm '%s'\n", id);
+        exit(1);
+    }
+    size = atoi(value);
+    qemu_opt_set_bool(opts, "populated", qemu_opt_get_bool(opts, "readonly", 0));
+    value = qemu_opt_get(opts, "node");
+    if (!value) {
+        fprintf(stderr, "qemu: no node proximity defined for dimm '%s'\n", id);
+        node = 0;
+    }
+    else node = atoi(value);
+    fprintf(stderr, "qemu: dimm %s size %lu node %lu \n", id,
+            size, node);
+
+    dimm_register_calcoffset(pc_set_hp_memory_offset);
+    dimm_create((char*)id, size, node, nb_hp_dimms);
+    nb_hp_dimms++;
 }
 
 static void configure_rtc(QemuOpts *opts)
@@ -2221,6 +2252,7 @@ int main(int argc, char **argv, char **envp)
     cpu_model = NULL;
     initrd_filename = NULL;
     ram_size = 0;
+    ram_hp_offset = 0;
     snapshot = 0;
     kernel_filename = NULL;
     kernel_cmdline = "";
@@ -2234,6 +2266,7 @@ int main(int argc, char **argv, char **envp)
 
     nb_numa_nodes = 0;
     nb_nics = 0;
+    nb_hp_dimms = 0;
 
     autostart= 1;
 
@@ -2440,6 +2473,13 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_kernel:
                 kernel_filename = optarg;
+                break;
+            case QEMU_OPTION_dimm:
+                opts = qemu_opts_parse(qemu_find_opts("dimm"), optarg, 0);
+                if (!opts) {
+                    exit(1);
+                }
+                configure_dimm(opts);
                 break;
             case QEMU_OPTION_append:
                 kernel_cmdline = optarg;
@@ -3324,7 +3364,9 @@ int main(int argc, char **argv, char **envp)
     register_savevm_live(NULL, "ram", 0, 4, NULL, ram_save_live, NULL,
                          ram_load, NULL);
 
-    if (nb_numa_nodes > 0) {
+    if (!nb_numa_nodes)
+        nb_numa_nodes = 1;
+    {
         int i;
 
         if (nb_numa_nodes > MAX_NODES) {

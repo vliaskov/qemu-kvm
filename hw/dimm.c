@@ -23,6 +23,7 @@
 
 static DeviceState *dimm_hotplug_qdev;
 static dimm_hotplug_fn dimm_hotplug;
+static dimm_calcoffset_fn dimm_calcoffset;
 
 void dimm_populate(DimmState *s)
 {
@@ -50,8 +51,8 @@ void dimm_depopulate(DimmState *s)
     }
 }
 
-DimmState *dimm_create(char *id, target_phys_addr_t start, uint64_t size,
-        uint64_t node, uint32_t dimm_idx)
+DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
+        dimm_idx)
 {
     DeviceState *dev;
     DimmState *mdev;
@@ -59,11 +60,12 @@ DimmState *dimm_create(char *id, target_phys_addr_t start, uint64_t size,
     dev = sysbus_create_simple("dimm", -1, NULL);
     dev->id = id;
 
-    mdev = MEMSLOT(dev);
+    mdev = DIMM(dev);
     mdev->idx = dimm_idx;
-    mdev->start = start;
+    mdev->start = 0;
     mdev->size = size;
     mdev->node = node;
+    mdev->start = dimm_calcoffset(size);
 
     return mdev;
 }
@@ -74,12 +76,32 @@ void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev)
     dimm_hotplug = hotplug;
 }
 
+void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset)
+{
+    dimm_calcoffset = calcoffset;
+}
+
+void dimm_setstart(DimmState *slot)
+{
+    assert(dimm_calcoffset);
+    slot->start = dimm_calcoffset(slot->size);
+    fprintf(stderr, "%s start address for slot %p is %lu\n", __FUNCTION__,
+            slot, slot->start);
+}
+
+void dimm_activate(DimmState *slot)
+{
+    dimm_populate(slot);
+    if (dimm_hotplug)
+        dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 1);
+}
+
 static DimmState *dimm_find(char *id)
 {
     DeviceState *qdev;
     qdev = qdev_find_recursive(sysbus_get_default(), id);
     if (qdev)
-        return MEMSLOT(qdev);
+        return DIMM(qdev);
     return NULL;
 }
 
@@ -106,9 +128,7 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
                     __FUNCTION__, id);
             return 1;
         }
-        dimm_populate(slot);
-        if (dimm_hotplug)
-            dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 1);
+        dimm_activate(slot);
     }
     else {
         if (!slot->populated) {
@@ -136,7 +156,7 @@ DimmState *dimm_find_from_idx(uint32_t idx)
             return NULL;
         }
         if (!strcmp(type, "dimm")) {
-            slot = MEMSLOT(dev);
+            slot = DIMM(dev);
             if (slot->idx == idx) {
                 fprintf(stderr, "%s found slot with idx %u : %p\n",
                         __FUNCTION__, idx, slot);
@@ -153,7 +173,7 @@ DimmState *dimm_find_from_idx(uint32_t idx)
 static int dimm_init(SysBusDevice *s)
 {
     DimmState *slot;
-    slot = MEMSLOT(s);
+    slot = DIMM(s);
     slot->mr = NULL;
     slot->populated = 0;
     return 0;

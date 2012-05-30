@@ -45,6 +45,7 @@
 #include "memory.h"
 #include "exec-memory.h"
 #include "cpus.h"
+#include "dimm.h"
 
 /* output Bochs bios info messages */
 //#define DEBUG_BIOS
@@ -90,6 +91,10 @@ struct e820_table {
 
 static struct e820_table e820_table;
 struct hpet_fw_config hpet_cfg = {.count = UINT8_MAX};
+
+ram_addr_t below_4g_hp_mem_size = 0;
+ram_addr_t above_4g_hp_mem_size = 0;
+extern target_phys_addr_t ram_hp_offset;
 
 void gsi_handler(void *opaque, int n, int level)
 {
@@ -586,12 +591,15 @@ int e820_add_entry(uint64_t address, uint64_t length, uint32_t type)
     return index;
 }
 
+static void setup_hp_dimms(uint64_t *fw_cfg_slots);
+
 static void *bochs_bios_init(void)
 {
     void *fw_cfg;
     uint8_t *smbios_table;
     size_t smbios_len;
     uint64_t *numa_fw_cfg;
+    uint64_t *hp_dimms_fw_cfg;
     int i, j;
 
     register_ioport_write(0x400, 1, 2, bochs_bios_write, NULL);
@@ -626,8 +634,10 @@ static void *bochs_bios_init(void)
     /* allocate memory for the NUMA channel: one (64bit) word for the number
      * of nodes, one word for each VCPU->node and one word for each node to
      * hold the amount of memory.
+     * Finally one word for the number of hotplug memory slots and three words
+     * for each hotplug memory slot (start address, size and node proximity).
      */
-    numa_fw_cfg = g_malloc0((1 + max_cpus + nb_numa_nodes) * 8);
+    numa_fw_cfg = g_malloc0((2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms) * 8);
     numa_fw_cfg[0] = cpu_to_le64(nb_numa_nodes);
     for (i = 0; i < max_cpus; i++) {
         for (j = 0; j < nb_numa_nodes; j++) {
@@ -640,8 +650,15 @@ static void *bochs_bios_init(void)
     for (i = 0; i < nb_numa_nodes; i++) {
         numa_fw_cfg[max_cpus + 1 + i] = cpu_to_le64(node_mem[i]);
     }
+
+    numa_fw_cfg[1 + max_cpus + nb_numa_nodes] = cpu_to_le64(nb_hp_dimms);
+
+    hp_dimms_fw_cfg = numa_fw_cfg + 2 + max_cpus + nb_numa_nodes;
+    if (nb_hp_dimms)
+        setup_hp_dimms(hp_dimms_fw_cfg);
+
     fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, (uint8_t *)numa_fw_cfg,
-                     (1 + max_cpus + nb_numa_nodes) * 8);
+                     (2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms) * 8);
 
     return fw_cfg;
 }
@@ -1207,6 +1224,75 @@ void pc_pci_device_init(PCIBus *pci_bus)
     for (bus = 0; bus <= max_bus; bus++) {
         pci_create_simple(pci_bus, -1, "lsi53c895a");
     }
+}
+
+
+/* Function to configure memory offsets of hotpluggable dimms */
+
+target_phys_addr_t pc_set_hp_memory_offset(uint64_t size)
+{
+    target_phys_addr_t ret;
+
+    /* on first call, initialize ram_hp_offset */
+    if (!ram_hp_offset) {
+        if (ram_size >= MIN_PCI_HOLE ) {
+            ram_hp_offset = 0x100000000LL + (ram_size - MIN_PCI_HOLE);
+        } else {
+            ram_hp_offset = ram_size;
+        }
+    }
+
+    if (ram_hp_offset >= 0x100000000LL) {
+        ret = ram_hp_offset;
+        above_4g_hp_mem_size += size;
+        ram_hp_offset += size;
+    }
+    /* if dimm fits before pci hole, append it normally */
+    else if (ram_hp_offset + size < MIN_PCI_HOLE) {
+        ret = ram_hp_offset;
+        below_4g_hp_mem_size += size;
+        ram_hp_offset += size;
+    }
+    /* otherwise place it above 4GB */
+    else {
+        ret = 0x100000000LL;
+        above_4g_hp_mem_size += size;
+        ram_hp_offset = 0x100000000LL + size; 
+    }
+
+    return ret;
+}
+
+static void setup_hp_dimms(uint64_t *fw_cfg_slots)
+{
+    int i = 0;
+    DeviceState *dev;
+    DimmState *slot;
+    const char *type;
+    BusState *bus = sysbus_get_default();
+
+    QTAILQ_FOREACH(dev, &bus->children, sibling) {
+        type = dev->info->name;
+        if (!type) {
+            fprintf(stderr, "error getting device type\n");
+            exit(1);
+        }
+
+        if (!strcmp(type, "dimm")) {
+            if (!dev->id) {
+                fprintf(stderr, "error getting dimm device id\n");
+                exit(1);
+            }
+            slot = DIMM(dev);
+            /* determine starting physical address for this memory slot */
+            assert(slot->start);
+            fw_cfg_slots[3 * slot->idx] = cpu_to_le64(slot->start);
+            fw_cfg_slots[3 * slot->idx + 1] = cpu_to_le64(slot->size);
+            fw_cfg_slots[3 * slot->idx + 2] = cpu_to_le64(slot->node);
+            i++;
+        }
+    }
+    assert(i == nb_hp_dimms);
 }
 
 int pc_replug_cpu(CPUState *env)

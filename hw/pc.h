@@ -10,6 +10,8 @@
 #include "memory.h"
 #include "ioapic.h"
 
+#define MIN_PCI_HOLE 0xe0000000
+
 /* PC-style peripherals (also used by other machines).  */
 
 /* serial.c */
@@ -251,6 +253,11 @@ static inline bool isa_ne2000_init(int base, int irq, NICInfo *nd)
     qdev_init_nofail(&dev->qdev);
     return true;
 }
+
+/* memory hotplug */
+target_phys_addr_t pc_set_hp_memory_offset(uint64_t size);
+extern ram_addr_t below_4g_hp_mem_size;
+extern ram_addr_t above_4g_hp_mem_size;
 
 /* e820 types */
 #define E820_RAM        1

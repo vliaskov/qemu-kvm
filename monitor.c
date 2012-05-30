@@ -30,6 +30,7 @@
 #include "hw/pci.h"
 #include "hw/watchdog.h"
 #include "hw/loader.h"
+#include "hw/dimm.h"
 #include "gdbstub.h"
 #include "net.h"
 #include "net/slirp.h"
@@ -4985,4 +4986,19 @@ int monitor_read_bdrv_key_start(Monitor *mon, BlockDriverState *bs,
         completion_cb(opaque, err);
 
     return err;
+}
+
+
+int do_dimm_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+#if defined(TARGET_I386) || defined(TARGET_X86_64)
+    return dimm_do(mon, qdict, true);
+#endif
+}
+
+int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+#if defined(TARGET_I386) || defined(TARGET_X86_64)
+    return dimm_do(mon, qdict, false);
+#endif
 }

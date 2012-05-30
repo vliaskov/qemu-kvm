@@ -717,7 +717,7 @@ static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
 {
     PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
     PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
-    DimmState *slot = MEMSLOT(dev);
+    DimmState *slot = DIMM(dev);
 
     if (add) {
         enable_mem_device(s, slot->idx);

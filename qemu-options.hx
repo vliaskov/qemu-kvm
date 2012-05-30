@@ -2634,3 +2634,8 @@ HXCOMM This is the last statement. Insert new options before this line!
 STEXI
 @end table
 ETEXI
+
+DEF("dimm", HAS_ARG, QEMU_OPTION_dimm,
+        "-memslot start=num,size=num,id=name\n"
+        "specify unpopulated memory slot",
+        QEMU_ARCH_ALL)

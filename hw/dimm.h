@@ -5,7 +5,7 @@
 #include "memory.h"
 #include "sysbus.h"
 
-#define MEMSLOT(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
+#define DIMM(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
 
 typedef struct DimmState {
     SysBusDevice busdev;
@@ -20,13 +20,17 @@ typedef struct DimmState {
 /* mem.c */
 
 typedef int (*dimm_hotplug_fn)(DeviceState *qdev, SysBusDevice *dev, int add);
+typedef target_phys_addr_t (*dimm_calcoffset_fn)(uint64_t size);
 
-DimmState *dimm_create(char *id, target_phys_addr_t start, uint64_t size,
-        uint64_t node, uint32_t dimm_idx);
+DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
+        dimm_idx);
 void dimm_populate(DimmState *s);
 void dimm_depopulate(DimmState *s);
 int dimm_do(Monitor *mon, const QDict *qdict, bool add);
 DimmState *dimm_find_from_idx(uint32_t idx);
 void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
+void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset);
+void dimm_setstart(DimmState *slot);
+void dimm_activate(DimmState *slot);
 
 #endif
