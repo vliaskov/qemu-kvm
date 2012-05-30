@@ -618,9 +618,9 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     for(i = 0; i < 32; i++) {
         s->gperegs.mems_sts[i] = 0;
     }
-    dimm_register_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
 
     pci_bus_hotplug(bus, piix4_device_hotplug, &s->dev.qdev);
+    dimm_register_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
 }
 
 #if defined(TARGET_I386)

@@ -529,7 +529,7 @@ static void configure_dimm(QemuOpts *opts)
 {
     const char *value, *id;
     uint64_t size, node;
-
+    bool populated;
     id = qemu_opts_id(opts);
     value = qemu_opt_get(opts, "size");
     if (!value) {
@@ -537,18 +537,19 @@ static void configure_dimm(QemuOpts *opts)
         exit(1);
     }
     size = atoi(value);
-    qemu_opt_set_bool(opts, "populated", qemu_opt_get_bool(opts, "readonly", 0));
+    //qemu_opt_set_bool(opts, "populated", qemu_opt_get_bool(opts, "readonly", 0));
+    populated = qemu_opt_get_bool(opts, "populated", 0);
     value = qemu_opt_get(opts, "node");
     if (!value) {
         fprintf(stderr, "qemu: no node proximity defined for dimm '%s'\n", id);
         node = 0;
     }
     else node = atoi(value);
-    fprintf(stderr, "qemu: dimm %s size %lu node %lu \n", id,
-            size, node);
+    fprintf(stderr, "qemu: dimm %s size %lu node %lu populated %u\n", id,
+            size, node, populated);
 
     dimm_register_calcoffset(pc_set_hp_memory_offset);
-    dimm_create((char*)id, size, node, nb_hp_dimms);
+    dimm_create((char*)id, size, node, nb_hp_dimms, populated);
     nb_hp_dimms++;
 }
 

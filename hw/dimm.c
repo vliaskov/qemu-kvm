@@ -36,7 +36,7 @@ void dimm_populate(DimmState *s)
     //vmstate_register_ram_global(new);
     memory_region_add_subregion(get_system_memory(), s->start, new);
     s->mr = new;
-    s->populated = 1;
+    s->populated = true;
 }
 
 void dimm_depopulate(DimmState *s)
@@ -46,13 +46,13 @@ void dimm_depopulate(DimmState *s)
         //vmstate_unregister_ram(s->mr, NULL);
         memory_region_del_subregion(get_system_memory(), s->mr);
         memory_region_destroy(s->mr);
-        s->populated = 0;
+        s->populated = false;
         s->mr = NULL;
     }
 }
 
 DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
-        dimm_idx)
+        dimm_idx, bool populated)
 {
     DeviceState *dev;
     DimmState *mdev;
@@ -66,6 +66,7 @@ DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
     mdev->size = size;
     mdev->node = node;
     mdev->start = dimm_calcoffset(size);
+    mdev->populated = populated;
 
     return mdev;
 }
@@ -74,6 +75,7 @@ void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev)
 {
     dimm_hotplug_qdev = qdev;
     dimm_hotplug = hotplug;
+    dimm_scan_populated();
 }
 
 void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset)
@@ -168,6 +170,34 @@ DimmState *dimm_find_from_idx(uint32_t idx)
         }
     }
     return NULL;
+}
+
+void dimm_scan_populated(void)
+{
+    DeviceState *dev;
+    DimmState *slot;
+    const char *type;
+    BusState *bus = sysbus_get_default();
+    QTAILQ_FOREACH(dev, &bus->children, sibling) {
+        type = dev->info->name;
+        if (!type) {
+            fprintf(stderr, "error getting device type\n");
+            exit(1);
+        }
+
+        if (!strcmp(type, "dimm")) {
+            if (!dev->id) {
+                fprintf(stderr, "error getting dimm device id\n");
+                exit(1);
+            }
+            slot = DIMM(dev);
+            /* at init time, populate */
+            if (slot->populated && !slot->mr) {
+                fprintf(stderr, "%s slot %d PRE-POPULATE\n", __FUNCTION__, slot->idx);
+                dimm_activate(slot);
+            }
+        }
+    }
 }
 
 static int dimm_init(SysBusDevice *s)
