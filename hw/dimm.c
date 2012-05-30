@@ -27,12 +27,11 @@ static dimm_calcoffset_fn dimm_calcoffset;
 
 void dimm_populate(DimmState *s)
 {
-    char buf[32];
+    DeviceState *dev= (DeviceState*)s;
     MemoryRegion *new = NULL;
 
-    sprintf(buf, "dimm%u", s->idx);
     new = g_malloc(sizeof(MemoryRegion));
-    memory_region_init_ram(new, NULL, buf, s->size);
+    memory_region_init_ram(new, NULL, dev->id, s->size);
     //vmstate_register_ram_global(new);
     memory_region_add_subregion(get_system_memory(), s->start, new);
     s->mr = new;
@@ -98,12 +97,21 @@ void dimm_activate(DimmState *slot)
         dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 1);
 }
 
-static DimmState *dimm_find(char *id)
+DimmState *dimm_find_from_name(char *id)
 {
     DeviceState *qdev;
+    const char *type;
     qdev = qdev_find_recursive(sysbus_get_default(), id);
-    if (qdev)
-        return DIMM(qdev);
+    if (qdev) {
+        type = qdev->info->name;
+        if (!type) {
+            return NULL;
+        }
+        if (!strcmp(type, "dimm")) {
+            fprintf(stderr, "%s found dimm %s\n", __FUNCTION__, id);
+            return DIMM(qdev);
+        }
+    }    
     return NULL;
 }
 
@@ -117,7 +125,7 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
         return 1;
     }
 
-    slot = dimm_find(id);
+    slot = dimm_find_from_name(id);
 
     if (!slot) {
         fprintf(stderr, "%s no slot %s found\n", __FUNCTION__, id);
