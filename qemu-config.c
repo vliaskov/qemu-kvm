@@ -564,7 +564,7 @@ static QemuOptsList qemu_dimms_opts = {
             .help = "memory size for these dimm",
         },{
             .name = "num",
-            .type = QEMU_OPT_SIZE,
+            .type = QEMU_OPT_NUMBER,
             .help = "number of dimm devices in this pool",
         },{
             .name = "node",

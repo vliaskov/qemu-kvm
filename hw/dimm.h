@@ -6,6 +6,7 @@
 #include "sysbus.h"
 #define MAX_DIMMS 256
 #define MAX_DIMMPOOLS 8
+#define DEFAULT_DIMMSIZE 1024*1024*1024
 
 #define DIMM(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
 

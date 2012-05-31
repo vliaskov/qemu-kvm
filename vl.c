@@ -527,7 +527,7 @@ static void configure_rtc_date_offset(const char *startdate, int legacy)
 
 static void configure_dimm(QemuOpts *opts)
 {
-    const char *value, *id;
+    const char *id;
     uint64_t size, node;
     bool populated;
     if (nb_hp_dimms == MAX_DIMMS) {
@@ -536,20 +536,10 @@ static void configure_dimm(QemuOpts *opts)
         exit(1);
     }
     id = qemu_opts_id(opts);
-    value = qemu_opt_get(opts, "size");
-    if (!value) {
-        fprintf(stderr, "qemu: invalid size for dimm '%s'\n", id);
-        exit(1);
-    }
-    size = atoi(value);
-    //qemu_opt_set_bool(opts, "populated", qemu_opt_get_bool(opts, "readonly", 0));
+    size = qemu_opt_get_size(opts, "size", DEFAULT_DIMMSIZE);
     populated = qemu_opt_get_bool(opts, "populated", 0);
-    value = qemu_opt_get(opts, "node");
-    if (!value) {
-        fprintf(stderr, "qemu: no node proximity defined for dimm '%s'\n", id);
-        node = 0;
-    }
-    else node = atoi(value);
+    node = qemu_opt_get_number(opts, "node", 0);
+
     fprintf(stderr, "qemu: dimm %s size %lu node %lu populated %u\n", id,
             size, node, populated);
 
@@ -572,27 +562,10 @@ static void configure_dimms(QemuOpts *opts)
         exit(1);
     }
     pfx = value;
-    value = qemu_opt_get(opts, "size");
-    if (!value) {
-        fprintf(stderr, "qemu: invalid size for dimm pool '%s'\n", pfx);
-        exit(1);
-    }
-    size = atoi(value);
 
-    value = qemu_opt_get(opts, "num");
-    if (!value) {
-        fprintf(stderr, "qemu: number not defined for dimm pool '%s'\n", pfx);
-        exit(1);
-    }
-    else num = atoi(value);
-
-    value = qemu_opt_get(opts, "node");
-    if (!value) {
-        fprintf(stderr, "qemu: no node proximity defined for dimm pool '%s'\n",
-                pfx);
-        node = 0;
-    }
-    else node = atoi(value);
+    size = qemu_opt_get_size(opts, "size", DEFAULT_DIMMSIZE);
+    num = qemu_opt_get_number(opts, "num", 1);
+    node = qemu_opt_get_number(opts, "node", 0);
 
     fprintf(stderr, "qemu: dimmpool %s size %lu node %lu \n", pfx,
             size, node);
