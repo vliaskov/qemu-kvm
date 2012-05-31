@@ -894,7 +894,7 @@ static int do_change(Monitor *mon, const QDict *qdict, QObject **ret_data)
     if (strcmp(device, "vnc") == 0) {
         ret = do_change_vnc(mon, target, arg);
     } else {
-        ret = do_change_block(mon, device, target, arg);
+        ret = do_change_block(mon, qdict, device, target, arg);
     }
 
     return ret;
@@ -905,7 +905,7 @@ static int do_detach(Monitor *mon, const QDict *qdict, QObject **ret_data)
     const char *device = qdict_get_str(qdict, "device");
     int ret;
 
-    ret = do_detach_block(mon, device);
+    ret = do_detach_block(mon, qdict, device);
 
     return ret;
 }
