@@ -4,6 +4,8 @@
 #include "qemu-common.h"
 #include "memory.h"
 #include "sysbus.h"
+#define MAX_DIMMS 256
+#define MAX_DIMMPOOLS 8
 
 #define DIMM(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
 
@@ -34,5 +36,6 @@ void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset);
 void dimm_setstart(DimmState *slot);
 void dimm_activate(DimmState *slot);
 void dimm_scan_populated(void);
+void dimm_set_populated(DimmState *s);
 
 #endif

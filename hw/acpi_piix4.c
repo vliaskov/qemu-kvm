@@ -54,7 +54,7 @@
 
 struct gpe_regs {
     uint8_t cpus_sts[32];
-    uint8_t mems_sts[32];
+    uint8_t mems_sts[MAX_DIMMS / 8];
 };
 
 struct pci_status {

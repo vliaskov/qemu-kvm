@@ -38,6 +38,7 @@ void dimm_populate(DimmState *s)
     s->populated = true;
 }
 
+
 void dimm_depopulate(DimmState *s)
 {
     assert(s);
@@ -180,6 +181,12 @@ DimmState *dimm_find_from_idx(uint32_t idx)
     return NULL;
 }
 
+void dimm_set_populated(DimmState *s)
+{
+    s->populated = true;
+}
+
+/* used to populateand activate dimms at boot time */
 void dimm_scan_populated(void)
 {
     DeviceState *dev;
@@ -199,7 +206,6 @@ void dimm_scan_populated(void)
                 exit(1);
             }
             slot = DIMM(dev);
-            /* at init time, populate */
             if (slot->populated && !slot->mr) {
                 fprintf(stderr, "%s slot %d PRE-POPULATE\n", __FUNCTION__, slot->idx);
                 dimm_activate(slot);
@@ -219,12 +225,12 @@ static int dimm_init(SysBusDevice *s)
 
 
 /*
-static const VMStateDescription vmstate_apic = {
+static const VMStateDescription vmstate_dimm = {
     .name = "dimm",
     .version_id = 1,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
-    .load_state_old = apic_load_old,
+    .load_state_old = dimm_load_old,
     .fields      = (VMStateField []) {
         VMSTATE_END_OF_LIST()
     }

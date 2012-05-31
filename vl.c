@@ -530,6 +530,11 @@ static void configure_dimm(QemuOpts *opts)
     const char *value, *id;
     uint64_t size, node;
     bool populated;
+    if (nb_hp_dimms == MAX_DIMMS) {
+        fprintf(stderr, "qemu: maximum number of DIMMs (%d) exceeded\n",
+                MAX_DIMMS);
+        exit(1);
+    }
     id = qemu_opts_id(opts);
     value = qemu_opt_get(opts, "size");
     if (!value) {
@@ -551,6 +556,84 @@ static void configure_dimm(QemuOpts *opts)
     dimm_register_calcoffset(pc_set_hp_memory_offset);
     dimm_create((char*)id, size, node, nb_hp_dimms, populated);
     nb_hp_dimms++;
+}
+
+static void configure_dimms(QemuOpts *opts)
+{
+    const char *value, *pfx, *id;
+    uint64_t size, node;
+    int num, dimm;
+    char buf[32];
+
+    id = qemu_opts_id(opts);
+    value = qemu_opt_get(opts, "pfx");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid prefix for dimm pool '%s'\n", id);
+        exit(1);
+    }
+    pfx = value;
+    value = qemu_opt_get(opts, "size");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid size for dimm pool '%s'\n", pfx);
+        exit(1);
+    }
+    size = atoi(value);
+
+    value = qemu_opt_get(opts, "num");
+    if (!value) {
+        fprintf(stderr, "qemu: number not defined for dimm pool '%s'\n", pfx);
+        exit(1);
+    }
+    else num = atoi(value);
+
+    value = qemu_opt_get(opts, "node");
+    if (!value) {
+        fprintf(stderr, "qemu: no node proximity defined for dimm pool '%s'\n",
+                pfx);
+        node = 0;
+    }
+    else node = atoi(value);
+
+    fprintf(stderr, "qemu: dimmpool %s size %lu node %lu \n", pfx,
+            size, node);
+
+    for (dimm = 0; dimm < num; dimm++) {
+        if (nb_hp_dimms == MAX_DIMMS) {
+            fprintf(stderr, "qemu: maximum number of DIMMs (%d) exceeded\n",
+                    MAX_DIMMS);
+            exit(1);
+        }
+        sprintf(buf, "%s%d", pfx, dimm);
+        dimm_register_calcoffset(pc_set_hp_memory_offset);
+        dimm_create(g_strdup(buf), size, node, nb_hp_dimms, false);
+        nb_hp_dimms++;
+    }
+}
+
+/* populate dimms at startup */ 
+static void configure_dimmpop(QemuOpts *opts)
+{
+    const char *value, *pfx, *id;
+    int num, dimm;
+    char buf[32];
+
+    id = qemu_opts_id(opts);
+    value = qemu_opt_get(opts, "pfx");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid prefix for dimm pool '%s'\n", id);
+        exit(1);
+    }
+    pfx = value;
+    value = qemu_opt_get(opts, "num");
+    if (!value) {
+        fprintf(stderr, "qemu: number not defined for dimm pool '%s'\n", pfx);
+        exit(1);
+    }
+    else num = atoi(value);
+    for (dimm = 0; dimm < num; dimm++) {
+        sprintf(buf, "%s%d", pfx, dimm);
+        dimm_set_populated(dimm_find_from_name(buf));
+    }
 }
 
 static void configure_rtc(QemuOpts *opts)
@@ -2207,6 +2290,10 @@ int main(int argc, char **argv, char **envp)
     DisplayChangeListener *dcl;
     int cyls, heads, secs, translation;
     QemuOpts *hda_opts = NULL, *opts;
+    QemuOpts *dimm_opts[MAX_DIMMS];
+    QemuOpts *dimms_opts[MAX_DIMMPOOLS];
+    QemuOpts *dimmpop_opts[MAX_DIMMPOOLS];
+    int nb_dimm_opts = 0, nb_dimms_opts = 0, nb_dimmpop_opts = 0;
     QemuOptsList *olist;
     int optind;
     const char *optarg;
@@ -2476,11 +2563,40 @@ int main(int argc, char **argv, char **envp)
                 kernel_filename = optarg;
                 break;
             case QEMU_OPTION_dimm:
-                opts = qemu_opts_parse(qemu_find_opts("dimm"), optarg, 0);
-                if (!opts) {
+                if (nb_dimm_opts == MAX_DIMMS) {
+                    fprintf(stderr, "qemu: maximum number of DIMMs (%d) exceeded\n",
+                        MAX_DIMMS);
+                }
+                dimm_opts[nb_dimm_opts] =
+                    qemu_opts_parse(qemu_find_opts("dimm"), optarg, 0);
+                if (!dimm_opts[nb_dimm_opts]) {
                     exit(1);
                 }
-                configure_dimm(opts);
+                nb_dimm_opts++;
+                break;
+            case QEMU_OPTION_dimms:
+                if (nb_dimms_opts == MAX_DIMMPOOLS) {
+                    fprintf(stderr, "qemu: maximum number of DIMMpools (%d) exceeded\n",
+                        MAX_DIMMPOOLS);
+                }
+                dimms_opts[nb_dimms_opts] =
+                    qemu_opts_parse(qemu_find_opts("dimms"), optarg, 0);
+                if (!dimms_opts[nb_dimms_opts]) {
+                    exit(1);
+                }
+                nb_dimms_opts++;
+                break;
+            case QEMU_OPTION_dimmpop:
+                if (nb_dimmpop_opts == MAX_DIMMPOOLS) {
+                    fprintf(stderr, "qemu: maximum number of DIMMpools (%d) exceeded\n",
+                        MAX_DIMMPOOLS);
+                }
+                dimmpop_opts[nb_dimmpop_opts] =
+                    qemu_opts_parse(qemu_find_opts("dimmpop"), optarg, 0);
+                if (!dimmpop_opts[nb_dimmpop_opts]) {
+                    exit(1);
+                }
+                nb_dimmpop_opts++;
                 break;
             case QEMU_OPTION_append:
                 kernel_cmdline = optarg;
@@ -3437,6 +3553,15 @@ int main(int argc, char **argv, char **envp)
         qdev_prop_register_global_list(machine->compat_props);
     }
     qemu_add_globals();
+
+    for (i = 0; i < nb_dimm_opts; i++)
+        configure_dimm(dimm_opts[i]);
+
+    for (i = 0; i < nb_dimms_opts; i++)
+        configure_dimms(dimms_opts[i]);
+
+    for (i = 0; i < nb_dimmpop_opts; i++)
+        configure_dimmpop(dimmpop_opts[i]);
 
     machine->init(ram_size, boot_devices,
                   kernel_filename, kernel_cmdline, initrd_filename, cpu_model);

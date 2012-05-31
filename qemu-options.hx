@@ -2637,5 +2637,15 @@ ETEXI
 
 DEF("dimm", HAS_ARG, QEMU_OPTION_dimm,
         "-memslot start=num,size=num,id=name\n"
-        "specify unpopulated memory slot",
+        "specify memory dimm device",
+        QEMU_ARCH_ALL)
+
+DEF("dimms", HAS_ARG, QEMU_OPTION_dimms,
+        "-memslot start=num,size=num,id=name\n"
+        "specify pool of memory dimm devices",
+        QEMU_ARCH_ALL)
+
+DEF("dimmpop", HAS_ARG, QEMU_OPTION_dimmpop,
+        "-dimmon dimmid\n"
+        "populate dimm at system startup",
         QEMU_ARCH_ALL)
