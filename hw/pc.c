@@ -1248,7 +1248,7 @@ target_phys_addr_t pc_set_hp_memory_offset(uint64_t size)
         ram_hp_offset += size;
     }
     /* if dimm fits before pci hole, append it normally */
-    else if (ram_hp_offset + size < MIN_PCI_HOLE) {
+    else if (ram_hp_offset + size <= MIN_PCI_HOLE) {
         ret = ram_hp_offset;
         below_4g_hp_mem_size += size;
         ram_hp_offset += size;

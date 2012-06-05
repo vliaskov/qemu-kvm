@@ -8,6 +8,11 @@
 #define MAX_DIMMPOOLS 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024
 
+enum {
+    DIMM_MIN_UNPOPULATED= 0,
+    DIMM_MAX_POPULATED = 1
+};
+
 #define DIMM(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
 
 typedef struct DimmState {
@@ -30,8 +35,10 @@ DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
 void dimm_populate(DimmState *s);
 void dimm_depopulate(DimmState *s);
 int dimm_do(Monitor *mon, const QDict *qdict, bool add);
+int dimm_do_range(Monitor *mon, const QDict *qdict, bool add);
 DimmState *dimm_find_from_idx(uint32_t idx);
 DimmState *dimm_find_from_name(char *id);
+bool dimm_find_next(char *pfx, uint32_t mode, uint32_t *idx);
 void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
 void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset);
 void dimm_setstart(DimmState *slot);

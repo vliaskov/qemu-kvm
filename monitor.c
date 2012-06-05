@@ -4988,17 +4988,22 @@ int monitor_read_bdrv_key_start(Monitor *mon, BlockDriverState *bs,
     return err;
 }
 
-
 int do_dimm_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
-#if defined(TARGET_I386) || defined(TARGET_X86_64)
     return dimm_do(mon, qdict, true);
-#endif
 }
 
 int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
-#if defined(TARGET_I386) || defined(TARGET_X86_64)
     return dimm_do(mon, qdict, false);
-#endif
+}
+
+int do_dimm_add_range(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do_range(mon, qdict, true);
+}
+
+int do_dimm_del_range(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do_range(mon, qdict, false);
 }

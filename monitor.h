@@ -66,5 +66,7 @@ void monitor_set_error(Monitor *mon, QError *qerror);
 
 int do_dimm_add(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
+int do_dimm_add_range(Monitor *mon, const QDict *qdict, QObject **ret_data);
+int do_dimm_del_range(Monitor *mon, const QDict *qdict, QObject **ret_data);
 
 #endif /* !MONITOR_H */

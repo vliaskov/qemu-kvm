@@ -109,7 +109,6 @@ DimmState *dimm_find_from_name(char *id)
             return NULL;
         }
         if (!strcmp(type, "dimm")) {
-            fprintf(stderr, "%s found dimm %s\n", __FUNCTION__, id);
             return DIMM(qdev);
         }
     }    
@@ -153,6 +152,109 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
     return 0;
 }
 
+/* Find for dimm_do_range operation
+    DIMM_MIN_UNPOPULATED: used for finding next DIMM to hotplug
+    DIMM_MAX_POPULATED: used for finding next DIMM for hot-unplug
+ */
+
+bool dimm_find_next(char *pfx, uint32_t mode, uint32_t *idx)
+{
+    DeviceState *dev;
+    DimmState *slot;
+    const char *type;
+    bool found = false;
+    BusState *bus = sysbus_get_default();
+    if (mode == DIMM_MIN_UNPOPULATED)
+        *idx =  MAX_DIMMS - 1;
+    else if (mode == DIMM_MAX_POPULATED)
+        *idx = 0;
+    else
+        return false;
+
+    QTAILQ_FOREACH(dev, &bus->children, sibling) {
+        type = dev->info->name;
+        if (!type) {
+            fprintf(stderr, "error getting device type\n");
+            return -1;
+        }
+        if (!strcmp(type, "dimm")) {
+            slot = DIMM(dev);
+            if (strstr(dev->id, pfx)) {
+                found = true;
+                if (mode == DIMM_MIN_UNPOPULATED &&
+                        (slot->populated == false)) {
+                    if (*idx > slot->idx)
+                        *idx = slot->idx;
+                }
+                else if (mode == DIMM_MAX_POPULATED &&
+                        (slot->populated == true)) {
+                    if (*idx < slot->idx)
+                        *idx = slot->idx;
+                }
+            }
+        }
+    }
+    return found;
+}
+
+int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
+{
+    DimmState *slot = NULL;
+    uint32_t mode;
+    uint32_t idx;
+    int num, ndimms, ret;
+
+    char *pfx = (char*) qdict_get_try_str(qdict, "pfx");
+    if (!pfx) {
+        fprintf(stderr, "ERROR %s invalid pfx\n",__FUNCTION__);
+        return 1;
+    }
+
+    char *value = (char*) qdict_get_try_str(qdict, "num");
+    if (!value) {
+        fprintf(stderr, "ERROR %s invalid pfx\n",__FUNCTION__);
+        return 1;
+    }
+    num = atoi(value);
+
+    if (add)
+        mode = DIMM_MIN_UNPOPULATED;
+    else
+        mode = DIMM_MAX_POPULATED;
+
+    ndimms = 0;
+    while (ndimms < num) {
+        ret = dimm_find_next(pfx, mode, &idx);
+        if (ret == false) {
+            fprintf(stderr, "%s no further slot found for pool %s\n",
+                    __FUNCTION__, pfx);
+            fprintf(stderr, "%s operated on %d / %d requested dimms\n",
+                    __FUNCTION__, ndimms, num);
+            return 1;
+        }
+
+        slot = dimm_find_from_idx(idx);
+        if (!slot) {
+            fprintf(stderr, "%s no slot found for idx %u\n",
+                    __FUNCTION__, idx);
+            fprintf(stderr, "%s operated on %d / %d requested dimms\n",
+                    __FUNCTION__, ndimms, num);
+            return 1;
+        }
+        if (add) {
+            dimm_activate(slot);
+        }
+        else {
+            if (dimm_hotplug)
+                dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
+        }
+        ndimms++;
+        idx++;
+    }
+
+    return 0;
+}
+
 DimmState *dimm_find_from_idx(uint32_t idx)
 {
     DeviceState *dev;
@@ -169,13 +271,10 @@ DimmState *dimm_find_from_idx(uint32_t idx)
         if (!strcmp(type, "dimm")) {
             slot = DIMM(dev);
             if (slot->idx == idx) {
-                fprintf(stderr, "%s found slot with idx %u : %p\n",
-                        __FUNCTION__, idx, slot);
+                /*fprintf(stderr, "%s found slot with idx %u : %p\n",
+                        __FUNCTION__, idx, slot);*/
                 return slot;
             }
-            else
-                fprintf(stderr, "%s slot with idx %u !=  %u\n", __FUNCTION__,
-                        slot->idx, idx);
         }
     }
     return NULL;
@@ -207,7 +306,8 @@ void dimm_scan_populated(void)
             }
             slot = DIMM(dev);
             if (slot->populated && !slot->mr) {
-                fprintf(stderr, "%s slot %d PRE-POPULATE\n", __FUNCTION__, slot->idx);
+                /*fprintf(stderr, "%s slot %d PRE-POPULATE\n", __FUNCTION__,
+                 * slot->idx);*/
                 dimm_activate(slot);
             }
         }
