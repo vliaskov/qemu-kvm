@@ -34,6 +34,13 @@
 #define BLOCK_FLAG_ENCRYPT	1
 #define BLOCK_FLAG_COMPAT6	4
 
+#define BLOCK_IO_LIMIT_READ     0
+#define BLOCK_IO_LIMIT_WRITE    1
+#define BLOCK_IO_LIMIT_TOTAL    2
+
+#define BLOCK_IO_SLICE_TIME     100000000
+#define NANOSECONDS_PER_SECOND  1000000000.0
+
 #define BLOCK_OPT_SIZE          "size"
 #define BLOCK_OPT_ENCRYPT       "encryption"
 #define BLOCK_OPT_COMPAT6       "compat6"
@@ -49,6 +56,46 @@ typedef struct AIOPool {
     int aiocb_size;
     BlockDriverAIOCB *free_aiocb;
 } AIOPool;
+
+typedef struct BlockIOLimit {
+    int64_t bps[3];
+    int64_t iops[3];
+} BlockIOLimit;
+
+typedef struct BlockIOBaseValue {
+    uint64_t bytes[2];
+    uint64_t ios[2];
+} BlockIOBaseValue;
+
+typedef void BlockJobCancelFunc(void *opaque);
+typedef struct BlockJob BlockJob;
+typedef struct BlockJobType {
+    /** Derived BlockJob struct size */
+    size_t instance_size;
+
+    /** String describing the operation, part of query-block-jobs QMP API */
+    const char *job_type;
+
+    /** Optional callback for job types that support setting a speed limit */
+    int (*set_speed)(BlockJob *job, int64_t value);
+} BlockJobType;
+
+/**
+ * Long-running operation on a BlockDriverState
+ */
+struct BlockJob {
+    const BlockJobType *job_type;
+    BlockDriverState *bs;
+    bool cancelled;
+
+    /* These fields are published by the query-block-jobs QMP API */
+    int64_t offset;
+    int64_t len;
+    int64_t speed;
+
+    BlockDriverCompletionFunc *cb;
+    void *opaque;
+};
 
 struct BlockDriver {
     const char *format_name;
@@ -201,6 +248,16 @@ struct BlockDriverState {
 
     void *sync_aiocb;
 
+    /* the time for latest disk I/O */
+    int64_t slice_time;
+    int64_t slice_start;
+    int64_t slice_end;
+    BlockIOLimit io_limits;
+    BlockIOBaseValue  io_base;
+    CoQueue      throttled_reqs;
+    QEMUTimer    *block_timer;
+    bool         io_limits_enabled;
+
     /* I/O stats (display with "info blockstats"). */
     uint64_t nr_bytes[BDRV_MAX_IOTYPE];
     uint64_t nr_ops[BDRV_MAX_IOTYPE];
@@ -228,6 +285,9 @@ struct BlockDriverState {
     int in_use; /* users other than guest access, eg. block migration */
     QTAILQ_ENTRY(BlockDriverState) list;
     void *private;
+
+    /* long-running background operation */
+    BlockJob *job;
 };
 
 struct BlockDriverAIOCB {
@@ -244,8 +304,18 @@ void *qemu_aio_get(AIOPool *pool, BlockDriverState *bs,
                    BlockDriverCompletionFunc *cb, void *opaque);
 void qemu_aio_release(void *p);
 
+void bdrv_set_io_limits(BlockDriverState *bs,
+                        BlockIOLimit *io_limits);
+
 #ifdef _WIN32
 int is_windows_drive(const char *filename);
 #endif
+
+void *block_job_create(const BlockJobType *job_type, BlockDriverState *bs,
+                       BlockDriverCompletionFunc *cb, void *opaque);
+void block_job_complete(BlockJob *job, int ret);
+int block_job_set_speed(BlockJob *job, int64_t value);
+void block_job_cancel(BlockJob *job);
+bool block_job_is_cancelled(BlockJob *job);
 
 #endif /* BLOCK_INT_H */
