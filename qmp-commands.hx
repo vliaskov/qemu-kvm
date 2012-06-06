@@ -2052,3 +2052,43 @@ EQMP
         .args_type  = "",
         .mhandler.cmd_new = qmp_marshal_input_query_balloon,
     },
+
+    {
+        .name       = "mem-increase",
+        .args_type  = "pfx:s,num:s",
+        .mhandler.cmd_new = do_dimm_add_range,
+    },
+SQMP
+mem-increase
+-------------
+
+Hotplug memory DIMMs from memory pool
+
+Will hotplug num memory DIMMs from pool with name pfx.
+
+Example:
+
+-> { "execute": "mem-increase" }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "mem-add",
+        .args_type  = "id:s",
+        .mhandler.cmd_new = do_dimm_add,
+    },
+SQMP
+mem-add
+-------------
+
+Hotplug memory DIMM
+
+Will hotplug memory DIMMs with given id.
+
+Example:
+
+-> { "execute": "mem-add" }
+<- { "return": {} }
+
+EQMP
