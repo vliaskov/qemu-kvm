@@ -1,8 +1,12 @@
 qemu-kvm (1.0.1-1) unstable; urgency=low
 
+  [ Dongsu Park ]
   * add block I/O throttling feature
 
- -- Dongsu Park <dongsu.park@profitbricks.com>  Wed, 06 Jun 2012 14:48:41 +0200
+  [ Vasilis Liaskovitis ]
+  * add memory hotplug support 
+
+ -- Vasilis Liaskovitis <vasilis.liaskovitis@profitbricks.com>  Wed, 06 Jun 2012 15:56:36 +0200
 
 qemu-kvm (1.0.1) unstable; urgency=low
 
