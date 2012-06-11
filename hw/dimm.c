@@ -280,9 +280,13 @@ DimmState *dimm_find_from_idx(uint32_t idx)
     return NULL;
 }
 
-void dimm_set_populated(DimmState *s)
+int dimm_set_populated(DimmState *s)
 {
-    s->populated = true;
+    if (s) {
+        s->populated = true;
+        return 0;
+    }    
+    else return -1;
 }
 
 /* used to populateand activate dimms at boot time */
