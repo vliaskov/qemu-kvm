@@ -567,9 +567,6 @@ static void configure_dimms(QemuOpts *opts)
     num = qemu_opt_get_number(opts, "num", 1);
     node = qemu_opt_get_number(opts, "node", 0);
 
-    fprintf(stderr, "qemu: dimmpool %s size %lu node %lu \n", pfx,
-            size, node);
-
     for (dimm = 0; dimm < num; dimm++) {
         if (nb_hp_dimms == MAX_DIMMS) {
             fprintf(stderr, "qemu: maximum number of DIMMs (%d) exceeded\n",
@@ -605,7 +602,10 @@ static void configure_dimmpop(QemuOpts *opts)
     else num = atoi(value);
     for (dimm = 0; dimm < num; dimm++) {
         sprintf(buf, "%s%d", pfx, dimm);
-        dimm_set_populated(dimm_find_from_name(buf));
+        if (dimm_set_populated(dimm_find_from_name(buf)) < 0) {
+            fprintf(stderr, "qemu: dimm %s not defined for dimm pool '%s'\n",
+                    buf, pfx);
+        }
     }
 }
 
