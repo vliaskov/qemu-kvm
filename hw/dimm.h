@@ -4,7 +4,7 @@
 #include "qemu-common.h"
 #include "memory.h"
 #include "sysbus.h"
-#define MAX_DIMMS 256
+#define MAX_DIMMS 1024
 #define MAX_DIMMPOOLS 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024
 

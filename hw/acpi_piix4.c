@@ -45,8 +45,8 @@
 #define PCI_BASE 0xae00
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
-#define MEM_BASE 0xaf80
-#define MEM_EJ_BASE 0xafa0
+#define MEM_BASE 0xaf40
+#define MEM_EJ_BASE MEM_BASE + MAX_DIMMS/8
  
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_CPU_HOTPLUG_STATUS 4
@@ -450,7 +450,7 @@ static uint32_t gpe_readb(void *opaque, uint32_t addr)
         case PROC_BASE ... PROC_BASE+31:
             val = g->cpus_sts[addr - PROC_BASE];
             break;
-        case MEM_BASE ... MEM_BASE+31:
+        case MEM_BASE ... MEM_BASE+MAX_DIMMS/8-1:
             val = g->mems_sts[addr - MEM_BASE];
             break;
         default:
@@ -613,7 +613,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     register_ioport_write(PCI_RMV_BASE, 4, 4, pcirmv_write, s);
     register_ioport_read(PCI_RMV_BASE, 4, 4,  pcirmv_read, s);
 
-    register_ioport_read(MEM_BASE, 32, 1,  gpe_readb, s);
+    register_ioport_read(MEM_BASE, MAX_DIMMS/8, 1,  gpe_readb, s);
     register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
     for(i = 0; i < 32; i++) {
         s->gperegs.mems_sts[i] = 0;
