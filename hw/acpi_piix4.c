@@ -615,7 +615,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_read(MEM_BASE, MAX_DIMMS/8, 1,  gpe_readb, s);
     register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
-    for(i = 0; i < 32; i++) {
+    for(i = 0; i < MAX_DIMMS/8; i++) {
         s->gperegs.mems_sts[i] = 0;
     }
 
