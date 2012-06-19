@@ -59,7 +59,7 @@ typedef struct kvm_dirty_log KVMDirtyLog;
 
 struct KVMState
 {
-    KVMSlot slots[32];
+    KVMSlot slots[272];
     int fd;
     int vmfd;
     int coalesced_mmio;
