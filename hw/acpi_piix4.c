@@ -47,6 +47,9 @@
 #define PCI_RMV_BASE 0xae0c
 #define MEM_BASE 0xaf80
 #define MEM_EJ_BASE 0xafa0
+#define MEM_OST_REMOVEFAIL_BASE 0xafa1
+#define MEM_OST_ADDSUCCESS_BASE 0xafa2
+#define MEM_OST_ADDFAIL_BASE 0xafa3
  
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_CPU_HOTPLUG_STATUS 4
@@ -461,15 +464,22 @@ static uint32_t gpe_readb(void *opaque, uint32_t addr)
     return val;
 }
 
-static void piix4_dimm_eject(uint32_t addr, uint32_t val);
-
 static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
 
     switch (addr) {
         case MEM_EJ_BASE:
-            piix4_dimm_eject(addr, val);
+            dimm_notify(addr, val, DIMM_REMOVESUCCESS_NOTIFY);
+            break;
+        case MEM_OST_REMOVEFAIL_BASE:
+            dimm_notify(addr, val, DIMM_REMOVEFAIL_NOTIFY);
+            break;
+        case MEM_OST_ADDSUCCESS_BASE:
+            dimm_notify(addr, val, DIMM_ADDSUCCESS_NOTIFY);
+            break;
+        case MEM_OST_ADDFAIL_BASE:
+            dimm_notify(addr, val, DIMM_ADDFAIL_NOTIFY);
             break;
         default:
             acpi_gpe_ioport_writeb(&s->gpe, addr, val);
@@ -615,6 +625,10 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_read(MEM_BASE, 32, 1,  gpe_readb, s);
     register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_REMOVEFAIL_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADDSUCCESS_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADDFAIL_BASE, 1, 1,  gpe_writeb, s);
+
     for(i = 0; i < 32; i++) {
         s->gperegs.mems_sts[i] = 0;
     }
@@ -703,14 +717,7 @@ static void disable_mem_device(PIIX4PMState *s, int memdevice)
     g->mems_sts[memdevice/8] &= ~(1 << (memdevice%8));
 }
 
-static void piix4_dimm_eject(uint32_t addr, uint32_t idx)
-{
-    DimmState *s;
-    PIIX4_DPRINTF("memej write %x <= %d\n", addr, idx);
-    s = dimm_find_from_idx(idx);
-    assert(s != NULL);
-    dimm_depopulate(s);
-}
+
 
 static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
         add)

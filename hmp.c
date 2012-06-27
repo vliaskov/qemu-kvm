@@ -531,3 +531,22 @@ void hmp_cpu(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "invalid CPU index\n");
     }
 }
+
+void hmp_info_memhp(Monitor *mon)
+{
+    MemHpInfoList *info;
+    MemHpInfoList *item;
+    MemHpInfo *dimm;
+
+    info = qmp_query_memhp(NULL);
+    for (item = info; item; item = item->next) {
+        dimm = item->value;
+        monitor_printf(mon, "Dimm: %s %s %s\n", dimm->Dimm,
+                dimm->result < 2 ? "hot-remove" : "hot-add",
+                (dimm->result == 0 || dimm->result == 2) ? "success" :
+                "fail");
+        dimm->Dimm = NULL;
+    }
+
+    qapi_free_MemHpInfoList(info);
+}

@@ -2938,6 +2938,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = do_trace_print_events,
     },
     {
+        .name       = "memhp",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show memory hotplug status",
+        .mhandler.info = hmp_info_memhp,
+    },
+    {
         .name       = NULL,
     },
 };

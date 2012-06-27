@@ -19,11 +19,15 @@
 #include "trace.h"
 #include "qdev.h"
 #include "dimm.h"
+#include <time.h>
 #include "../exec-memory.h"
+#include "qmp-commands.h"
 
 static DeviceState *dimm_hotplug_qdev;
 static dimm_hotplug_fn dimm_hotplug;
 static dimm_calcoffset_fn dimm_calcoffset;
+
+static QLIST_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
 
 void dimm_populate(DimmState *s)
 {
@@ -149,6 +153,7 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
         if (dimm_hotplug)
             dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
     }
+
     return 0;
 }
 
@@ -202,7 +207,8 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
     DimmState *slot = NULL;
     uint32_t mode;
     uint32_t idx;
-    int num, ndimms, ret;
+    int num, ndimms;
+    bool next;
 
     char *pfx = (char*) qdict_get_try_str(qdict, "pfx");
     if (!pfx) {
@@ -224,8 +230,8 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
 
     ndimms = 0;
     while (ndimms < num) {
-        ret = dimm_find_next(pfx, mode, &idx);
-        if (ret == false) {
+        next = dimm_find_next(pfx, mode, &idx);
+        if (next == false) {
             fprintf(stderr, "%s no further slot found for pool %s\n",
                     __FUNCTION__, pfx);
             fprintf(stderr, "%s operated on %d / %d requested dimms\n",
@@ -318,6 +324,73 @@ void dimm_scan_populated(void)
     }
 }
 
+void dimm_notify(uint32_t addr, uint32_t idx, uint32_t event)
+{
+    DimmState *s;
+    s = dimm_find_from_idx(idx);
+
+    assert(s != NULL);
+    struct dimm_hp_result *result = g_malloc0(sizeof(*result));
+    result->ret = event;
+    result->s = s;
+
+    switch(event) {
+        case DIMM_REMOVESUCCESS_NOTIFY:
+            fprintf(stderr, "memremove _EJ success write %x <= %d\n", addr, idx);
+            dimm_depopulate(s);
+            break;
+        case DIMM_REMOVEFAIL_NOTIFY:
+            fprintf(stderr, "memremove _OST fail write %x <= %d\n", addr, idx);
+            /* although hot-remove may have been successfull for some 128MB
+             * sections of the DIMM, it is dangerous to depopulate.
+             */
+            break;
+        case DIMM_ADDSUCCESS_NOTIFY:
+            fprintf(stderr, "memadd _OST success write %x <= %d\n", addr, idx);
+            break;
+        case DIMM_ADDFAIL_NOTIFY:
+            fprintf(stderr, "memadd fail write %x <= %d\n", addr, idx);
+            /* depopulate is dangerous, because hot-add could be a a partial success,
+             * for some of the sections of the DIMM. FIXME
+             */
+            //dimm_depopulate(s);
+            break;
+        default:
+            fprintf(stderr, "memadd invalid event %u  %x <= %d\n", event, addr, idx);
+            result->ret = 0;
+            break;
+    }
+
+    QLIST_INSERT_HEAD(&dimm_hp_result_queue, result, next);
+}
+
+MemHpInfoList *qmp_query_memhp(Error **errp)
+{
+    MemHpInfoList *head = NULL, *cur_item = NULL, *info;
+    struct dimm_hp_result *item, *nextitem;
+
+    QLIST_FOREACH_SAFE(item, &dimm_hp_result_queue, next, nextitem) {
+
+        info = g_malloc0(sizeof(*info));
+        info->value = g_malloc0(sizeof(*info->value));
+        info->value->Dimm = (char*)item->s->busdev.qdev.id;
+        info->value->result = item->ret;
+        /* XXX: waiting for the qapi to support GSList */
+        if (!cur_item) {
+            head = cur_item = info;
+        } else {
+            cur_item->next = info;
+            cur_item = info;
+        }
+
+        /* hotplug notification copied to qmp list, delete original item */
+        QLIST_REMOVE(item, next);
+        g_free(item);
+    }
+
+    return head;
+}
+
 static int dimm_init(SysBusDevice *s)
 {
     DimmState *slot;
@@ -355,6 +428,7 @@ static SysBusDeviceInfo dimm_info = {
 static void dimm_register_devices(void)
 {
     sysbus_register_withprop(&dimm_info);
+    QLIST_INIT(&dimm_hp_result_queue);
 }
 
 device_init(dimm_register_devices)

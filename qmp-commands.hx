@@ -2092,3 +2092,43 @@ Example:
 <- { "return": {} }
 
 EQMP
+
+    {
+        .name       = "query-memhp",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_memhp
+    },
+SQMP
+query-memhp
+----------
+
+Show memory hotplug command notifications.
+
+Return a json-array. Each DIMM that has a pending notification is represented
+by a json-object, which contains:
+
+- "Dimm": Dimm name (json-str)
+- "result": result of the hotplug command for this Dimm (json-int)
+
+The result also describes the command that was requested (hot-add,  hot-remove).
+Thus there are 4 different possible result values for the combinations:
+hot-add/hot-remove success / failure. See hw/dimm.h for how to interpret result
+integers into the 4 different outcomes.
+
+Example:
+
+-> { "execute": "query-memhp" }
+<- {
+      "return":[
+         {
+            "result": 2,
+            "Dimm": "p128m0"
+         },
+         {
+            "result": 2,
+            "Dimm": "p128m1"
+         }
+      ]
+   }
+
+EQMP

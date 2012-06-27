@@ -1483,6 +1483,8 @@ show device tree
 show qdev device model list
 @item info roms
 show roms
+@item info memhp
+show memhp
 @end table
 ETEXI
 
