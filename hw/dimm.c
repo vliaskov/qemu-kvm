@@ -162,17 +162,20 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
     DIMM_MAX_POPULATED: used for finding next DIMM for hot-unplug
  */
 
-bool dimm_find_next(char *pfx, uint32_t mode, uint32_t *idx)
+DimmState *dimm_find_next(char *pfx, uint32_t mode)
 {
     DeviceState *dev;
-    DimmState *slot;
+    DimmState *slot, *ret;
     const char *type;
-    bool found = false;
+    uint32_t idx;
+
+    ret = NULL;
     BusState *bus = sysbus_get_default();
+
     if (mode == DIMM_MIN_UNPOPULATED)
-        *idx =  MAX_DIMMS - 1;
+        idx =  MAX_DIMMS - 1;
     else if (mode == DIMM_MAX_POPULATED)
-        *idx = 0;
+        idx = 0;
     else
         return false;
 
@@ -180,26 +183,27 @@ bool dimm_find_next(char *pfx, uint32_t mode, uint32_t *idx)
         type = dev->info->name;
         if (!type) {
             fprintf(stderr, "error getting device type\n");
-            return -1;
+            return NULL;
         }
         if (!strcmp(type, "dimm")) {
             slot = DIMM(dev);
             if (strstr(dev->id, pfx)) {
-                found = true;
                 if (mode == DIMM_MIN_UNPOPULATED &&
-                        (slot->populated == false)) {
-                    if (*idx > slot->idx)
-                        *idx = slot->idx;
+                        (slot->populated == false) &&
+                        (idx > slot->idx)) {
+                    idx = slot->idx;
+                    ret = slot;
                 }
                 else if (mode == DIMM_MAX_POPULATED &&
-                        (slot->populated == true)) {
-                    if (*idx < slot->idx)
-                        *idx = slot->idx;
+                        (slot->populated == true) &&
+                        (idx < slot->idx)) {
+                    idx = slot->idx;
+                    ret = slot;
                 }
             }
         }
     }
-    return found;
+    return ret;
 }
 
 int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
@@ -208,7 +212,6 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
     uint32_t mode;
     uint32_t idx;
     int num, ndimms;
-    bool next;
 
     char *pfx = (char*) qdict_get_try_str(qdict, "pfx");
     if (!pfx) {
@@ -230,8 +233,8 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
 
     ndimms = 0;
     while (ndimms < num) {
-        next = dimm_find_next(pfx, mode, &idx);
-        if (next == false) {
+        slot = dimm_find_next(pfx, mode);
+        if (slot == NULL) {
             fprintf(stderr, "%s no further slot found for pool %s\n",
                     __FUNCTION__, pfx);
             fprintf(stderr, "%s operated on %d / %d requested dimms\n",
@@ -239,14 +242,6 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
             return 1;
         }
 
-        slot = dimm_find_from_idx(idx);
-        if (!slot) {
-            fprintf(stderr, "%s no slot found for idx %u\n",
-                    __FUNCTION__, idx);
-            fprintf(stderr, "%s operated on %d / %d requested dimms\n",
-                    __FUNCTION__, ndimms, num);
-            return 1;
-        }
         if (add) {
             dimm_activate(slot);
         }
