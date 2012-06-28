@@ -6,6 +6,7 @@
 #include "sysbus.h"
 #include "qapi-types.h"
 #include "qemu-queue.h"
+#include "cpus.h"
 #define MAX_DIMMS 255
 #define MAX_DIMMPOOLS 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024

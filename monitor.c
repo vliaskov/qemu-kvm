@@ -2952,6 +2952,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = hmp_info_memtotal,
     },
     {
+        .name       = "cpuhp",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show cpu hotplug status",
+        .mhandler.info = hmp_info_cpuhp,
+    },
+    {
         .name       = NULL,
     },
 };

@@ -2152,3 +2152,43 @@ Example:
    }
 
 EQMP
+    
+    {
+        .name       = "query-cpuhp",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_cpuhp
+    },
+SQMP
+query-cpuhp
+----------
+
+Show cpu hotplug command notifications.
+
+Return a json-array. Each CPU that has a pending notification is represented
+by a json-object, which contains:
+
+- "CPU": cpu index (json-int)
+- "result": result of the hotplug command for this Dimm (json-int)
+
+The result also describes the command that was requested (hot-add,  hot-remove).
+Thus there are 4 different possible result values for the combinations:
+hot-add/hot-remove success / failure. See hw/cpus.h for how to interpret result
+integers into the 4 different outcomes.
+
+Example:
+
+-> { "execute": "query-cpuhp" }
+<- {
+      "return":[
+         {
+            "result": 2,
+            "CPU": "3"
+         },
+         {
+            "result": 1,
+            "CPU": "2"
+         }
+      ]
+   }
+
+EQMP

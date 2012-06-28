@@ -940,3 +940,29 @@
 # Since: 0.14.0
 ##
 { 'command': 'query-memtotal', 'returns': 'int' }
+
+##
+# @CpuHpInfo:
+#
+# Information about status of a cpu hotplug command
+#
+# @Cpu: the cpu associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 1.1
+#
+##
+{ 'type': 'CpuHpInfo',
+  'data': {'cpu': 'int', 'result': 'int'} }
+
+##
+# @query-cpuhp:
+#
+# Returns a list of information about pending hotplug commands
+#
+# Returns: a list of @CpuhpInfo
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-cpuhp', 'returns': ['CpuHpInfo'] }

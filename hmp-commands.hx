@@ -1487,6 +1487,8 @@ show roms
 show memhp
 @item info memtotal
 show memtotal
+@item info cpuhp
+show cpuhp
 @end table
 ETEXI
 

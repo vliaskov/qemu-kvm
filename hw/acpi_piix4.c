@@ -41,6 +41,9 @@
 #define GPE_BASE 0xafe0
 #define PROC_BASE 0xaf00
 #define PROC_EJ_BASE 0xaf20
+#define PROC_OST_REMOVEFAIL_BASE 0xaf21
+#define PROC_OST_ADDSUCCESS_BASE 0xaf22
+#define PROC_OST_ADDFAIL_BASE 0xaf23
 #define GPE_LEN 4
 #define PCI_BASE 0xae00
 #define PCI_EJ_BASE 0xae08
@@ -533,18 +536,28 @@ static void cpuej_write(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
     CPUState *env;
-    int cpu;
-
-    cpu = ffs(val);
-    /* zero means no bit was set, i.e. no CPU ejection happened */
-    if (!cpu)
-       return;
-    cpu--;
+    int cpu = val;
     env = qemu_get_cpu((uint64_t)cpu);
-    if (s->kvm_enabled && env != NULL) {
-        pc_unplug_cpu(env);
+
+    switch (addr) {
+        case PROC_EJ_BASE:
+            if (s->kvm_enabled && env != NULL) {
+                pc_unplug_cpu(env);
+            }
+            cpu_ost_notify(env->cpu_index, CPU_REMOVESUCCESS_NOTIFY);
+            break;
+        case PROC_OST_REMOVEFAIL_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_REMOVEFAIL_NOTIFY);
+            break;
+        case PROC_OST_ADDSUCCESS_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_ADDSUCCESS_NOTIFY);
+            break;
+        case PROC_OST_ADDFAIL_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_ADDFAIL_NOTIFY);
+            break;
     }
-    PIIX4_DPRINTF("cpuej write %x <== %d\n", addr, val);
+
+    PIIX4_DPRINTF("cpuej/ost write %x <== %d\n", addr, val);
 }
 
 static uint32_t pciej_read(void *opaque, uint32_t addr)
