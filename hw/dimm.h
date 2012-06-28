@@ -6,7 +6,7 @@
 #include "sysbus.h"
 #include "qapi-types.h"
 #include "qemu-queue.h"
-#define MAX_DIMMS 256
+#define MAX_DIMMS 255
 #define MAX_DIMMPOOLS 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024
 
@@ -32,6 +32,7 @@ typedef struct DimmState {
     uint32_t node; /* numa node proximity */
     MemoryRegion *mr; /* MemoryRegion for this slot. !NULL only if populated */
     bool populated; /* 1 means device has been hotplugged. Default is 0. */
+    bool depopulate_pending;
 } DimmState;
 
 struct dimm_hp_result {
@@ -58,6 +59,7 @@ void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
 void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset);
 void dimm_setstart(DimmState *slot);
 void dimm_activate(DimmState *slot);
+void dimm_deactivate(DimmState *slot);
 void dimm_scan_populated(void);
 int dimm_set_populated(DimmState *s);
 void dimm_notify(uint32_t addr, uint32_t idx, uint32_t event);

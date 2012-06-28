@@ -51,6 +51,7 @@ void dimm_depopulate(DimmState *s)
         memory_region_del_subregion(get_system_memory(), s->mr);
         memory_region_destroy(s->mr);
         s->populated = false;
+        s->depopulate_pending = false;
         s->mr = NULL;
     }
 }
@@ -102,6 +103,13 @@ void dimm_activate(DimmState *slot)
         dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 1);
 }
 
+void dimm_deactivate(DimmState *slot)
+{
+    slot->depopulate_pending = true;
+    if (dimm_hotplug)
+        dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
+}
+
 DimmState *dimm_find_from_name(char *id)
 {
     DeviceState *qdev;
@@ -150,8 +158,7 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
                     __FUNCTION__, id);
             return 1;
         }
-        if (dimm_hotplug)
-            dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
+        dimm_deactivate(slot);
     }
 
     return 0;
@@ -173,7 +180,7 @@ DimmState *dimm_find_next(char *pfx, uint32_t mode)
     BusState *bus = sysbus_get_default();
 
     if (mode == DIMM_MIN_UNPOPULATED)
-        idx =  MAX_DIMMS - 1;
+        idx =  MAX_DIMMS;
     else if (mode == DIMM_MAX_POPULATED)
         idx = 0;
     else
@@ -196,7 +203,8 @@ DimmState *dimm_find_next(char *pfx, uint32_t mode)
                 }
                 else if (mode == DIMM_MAX_POPULATED &&
                         (slot->populated == true) &&
-                        (idx < slot->idx)) {
+                        (slot->depopulate_pending == false) &&
+                        (idx <= slot->idx)) {
                     idx = slot->idx;
                     ret = slot;
                 }
@@ -246,8 +254,7 @@ int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
             dimm_activate(slot);
         }
         else {
-            if (dimm_hotplug)
-                dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
+            dimm_deactivate(slot);
         }
         ndimms++;
         idx++;
@@ -391,7 +398,8 @@ static int dimm_init(SysBusDevice *s)
     DimmState *slot;
     slot = DIMM(s);
     slot->mr = NULL;
-    slot->populated = 0;
+    slot->populated = false;
+    slot->depopulate_pending = false;
     return 0;
 }
 
