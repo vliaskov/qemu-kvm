@@ -393,6 +393,35 @@ MemHpInfoList *qmp_query_memhp(Error **errp)
     return head;
 }
 
+int64_t qmp_query_memtotal(Error **errp)
+{
+    DeviceState *dev;
+    DimmState *slot;
+    const char *type;
+    BusState *bus = sysbus_get_default();
+    uint64_t info = ram_size;
+
+    QTAILQ_FOREACH(dev, &bus->children, sibling) {
+        type = dev->info->name;
+        if (!type) {
+            fprintf(stderr, "error getting device type\n");
+            exit(1);
+        }
+
+        if (!strcmp(type, "dimm")) {
+            if (!dev->id) {
+                fprintf(stderr, "error getting dimm device id\n");
+                exit(1);
+            }
+            slot = DIMM(dev);
+            if (slot->populated) {
+                info += slot->size;
+            }
+        }
+    }
+    return (int64_t)info;
+}
+
 static int dimm_init(SysBusDevice *s)
 {
     DimmState *slot;

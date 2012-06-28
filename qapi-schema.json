@@ -929,3 +929,14 @@
 # Since: 0.14.0
 ##
 { 'command': 'query-memhp', 'returns': ['MemHpInfo'] }
+
+##
+# @query-memtotal:
+#
+# Returns total memory in bytes, including hotplugged dimms
+#
+# Returns: a l
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-memtotal', 'returns': 'int' }

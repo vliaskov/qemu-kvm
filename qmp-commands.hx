@@ -2132,3 +2132,23 @@ Example:
    }
 
 EQMP
+
+    {
+        .name       = "query-memtotal",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_memtotal
+    },
+SQMP
+query-memtotal
+----------
+
+Return total memory in bytes, including hotplugged dimms
+
+Example:
+
+-> { "execute": "query-memtotal" }
+<- {
+      "return": 1073741824
+   }
+
+EQMP

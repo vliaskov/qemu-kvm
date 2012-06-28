@@ -651,7 +651,7 @@ ETEXI
     },
 
 STEXI
-@item mem_del @var{config}
+@item mem_decrease @var{config}
 @findex mem_decrease
 
 Hot-unplug dimms.
@@ -667,7 +667,7 @@ ETEXI
     },
 
 STEXI
-@item mem_add @var{config}
+@item mem_increase @var{config}
 @findex mem_increase
 
 Hotplug dimms.
@@ -1485,6 +1485,8 @@ show qdev device model list
 show roms
 @item info memhp
 show memhp
+@item info memtotal
+show memtotal
 @end table
 ETEXI
 

@@ -38,5 +38,6 @@ void hmp_system_reset(Monitor *mon, const QDict *qdict);
 void hmp_system_powerdown(Monitor *mon, const QDict *qdict);
 void hmp_cpu(Monitor *mon, const QDict *qdict);
 void hmp_info_memhp(Monitor *mon);
+void hmp_info_memtotal(Monitor *mon);
 
 #endif
