@@ -194,7 +194,7 @@ DimmState *dimm_find_next(char *pfx, uint32_t mode)
         }
         if (!strcmp(type, "dimm")) {
             slot = DIMM(dev);
-            if (strstr(dev->id, pfx)) {
+            if (strstr(dev->id, pfx) && strcmp(dev->id, pfx)) {
                 if (mode == DIMM_MIN_UNPOPULATED &&
                         (slot->populated == false) &&
                         (idx > slot->idx)) {
@@ -326,7 +326,7 @@ void dimm_scan_populated(void)
     }
 }
 
-void dimm_notify(uint32_t addr, uint32_t idx, uint32_t event)
+void dimm_notify(uint32_t idx, uint32_t event)
 {
     DimmState *s;
     s = dimm_find_from_idx(idx);
@@ -338,32 +338,22 @@ void dimm_notify(uint32_t addr, uint32_t idx, uint32_t event)
 
     switch(event) {
         case DIMM_REMOVESUCCESS_NOTIFY:
-            fprintf(stderr, "memremove _EJ success write %x <= %d\n", addr, idx);
             dimm_depopulate(s);
-            break;
         case DIMM_REMOVEFAIL_NOTIFY:
-            fprintf(stderr, "memremove _OST fail write %x <= %d\n", addr, idx);
             /* although hot-remove may have been successfull for some 128MB
              * sections of the DIMM, it is dangerous to depopulate.
              */
-            break;
         case DIMM_ADDSUCCESS_NOTIFY:
-            fprintf(stderr, "memadd _OST success write %x <= %d\n", addr, idx);
-            break;
         case DIMM_ADDFAIL_NOTIFY:
-            fprintf(stderr, "memadd fail write %x <= %d\n", addr, idx);
             /* depopulate is dangerous, because hot-add could be a a partial success,
              * for some of the sections of the DIMM. FIXME
              */
-            //dimm_depopulate(s);
+            QLIST_INSERT_HEAD(&dimm_hp_result_queue, result, next);
             break;
         default:
-            fprintf(stderr, "memadd invalid event %u  %x <= %d\n", event, addr, idx);
-            result->ret = 0;
+            g_free(result);
             break;
     }
-
-    QLIST_INSERT_HEAD(&dimm_hp_result_queue, result, next);
 }
 
 MemHpInfoList *qmp_query_memhp(Error **errp)

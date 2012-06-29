@@ -473,16 +473,16 @@ static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
 
     switch (addr) {
         case MEM_EJ_BASE:
-            dimm_notify(addr, val, DIMM_REMOVESUCCESS_NOTIFY);
+            dimm_notify(val, DIMM_REMOVESUCCESS_NOTIFY);
             break;
         case MEM_OST_REMOVEFAIL_BASE:
-            dimm_notify(addr, val, DIMM_REMOVEFAIL_NOTIFY);
+            dimm_notify(val, DIMM_REMOVEFAIL_NOTIFY);
             break;
         case MEM_OST_ADDSUCCESS_BASE:
-            dimm_notify(addr, val, DIMM_ADDSUCCESS_NOTIFY);
+            dimm_notify(val, DIMM_ADDSUCCESS_NOTIFY);
             break;
         case MEM_OST_ADDFAIL_BASE:
-            dimm_notify(addr, val, DIMM_ADDFAIL_NOTIFY);
+            dimm_notify(val, DIMM_ADDFAIL_NOTIFY);
             break;
         default:
             acpi_gpe_ioport_writeb(&s->gpe, addr, val);
