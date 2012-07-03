@@ -339,7 +339,17 @@ void dimm_notify(uint32_t idx, uint32_t event)
     switch(event) {
         case DIMM_REMOVESUCCESS_NOTIFY:
             dimm_depopulate(s);
+            QLIST_INSERT_HEAD(&dimm_hp_result_queue, result, next);
+            break;
         case DIMM_REMOVEFAIL_NOTIFY:
+            s->depopulate_pending = false;
+            /* revert bitmap state, without triggering an acpi event. Seabios
+             * also reverts its internal state on _OST failure.
+             */
+            if (dimm_hotplug)
+                dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)s, 2);
+            QLIST_INSERT_HEAD(&dimm_hp_result_queue, result, next);
+            break;
             /* although hot-remove may have been successfull for some 128MB
              * sections of the DIMM, it is dangerous to depopulate.
              */

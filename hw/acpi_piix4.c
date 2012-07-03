@@ -740,13 +740,21 @@ static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
     PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
     DimmState *slot = DIMM(dev);
 
-    if (add) {
+    if (add == 1) {
         enable_mem_device(s, slot->idx);
     }
-    else {
+    else if (add == 0) {
         disable_mem_device(s, slot->idx);
     }
-    pm_update_sci(s);
+    /* revert bitmap state, without triggering an acpi event. Used on _OST
+     * failure notification. Seabios also reverts its internal state on _OST
+     * failure.
+     */
+    else if (add == 2) {
+        s->gperegs.mems_sts[slot->idx/8] |= (1 << (slot->idx%8));
+    }    
+    if (add == 0 || add == 1)
+        pm_update_sci(s);
     return 0;
 }
 
