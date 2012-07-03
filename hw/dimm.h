@@ -4,7 +4,10 @@
 #include "qemu-common.h"
 #include "memory.h"
 #include "sysbus.h"
-#define MAX_DIMMS 256
+#include "qapi-types.h"
+#include "qemu-queue.h"
+#include "cpus.h"
+#define MAX_DIMMS 255
 #define MAX_DIMMPOOLS 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024
 
@@ -12,6 +15,13 @@ enum {
     DIMM_MIN_UNPOPULATED= 0,
     DIMM_MAX_POPULATED = 1
 };
+
+typedef enum {
+    DIMM_REMOVESUCCESS_NOTIFY = 0,
+    DIMM_REMOVEFAIL_NOTIFY = 1,
+    DIMM_ADDSUCCESS_NOTIFY = 2,
+    DIMM_ADDFAIL_NOTIFY = 3
+} dimm_hp_result_code;
 
 #define DIMM(dev) FROM_SYSBUS(DimmState, sysbus_from_qdev(dev));
 
@@ -23,7 +33,14 @@ typedef struct DimmState {
     uint32_t node; /* numa node proximity */
     MemoryRegion *mr; /* MemoryRegion for this slot. !NULL only if populated */
     bool populated; /* 1 means device has been hotplugged. Default is 0. */
+    bool depopulate_pending;
 } DimmState;
+
+struct dimm_hp_result {
+    DimmState *s;
+    dimm_hp_result_code ret;
+    QLIST_ENTRY (dimm_hp_result) next;
+};
 
 /* mem.c */
 
@@ -38,12 +55,15 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add);
 int dimm_do_range(Monitor *mon, const QDict *qdict, bool add);
 DimmState *dimm_find_from_idx(uint32_t idx);
 DimmState *dimm_find_from_name(char *id);
-bool dimm_find_next(char *pfx, uint32_t mode, uint32_t *idx);
+DimmState *dimm_find_next(char *pfx, uint32_t mode);
 void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
 void dimm_register_calcoffset(dimm_calcoffset_fn calcoffset);
 void dimm_setstart(DimmState *slot);
 void dimm_activate(DimmState *slot);
+void dimm_deactivate(DimmState *slot);
 void dimm_scan_populated(void);
 int dimm_set_populated(DimmState *s);
+void dimm_notify(uint32_t idx, uint32_t event);
+void dimm_state_sync(uint8_t *dimm_sts);
 
 #endif

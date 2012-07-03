@@ -21,4 +21,19 @@ void set_cpu_log(const char *optarg);
 void set_cpu_log_filename(const char *optarg);
 void list_cpus(FILE *f, fprintf_function cpu_fprintf, const char *optarg);
 
+typedef enum {
+    CPU_REMOVESUCCESS_NOTIFY = 0,
+    CPU_REMOVEFAIL_NOTIFY = 1,
+    CPU_ADDSUCCESS_NOTIFY = 2,
+    CPU_ADDFAIL_NOTIFY = 3
+} cpu_hp_result_code;
+
+struct cpu_hp_result {
+    int64_t cpu;
+    cpu_hp_result_code ret;
+    QLIST_ENTRY (cpu_hp_result) next;
+};
+
+void cpu_ost_notify(int cpu_index, uint32_t event);
+
 #endif

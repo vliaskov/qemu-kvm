@@ -531,3 +531,47 @@ void hmp_cpu(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "invalid CPU index\n");
     }
 }
+
+void hmp_info_memhp(Monitor *mon)
+{
+    MemHpInfoList *info;
+    MemHpInfoList *item;
+    MemHpInfo *dimm;
+
+    info = qmp_query_memhp(NULL);
+    for (item = info; item; item = item->next) {
+        dimm = item->value;
+        monitor_printf(mon, "Dimm: %s %s %s\n", dimm->Dimm,
+                dimm->result < 2 ? "hot-remove" : "hot-add",
+                (dimm->result == 0 || dimm->result == 2) ? "success" :
+                "fail");
+        dimm->Dimm = NULL;
+    }
+
+    qapi_free_MemHpInfoList(info);
+}
+
+void hmp_info_memtotal(Monitor *mon)
+{
+    uint64_t ram_total;
+    ram_total = (uint64_t)qmp_query_memtotal(NULL);
+    monitor_printf(mon, "MemTotal: %lu \n", ram_total);
+}
+
+void hmp_info_cpuhp(Monitor *mon)
+{
+    CpuHpInfoList *info;
+    CpuHpInfoList *item;
+    CpuHpInfo *cpuinfo;
+
+    info = qmp_query_cpuhp(NULL);
+    for (item = info; item; item = item->next) {
+        cpuinfo = item->value;
+        monitor_printf(mon, "CPU: %ld %s %s\n", cpuinfo->cpu,
+                cpuinfo->result < 2 ? "hot-remove" : "hot-add",
+                (cpuinfo->result == 0 || cpuinfo->result == 2) ? "success" :
+                "fail");
+    }
+
+    qapi_free_CpuHpInfoList(info);
+}

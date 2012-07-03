@@ -1210,3 +1210,52 @@ CpuInfoList *qmp_query_cpus(Error **errp)
 
     return head;
 }
+
+static QLIST_HEAD(cpu_hp_result_head, cpu_hp_result)  cpu_hp_result_queue;
+
+void cpu_ost_notify(int cpu_index, uint32_t event)
+{
+    struct cpu_hp_result *result = g_malloc0(sizeof(*result));
+    result->ret = event;
+    result->cpu = (int64_t)cpu_index;
+
+    switch(event) {
+        case CPU_REMOVESUCCESS_NOTIFY:
+        case CPU_REMOVEFAIL_NOTIFY:
+        case CPU_ADDSUCCESS_NOTIFY:
+        case CPU_ADDFAIL_NOTIFY:
+            QLIST_INSERT_HEAD(&cpu_hp_result_queue, result, next);
+            break;
+        default:
+            break;
+    }
+}
+
+CpuHpInfoList *qmp_query_cpuhp(Error **errp)
+{
+    CpuHpInfoList *head = NULL, *cur_item = NULL, *info;
+    struct cpu_hp_result *item, *nextitem;
+
+    QLIST_FOREACH_SAFE(item, &cpu_hp_result_queue, next, nextitem) {
+
+        info = g_malloc0(sizeof(*info));
+        info->value = g_malloc0(sizeof(*info->value));
+        info->value->cpu = item->cpu;
+        info->value->result = item->ret;
+        /* XXX: waiting for the qapi to support GSList */
+        if (!cur_item) {
+            head = cur_item = info;
+        } else {
+            cur_item->next = info;
+            cur_item = info;
+        }
+
+        /* hotplug notification copied to qmp list, delete original item */
+        QLIST_REMOVE(item, next);
+        g_free(item);
+    }
+
+    return head;
+}
+
+

@@ -41,12 +41,18 @@
 #define GPE_BASE 0xafe0
 #define PROC_BASE 0xaf00
 #define PROC_EJ_BASE 0xaf20
+#define PROC_OST_REMOVEFAIL_BASE 0xaf21
+#define PROC_OST_ADDSUCCESS_BASE 0xaf22
+#define PROC_OST_ADDFAIL_BASE 0xaf23
 #define GPE_LEN 4
 #define PCI_BASE 0xae00
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
 #define MEM_BASE 0xaf80
 #define MEM_EJ_BASE 0xafa0
+#define MEM_OST_REMOVEFAIL_BASE 0xafa1
+#define MEM_OST_ADDSUCCESS_BASE 0xafa2
+#define MEM_OST_ADDFAIL_BASE 0xafa3
  
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_CPU_HOTPLUG_STATUS 4
@@ -317,6 +323,7 @@ static void piix4_reset(void *opaque)
         /* Mark SMM as already inited (until KVM supports SMM). */
         pci_conf[0x5B] = 0x02;
     }
+    dimm_state_sync(s->gperegs.mems_sts);
     piix4_update_hotplug(s);
 }
 
@@ -461,15 +468,22 @@ static uint32_t gpe_readb(void *opaque, uint32_t addr)
     return val;
 }
 
-static void piix4_dimm_eject(uint32_t addr, uint32_t val);
-
 static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
 
     switch (addr) {
         case MEM_EJ_BASE:
-            piix4_dimm_eject(addr, val);
+            dimm_notify(val, DIMM_REMOVESUCCESS_NOTIFY);
+            break;
+        case MEM_OST_REMOVEFAIL_BASE:
+            dimm_notify(val, DIMM_REMOVEFAIL_NOTIFY);
+            break;
+        case MEM_OST_ADDSUCCESS_BASE:
+            dimm_notify(val, DIMM_ADDSUCCESS_NOTIFY);
+            break;
+        case MEM_OST_ADDFAIL_BASE:
+            dimm_notify(val, DIMM_ADDFAIL_NOTIFY);
             break;
         default:
             acpi_gpe_ioport_writeb(&s->gpe, addr, val);
@@ -523,18 +537,28 @@ static void cpuej_write(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
     CPUState *env;
-    int cpu;
-
-    cpu = ffs(val);
-    /* zero means no bit was set, i.e. no CPU ejection happened */
-    if (!cpu)
-       return;
-    cpu--;
+    int cpu = val;
     env = qemu_get_cpu((uint64_t)cpu);
-    if (s->kvm_enabled && env != NULL) {
-        pc_unplug_cpu(env);
+
+    switch (addr) {
+        case PROC_EJ_BASE:
+            if (s->kvm_enabled && env != NULL) {
+                pc_unplug_cpu(env);
+            }
+            cpu_ost_notify(env->cpu_index, CPU_REMOVESUCCESS_NOTIFY);
+            break;
+        case PROC_OST_REMOVEFAIL_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_REMOVEFAIL_NOTIFY);
+            break;
+        case PROC_OST_ADDSUCCESS_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_ADDSUCCESS_NOTIFY);
+            break;
+        case PROC_OST_ADDFAIL_BASE:
+            cpu_ost_notify(env->cpu_index, CPU_ADDFAIL_NOTIFY);
+            break;
     }
-    PIIX4_DPRINTF("cpuej write %x <== %d\n", addr, val);
+
+    PIIX4_DPRINTF("cpuej/ost write %x <== %d\n", addr, val);
 }
 
 static uint32_t pciej_read(void *opaque, uint32_t addr)
@@ -615,6 +639,10 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_read(MEM_BASE, 32, 1,  gpe_readb, s);
     register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_REMOVEFAIL_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADDSUCCESS_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADDFAIL_BASE, 1, 1,  gpe_writeb, s);
+
     for(i = 0; i < 32; i++) {
         s->gperegs.mems_sts[i] = 0;
     }
@@ -703,14 +731,7 @@ static void disable_mem_device(PIIX4PMState *s, int memdevice)
     g->mems_sts[memdevice/8] &= ~(1 << (memdevice%8));
 }
 
-static void piix4_dimm_eject(uint32_t addr, uint32_t idx)
-{
-    DimmState *s;
-    PIIX4_DPRINTF("memej write %x <= %d\n", addr, idx);
-    s = dimm_find_from_idx(idx);
-    assert(s != NULL);
-    dimm_depopulate(s);
-}
+
 
 static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
         add)
@@ -719,13 +740,21 @@ static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
     PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
     DimmState *slot = DIMM(dev);
 
-    if (add) {
+    if (add == 1) {
         enable_mem_device(s, slot->idx);
     }
-    else {
+    else if (add == 0) {
         disable_mem_device(s, slot->idx);
     }
-    pm_update_sci(s);
+    /* revert bitmap state, without triggering an acpi event. Used on _OST
+     * failure notification. Seabios also reverts its internal state on _OST
+     * failure.
+     */
+    else if (add == 2) {
+        s->gperegs.mems_sts[slot->idx/8] |= (1 << (slot->idx%8));
+    }    
+    if (add == 0 || add == 1)
+        pm_update_sci(s);
     return 0;
 }
 

@@ -901,3 +901,68 @@
 # Notes: Do not use this command.
 ##
 { 'command': 'cpu', 'data': {'index': 'int'} }
+
+##
+# @MemHpInfo:
+#
+# Information about status of a memory hotplug command
+#
+# @Dimm: the Dimm associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 0.14.0
+#
+# Notes: @halted is a transient state that changes frequently.  By the time the
+#        data is sent to the client, the guest may no longer be halted.
+##
+{ 'type': 'MemHpInfo',
+  'data': {'Dimm': 'str', 'result': 'int'} }
+
+##
+# @query-memhp:
+#
+# Returns a list of information about pending hotplug commands
+#
+# Returns: a list of @MemhpInfo
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-memhp', 'returns': ['MemHpInfo'] }
+
+##
+# @query-memtotal:
+#
+# Returns total memory in bytes, including hotplugged dimms
+#
+# Returns: a l
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-memtotal', 'returns': 'int' }
+
+##
+# @CpuHpInfo:
+#
+# Information about status of a cpu hotplug command
+#
+# @Cpu: the cpu associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 1.1
+#
+##
+{ 'type': 'CpuHpInfo',
+  'data': {'cpu': 'int', 'result': 'int'} }
+
+##
+# @query-cpuhp:
+#
+# Returns a list of information about pending hotplug commands
+#
+# Returns: a list of @CpuhpInfo
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-cpuhp', 'returns': ['CpuHpInfo'] }
