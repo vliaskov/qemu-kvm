@@ -1,3 +1,9 @@
+qemu-kvm (1.0.1-2) stable; urgency=low
+
+  * Add memory hot-remove support. Add _OST ACPI notification handling.
+
+ -- Vasilis Liaskovitis <vasilis.liaskovitis@profitbricks.com>  Tue, 03 Jul 2012 16:36:23 +0200
+
 qemu-kvm (1.0.1-1) stable; urgency=low
 
   [ Dongsu Park ]
