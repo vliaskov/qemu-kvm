@@ -356,6 +356,29 @@ void dimm_notify(uint32_t idx, uint32_t event)
     }
 }
 
+void dimm_state_sync(uint8_t *dimm_sts)
+{
+    DimmState *s = NULL;
+    uint32_t i, temp = 1;
+
+    for(i = 0; i < MAX_DIMMS; i++) {
+        s = dimm_find_from_idx(i);
+        if (!s)
+            break;
+        if (i % 8 == 0) {
+            temp = 1;
+            dimm_sts[i / 8] = 0;
+        }
+        else
+            temp = temp << 1;
+        if (s->populated) {
+            //fprintf(stderr, "dimm %u\n", i);
+            dimm_sts[i / 8] |= temp;
+            s->depopulate_pending = false;
+        }
+    }
+}
+
 MemHpInfoList *qmp_query_memhp(Error **errp)
 {
     MemHpInfoList *head = NULL, *cur_item = NULL, *info;
