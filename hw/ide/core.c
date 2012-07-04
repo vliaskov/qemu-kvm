@@ -471,40 +471,68 @@ static void ide_rw_error(IDEState *s) {
     ide_set_irq(s->bus);
 }
 
+static void ide_sector_read_cb(void *opaque, int ret)
+{
+    IDEState *s = opaque;
+    int n;
+
+    s->pio_aiocb = NULL;
+    s->status &= ~BUSY_STAT;
+
+    bdrv_acct_done(s->bs, &s->acct);
+    if (ret != 0) {
+        if (ide_handle_rw_error(s, -ret, BM_STATUS_PIO_RETRY |
+                                BM_STATUS_RETRY_READ)) {
+            return;
+        }
+    }
+
+    n = s->nsector;
+    if (n > s->req_nb_sectors) {
+        n = s->req_nb_sectors;
+    }
+
+    /* Allow the guest to read the io_buffer */
+    ide_transfer_start(s, s->io_buffer, n * BDRV_SECTOR_SIZE, ide_sector_read);
+
+    ide_set_irq(s->bus);
+
+    ide_set_sector(s, ide_get_sector(s) + n);
+    s->nsector -= n;
+}
+
 void ide_sector_read(IDEState *s)
 {
     int64_t sector_num;
-    int ret, n;
+    int n;
 
     s->status = READY_STAT | SEEK_STAT;
     s->error = 0; /* not needed by IDE spec, but needed by Windows */
     sector_num = ide_get_sector(s);
     n = s->nsector;
-    if (n == 0) {
-        /* no more sector to read from disk */
-        ide_transfer_stop(s);
-    } else {
-#if defined(DEBUG_IDE)
-        printf("read sector=%" PRId64 "\n", sector_num);
-#endif
-        if (n > s->req_nb_sectors)
-            n = s->req_nb_sectors;
 
-        bdrv_acct_start(s->bs, &s->acct, n * BDRV_SECTOR_SIZE, BDRV_ACCT_READ);
-        ret = bdrv_read(s->bs, sector_num, s->io_buffer, n);
-        bdrv_acct_done(s->bs, &s->acct);
-        if (ret != 0) {
-            if (ide_handle_rw_error(s, -ret,
-                BM_STATUS_PIO_RETRY | BM_STATUS_RETRY_READ))
-            {
-                return;
-            }
-        }
-        ide_transfer_start(s, s->io_buffer, 512 * n, ide_sector_read);
-        ide_set_irq(s->bus);
-        ide_set_sector(s, sector_num + n);
-        s->nsector -= n;
+    if (n == 0) {
+        ide_transfer_stop(s);
+        return;
     }
+
+    s->status |= BUSY_STAT;
+
+    if (n > s->req_nb_sectors) {
+        n = s->req_nb_sectors;
+    }
+
+#if defined(DEBUG_IDE)
+    printf("sector=%" PRId64 "\n", sector_num);
+#endif
+
+    s->iov.iov_base = s->io_buffer;
+    s->iov.iov_len  = n * BDRV_SECTOR_SIZE;
+    qemu_iovec_init_external(&s->qiov, &s->iov, 1);
+
+    bdrv_acct_start(s->bs, &s->acct, n * BDRV_SECTOR_SIZE, BDRV_ACCT_READ);
+    s->pio_aiocb = bdrv_aio_readv(s->bs, sector_num, &s->qiov, n,
+                                  ide_sector_read_cb, s);
 }
 
 static void dma_buf_commit(IDEState *s)
@@ -660,40 +688,39 @@ static void ide_sector_write_timer_cb(void *opaque)
     ide_set_irq(s->bus);
 }
 
-void ide_sector_write(IDEState *s)
+static void ide_sector_write_cb(void *opaque, int ret)
 {
-    int64_t sector_num;
-    int ret, n, n1;
+    IDEState *s = opaque;
+    int n;
 
-    s->status = READY_STAT | SEEK_STAT;
-    sector_num = ide_get_sector(s);
-#if defined(DEBUG_IDE)
-    printf("write sector=%" PRId64 "\n", sector_num);
-#endif
-    n = s->nsector;
-    if (n > s->req_nb_sectors)
-        n = s->req_nb_sectors;
-
-    bdrv_acct_start(s->bs, &s->acct, n * BDRV_SECTOR_SIZE, BDRV_ACCT_READ);
-    ret = bdrv_write(s->bs, sector_num, s->io_buffer, n);
     bdrv_acct_done(s->bs, &s->acct);
 
+    s->pio_aiocb = NULL;
+    s->status &= ~BUSY_STAT;
+
     if (ret != 0) {
-        if (ide_handle_rw_error(s, -ret, BM_STATUS_PIO_RETRY))
+        if (ide_handle_rw_error(s, -ret, BM_STATUS_PIO_RETRY)) {
             return;
+        }
     }
 
+    n = s->nsector;
+    if (n > s->req_nb_sectors) {
+        n = s->req_nb_sectors;
+    }
     s->nsector -= n;
     if (s->nsector == 0) {
         /* no more sectors to write */
         ide_transfer_stop(s);
     } else {
-        n1 = s->nsector;
-        if (n1 > s->req_nb_sectors)
+        int n1 = s->nsector;
+        if (n1 > s->req_nb_sectors) {
             n1 = s->req_nb_sectors;
-        ide_transfer_start(s, s->io_buffer, 512 * n1, ide_sector_write);
+        }
+        ide_transfer_start(s, s->io_buffer, n1 * BDRV_SECTOR_SIZE,
+                           ide_sector_write);
     }
-    ide_set_sector(s, sector_num + n);
+    ide_set_sector(s, ide_get_sector(s) + n);
 
     if (win2k_install_hack && ((++s->irq_count % 16) == 0)) {
         /* It seems there is a bug in the Windows 2000 installer HDD
@@ -707,6 +734,30 @@ void ide_sector_write(IDEState *s)
     } else {
         ide_set_irq(s->bus);
     }
+}
+
+void ide_sector_write(IDEState *s)
+{
+    int64_t sector_num;
+    int n;
+
+    s->status = READY_STAT | SEEK_STAT | BUSY_STAT;
+    sector_num = ide_get_sector(s);
+#if defined(DEBUG_IDE)
+    printf("sector=%" PRId64 "\n", sector_num);
+#endif
+    n = s->nsector;
+    if (n > s->req_nb_sectors) {
+        n = s->req_nb_sectors;
+    }
+
+    s->iov.iov_base = s->io_buffer;
+    s->iov.iov_len  = n * BDRV_SECTOR_SIZE;
+    qemu_iovec_init_external(&s->qiov, &s->iov, 1);
+
+    bdrv_acct_start(s->bs, &s->acct, n * BDRV_SECTOR_SIZE, BDRV_ACCT_READ);
+    s->pio_aiocb = bdrv_aio_writev(s->bs, sector_num, &s->qiov, n,
+                                   ide_sector_write_cb, s);
 }
 
 static void ide_flush_cb(void *opaque, int ret)
@@ -984,7 +1035,7 @@ static const uint8_t ide_cmd_table[0x100] = {
     [WIN_IDENTIFY]                      = ALL_OK,
     [WIN_SETFEATURES]                   = ALL_OK,
     [IBM_SENSE_CONDITION]               = CFA_OK,
-    [CFA_WEAR_LEVEL]                    = CFA_OK,
+    [CFA_WEAR_LEVEL]                    = HD_CFA_OK,
     [WIN_READ_NATIVE_MAX]               = ALL_OK,
 };
 
@@ -996,6 +1047,7 @@ static bool ide_cmd_permitted(IDEState *s, uint32_t cmd)
 
 void ide_exec_cmd(IDEBus *bus, uint32_t val)
 {
+    uint16_t *identify_data;
     IDEState *s;
     int n;
     int lba48 = 0;
@@ -1180,10 +1232,21 @@ void ide_exec_cmd(IDEBus *bus, uint32_t val)
             goto abort_cmd;
         /* XXX: valid for CDROM ? */
         switch(s->feature) {
+        case 0x02: /* write cache enable */
+            bdrv_set_enable_write_cache(s->bs, true);
+            identify_data = (uint16_t *)s->identify_data;
+            put_le16(identify_data + 85, (1 << 14) | (1 << 5) | 1);
+            s->status = READY_STAT | SEEK_STAT;
+            ide_set_irq(s->bus);
+            break;
+        case 0x82: /* write cache disable */
+            bdrv_set_enable_write_cache(s->bs, false);
+            identify_data = (uint16_t *)s->identify_data;
+            put_le16(identify_data + 85, (1 << 14) | 1);
+            ide_flush_cache(s);
+            break;
         case 0xcc: /* reverting to power-on defaults enable */
         case 0x66: /* reverting to power-on defaults disable */
-        case 0x02: /* write cache enable */
-        case 0x82: /* write cache disable */
         case 0xaa: /* read look-ahead enable */
         case 0x55: /* read look-ahead disable */
         case 0x05: /* set advanced power management mode */
@@ -1199,7 +1262,7 @@ void ide_exec_cmd(IDEBus *bus, uint32_t val)
             break;
         case 0x03: { /* set transfer mode */
 		uint8_t val = s->nsector & 0x07;
-            uint16_t *identify_data = (uint16_t *)s->identify_data;
+		identify_data = (uint16_t *)s->identify_data;
 
 		switch (s->nsector >> 3) {
 		case 0x00: /* pio default */
@@ -1299,6 +1362,11 @@ void ide_exec_cmd(IDEBus *bus, uint32_t val)
         break;
     case CFA_ERASE_SECTORS:
     case CFA_WEAR_LEVEL:
+#if 0
+    /* This one has the same ID as CFA_WEAR_LEVEL and is required for
+       Windows 8 to work with AHCI */
+    case WIN_SECURITY_FREEZE_LOCK:
+#endif
         if (val == CFA_WEAR_LEVEL)
             s->nsector = 0;
         if (val == CFA_ERASE_SECTORS)
@@ -1765,6 +1833,12 @@ static void ide_reset(IDEState *s)
 #ifdef DEBUG_IDE
     printf("ide: reset\n");
 #endif
+
+    if (s->pio_aiocb) {
+        bdrv_aio_cancel(s->pio_aiocb);
+        s->pio_aiocb = NULL;
+    }
+
     if (s->drive_kind == IDE_CFATA)
         s->mult_sectors = 0;
     else
@@ -1921,7 +1995,7 @@ int ide_init_drive(IDEState *s, BlockDriverState *bs, IDEDriveKind kind,
     if (version) {
         pstrcpy(s->version, sizeof(s->version), version);
     } else {
-        pstrcpy(s->version, sizeof(s->version), QEMU_VERSION);
+        pstrcpy(s->version, sizeof(s->version), qemu_get_version());
     }
 
     ide_reset(s);
@@ -2083,6 +2157,9 @@ static int ide_drive_post_load(void *opaque, int version_id)
             s->asc == ASC_MEDIUM_MAY_HAVE_CHANGED) {
             s->cdrom_changed = 1;
         }
+    }
+    if (s->identify_set) {
+        bdrv_set_enable_write_cache(s->bs, !!(s->identify_data[85] & (1 << 5)));
     }
     return 0;
 }

@@ -92,6 +92,8 @@
 #
 # @debug: QEMU is running on a debugger
 #
+# @finish-migrate: guest is paused to finish the migration process
+#
 # @inmigrate: guest is paused waiting for an incoming migration
 #
 # @internal-error: An internal error that prevents further guest execution
@@ -106,8 +108,6 @@
 #
 # @prelaunch: QEMU was started with -S and guest has not started
 #
-# @finish-migrate: guest is paused to finish the migration process
-#
 # @restore-vm: guest is paused to restore VM state
 #
 # @running: guest is actively running
@@ -116,12 +116,14 @@
 #
 # @shutdown: guest is shut down (and -no-shutdown is in use)
 #
+# @suspended: guest is suspended (ACPI S3)
+#
 # @watchdog: the watchdog action is configured to pause and has been triggered
 ##
 { 'enum': 'RunState',
   'data': [ 'debug', 'inmigrate', 'internal-error', 'io-error', 'paused',
             'postmigrate', 'prelaunch', 'finish-migrate', 'restore-vm',
-            'running', 'save-vm', 'shutdown', 'watchdog' ] }
+            'running', 'save-vm', 'shutdown', 'suspended', 'watchdog' ] }
 
 ##
 # @StatusInfo:
@@ -224,6 +226,28 @@
 # Since: 0.14.0
 ##
 { 'command': 'query-commands', 'returns': ['CommandInfo'] }
+
+##
+# @EventInfo:
+#
+# Information about a QMP event
+#
+# @name: The event name
+#
+# Since: 1.2.0
+##
+{ 'type': 'EventInfo', 'data': {'name': 'str'} }
+
+##
+# @query-events:
+#
+# Return a list of supported QMP events by this server
+#
+# Returns: A list of @EventInfo for all supported events
+#
+# Since: 1.2.0
+##
+{ 'command': 'query-events', 'returns': ['EventInfo'] }
 
 ##
 # @MigrationStats
@@ -634,6 +658,25 @@
            'tls': 'bool'} }
 
 ##
+# @SpiceQueryMouseMode
+#
+# An enumation of Spice mouse states.
+#
+# @client: Mouse cursor position is determined by the client.
+#
+# @server: Mouse cursor position is determined by the server.
+#
+# @unknown: No information is available about mouse mode used by
+#           the spice server.
+#
+# Note: spice/enums.h has a SpiceMouseMode already, hence the name.
+#
+# Since: 1.1
+##
+{ 'enum': 'SpiceQueryMouseMode',
+  'data': [ 'client', 'server', 'unknown' ] }
+
+##
 # @SpiceInfo
 #
 # Information about the SPICE session.
@@ -654,6 +697,12 @@
 #        'spice' uses SASL or direct TLS authentication, depending on command
 #                line options
 #
+# @mouse-mode: The mode in which the mouse cursor is displayed currently. Can
+#              be determined by the client or the server, or unknown if spice
+#              server doesn't provide this information.
+#
+#              Since: 1.1
+#
 # @channels: a list of @SpiceChannel for each active spice channel
 #
 # Since: 0.14.0
@@ -661,7 +710,7 @@
 { 'type': 'SpiceInfo',
   'data': {'enabled': 'bool', '*host': 'str', '*port': 'int',
            '*tls-port': 'int', '*auth': 'str', '*compiled-version': 'str',
-           '*channels': ['SpiceChannel']} }
+           'mouse-mode': 'SpiceQueryMouseMode', '*channels': ['SpiceChannel']} }
 
 ##
 # @query-spice
@@ -1548,7 +1597,8 @@
   'data': { 'device': 'str', 'bps': 'int', 'bps_rd': 'int', 'bps_wr': 'int',
             'iops': 'int', 'iops_rd': 'int', 'iops_wr': 'int' } }
 
-# @block_stream:
+##
+# @block-stream:
 #
 # Copy data from a backing file into a block device.
 #
@@ -1556,7 +1606,7 @@
 # backing file has been copied.  This command returns immediately once streaming
 # has started.  The status of ongoing block streaming operations can be checked
 # with query-block-jobs.  The operation can be stopped before it has completed
-# using the block_job_cancel command.
+# using the block-job-cancel command.
 #
 # If a base file is specified then sectors are not copied from that base file and
 # its backing chain.  When streaming completes the image file will have the base
@@ -1570,18 +1620,22 @@
 #
 # @base:   #optional the common backing file name
 #
+# @speed:  #optional the maximum speed, in bytes per second
+#
 # Returns: Nothing on success
 #          If streaming is already active on this device, DeviceInUse
 #          If @device does not exist, DeviceNotFound
 #          If image streaming is not supported by this device, NotSupported
 #          If @base does not exist, BaseNotFound
+#          If @speed is invalid, InvalidParameter
 #
 # Since: 1.1
 ##
-{ 'command': 'block_stream', 'data': { 'device': 'str', '*base': 'str' } }
+{ 'command': 'block-stream', 'data': { 'device': 'str', '*base': 'str',
+                                       '*speed': 'int' } }
 
 ##
-# @block_job_set_speed:
+# @block-job-set-speed:
 #
 # Set maximum speed for a background block operation.
 #
@@ -1591,19 +1645,21 @@
 #
 # @device: the device name
 #
-# @value:  the maximum speed, in bytes per second
+# @speed:  the maximum speed, in bytes per second, or 0 for unlimited.
+#          Defaults to 0.
 #
 # Returns: Nothing on success
 #          If the job type does not support throttling, NotSupported
+#          If the speed value is invalid, InvalidParameter
 #          If streaming is not active on this device, DeviceNotActive
 #
 # Since: 1.1
 ##
-{ 'command': 'block_job_set_speed',
-  'data': { 'device': 'str', 'value': 'int' } }
+{ 'command': 'block-job-set-speed',
+  'data': { 'device': 'str', 'speed': 'int' } }
 
 ##
-# @block_job_cancel:
+# @block-job-cancel:
 #
 # Stop an active block streaming operation.
 #
@@ -1629,7 +1685,7 @@
 #
 # Since: 1.1
 ##
-{ 'command': 'block_job_cancel', 'data': { 'device': 'str' } }
+{ 'command': 'block-job-cancel', 'data': { 'device': 'str' } }
 
 ##
 # @ObjectTypeInfo:
@@ -1721,3 +1777,88 @@
 # Since: 0.14.0
 ##
 { 'command': 'device_del', 'data': {'id': 'str'} }
+
+##
+# @dump-guest-memory
+#
+# Dump guest's memory to vmcore. It is a synchronous operation that can take
+# very long depending on the amount of guest memory. This command is only
+# supported only on i386 and x86_64
+#
+# @paging: if true, do paging to get guest's memory mapping. The @paging's
+# default value of @paging is false, If you want to use gdb to process the
+# core, please set @paging to true. The reason why the @paging's value is
+# false:
+#   1. guest machine in a catastrophic state can have corrupted memory,
+#      which we cannot trust.
+#   2. The guest machine can be in read-mode even if paging is enabled.
+#      For example: the guest machine uses ACPI to sleep, and ACPI sleep
+#      state goes in real-mode
+# @protocol: the filename or file descriptor of the vmcore. The supported
+# protocol can be file or fd:
+#   1. file: the protocol starts with "file:", and the following string is
+#      the file's path.
+#   2. fd: the protocol starts with "fd:", and the following string is the
+#      fd's name.
+# @begin: #optional if specified, the starting physical address.
+# @length: #optional if specified, the memory size, in bytes. If you don't
+# want to dump all guest's memory, please specify the start @begin and
+# @length
+#
+# Returns: nothing on success
+#          If @begin contains an invalid address, InvalidParameter
+#          If only one of @begin and @length is specified, MissingParameter
+#          If @protocol stats with "fd:", and the fd cannot be found, FdNotFound
+#          If @protocol starts with "file:", and the file cannot be
+#          opened, OpenFileFailed
+#          If @protocol does not start with "fd:" or "file:", InvalidParameter
+#          If an I/O error occurs while writing the file, IOError
+#          If the target does not support this command, Unsupported
+#
+# Since: 1.2
+##
+{ 'command': 'dump-guest-memory',
+  'data': { 'paging': 'bool', 'protocol': 'str', '*begin': 'int',
+            '*length': 'int' } }
+##
+# @netdev_add:
+#
+# Add a network backend.
+#
+# @type: the type of network backend.  Current valid values are 'user', 'tap',
+#        'vde', 'socket', 'dump' and 'bridge'
+#
+# @id: the name of the new network backend
+#
+# @props: #optional a list of properties to be passed to the backend in
+#         the format 'name=value', like 'ifname=tap0,script=no'
+#
+# Notes: The semantics of @props is not well defined.  Future commands will be
+#        introduced that provide stronger typing for backend creation.
+#
+# Since: 0.14.0
+#
+# Returns: Nothing on success
+#          If @type is not a valid network backend, DeviceNotFound
+#          If @id is not a valid identifier, InvalidParameterValue
+#          if @id already exists, DuplicateId
+#          If @props contains an invalid parameter for this backend,
+#            InvalidParameter
+##
+{ 'command': 'netdev_add',
+  'data': {'type': 'str', 'id': 'str', '*props': '**'},
+  'gen': 'no' }
+
+##
+# @netdev_del:
+#
+# Remove a network backend.
+#
+# @id: the name of the network backend to remove
+#
+# Returns: Nothing on success
+#          If @id is not a valid network backend, DeviceNotFound
+#
+# Since: 0.14.0
+##
+{ 'command': 'netdev_del', 'data': {'id': 'str'} }

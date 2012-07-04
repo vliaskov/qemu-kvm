@@ -28,6 +28,8 @@
 #include "pc.h"
 #include "apic.h"
 #include "pci.h"
+#include "pci_ids.h"
+#include "usb.h"
 #include "net.h"
 #include "boards.h"
 #include "ide.h"
@@ -55,30 +57,26 @@ static void kvm_piix3_setup_irq_routing(bool pci_enabled)
 {
 #ifdef CONFIG_KVM
     KVMState *s = kvm_state;
-    int ret, i;
+    int i;
 
     if (kvm_check_extension(s, KVM_CAP_IRQ_ROUTING)) {
         for (i = 0; i < 8; ++i) {
             if (i == 2) {
                 continue;
             }
-            kvm_irqchip_add_route(s, i, KVM_IRQCHIP_PIC_MASTER, i);
+            kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_PIC_MASTER, i);
         }
         for (i = 8; i < 16; ++i) {
-            kvm_irqchip_add_route(s, i, KVM_IRQCHIP_PIC_SLAVE, i - 8);
+            kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_PIC_SLAVE, i - 8);
         }
         if (pci_enabled) {
             for (i = 0; i < 24; ++i) {
                 if (i == 0) {
-                    kvm_irqchip_add_route(s, i, KVM_IRQCHIP_IOAPIC, 2);
+                    kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_IOAPIC, 2);
                 } else if (i != 2) {
-                    kvm_irqchip_add_route(s, i, KVM_IRQCHIP_IOAPIC, i);
+                    kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_IOAPIC, i);
                 }
             }
-        }
-        ret = kvm_irqchip_commit_routes(s);
-        if (ret < 0) {
-            hw_error("KVM IRQ routing setup failed");
         }
     }
 #endif /* CONFIG_KVM */
@@ -149,6 +147,7 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *ram_memory;
     MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
+    void *fw_cfg = NULL;
 
     pc_cpus_init(cpu_model);
 
@@ -175,7 +174,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
-        pc_memory_init(system_memory,
+        fw_cfg = pc_memory_init(system_memory,
                        kernel_filename, kernel_cmdline, initrd_filename,
                        below_4g_mem_size, above_4g_mem_size,
                        pci_enabled ? rom_memory : system_memory, &ram_memory);
@@ -279,7 +278,7 @@ static void pc_init1(MemoryRegion *system_memory,
         /* TODO: Populate SPD eeprom data.  */
         smbus = piix4_pm_init(pci_bus, piix3_devfn + 3, 0xb100,
                               gsi[9], *smi_irq,
-                              kvm_enabled());
+                              kvm_enabled(), fw_cfg);
         smbus_eeprom_init(smbus, 8, NULL, 0);
     }
 
@@ -350,8 +349,8 @@ static void pc_xen_hvm_init(ram_addr_t ram_size,
 }
 #endif
 
-static QEMUMachine pc_machine_v1_1 = {
-    .name = "pc-1.1",
+static QEMUMachine pc_machine_v1_2 = {
+    .name = "pc-1.2",
     .alias = "pc",
     .desc = "Standard PC",
     .init = pc_init_pci,
@@ -359,24 +358,74 @@ static QEMUMachine pc_machine_v1_1 = {
     .is_default = 1,
 };
 
+#define PC_COMPAT_1_1 \
+        {\
+            .driver   = "VGA",\
+            .property = "vgamem_mb",\
+            .value    = stringify(8),\
+        },{\
+            .driver   = "vmware-svga",\
+            .property = "vgamem_mb",\
+            .value    = stringify(8),\
+        },{\
+            .driver   = "qxl-vga",\
+            .property = "vgamem_mb",\
+            .value    = stringify(8),\
+        },{\
+            .driver   = "qxl",\
+            .property = "vgamem_mb",\
+            .value    = stringify(8),\
+        }
+
+static QEMUMachine pc_machine_v1_1 = {
+    .name = "pc-1.1",
+    .desc = "Standard PC",
+    .init = pc_init_pci,
+    .max_cpus = 255,
+    .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_1_1,
+        { /* end of list */ }
+    },
+};
+
+#define PC_COMPAT_1_0 \
+        PC_COMPAT_1_1,\
+        {\
+            .driver   = "pc-sysfw",\
+            .property = "rom_only",\
+            .value    = stringify(1),\
+        }, {\
+            .driver   = "isa-fdc",\
+            .property = "check_media_rate",\
+            .value    = "off",\
+        }, {\
+            .driver   = "virtio-balloon-pci",\
+            .property = "class",\
+            .value    = stringify(PCI_CLASS_MEMORY_RAM),\
+        },{\
+            .driver   = "apic",\
+            .property = "vapic",\
+            .value    = "off",\
+        },{\
+            .driver   = TYPE_USB_DEVICE,\
+            .property = "full-path",\
+            .value    = "no",\
+        }
+
 static QEMUMachine pc_machine_v1_0 = {
     .name = "pc-1.0",
     .desc = "Standard PC",
     .init = pc_init_pci,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
-        }, {
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
+        PC_COMPAT_1_0,
         { /* end of list */ }
     },
+    .hw_version = "1.0",
 };
+
+#define PC_COMPAT_0_15 \
+        PC_COMPAT_1_0
 
 static QEMUMachine pc_machine_v0_15 = {
     .name = "pc-0.15",
@@ -384,18 +433,31 @@ static QEMUMachine pc_machine_v0_15 = {
     .init = pc_init_pci,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
-        }, {
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
+        PC_COMPAT_0_15,
         { /* end of list */ }
     },
+    .hw_version = "0.15",
 };
+
+#define PC_COMPAT_0_14 \
+        PC_COMPAT_0_15,\
+        {\
+            .driver   = "virtio-blk-pci",\
+            .property = "event_idx",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-serial-pci",\
+            .property = "event_idx",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-net-pci",\
+            .property = "event_idx",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-balloon-pci",\
+            .property = "event_idx",\
+            .value    = "off",\
+        }
 
 static QEMUMachine pc_machine_v0_14 = {
     .name = "pc-0.14",
@@ -403,6 +465,7 @@ static QEMUMachine pc_machine_v0_14 = {
     .init = pc_init_pci,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_0_14, 
         {
             .driver   = "qxl",
             .property = "revision",
@@ -411,35 +474,23 @@ static QEMUMachine pc_machine_v0_14 = {
             .driver   = "qxl-vga",
             .property = "revision",
             .value    = stringify(2),
-        },{
-            .driver   = "virtio-blk-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-net-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-balloon-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
         },
         { /* end of list */ }
     },
+    .hw_version = "0.14",
 };
+
+#define PC_COMPAT_0_13 \
+        PC_COMPAT_0_14,\
+        {\
+            .driver   = TYPE_PCI_DEVICE,\
+            .property = "command_serr_enable",\
+            .value    = "off",\
+        },{\
+            .driver   = "AC97",\
+            .property = "use_broken_id",\
+            .value    = stringify(1),\
+        }
 
 static QEMUMachine pc_machine_v0_13 = {
     .name = "pc-0.13",
@@ -447,6 +498,7 @@ static QEMUMachine pc_machine_v0_13 = {
     .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_0_13,
         {
             .driver   = "virtio-9p-pci",
             .property = "vectors",
@@ -459,43 +511,23 @@ static QEMUMachine pc_machine_v0_13 = {
             .driver   = "vmware-svga",
             .property = "rombar",
             .value    = stringify(0),
-        },{
-            .driver   = "PCI",
-            .property = "command_serr_enable",
-            .value    = "off",
-        },{
-            .driver   = "virtio-blk-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-net-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-balloon-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "AC97",
-            .property = "use_broken_id",
-            .value    = stringify(1),
-        },{
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
         },
         { /* end of list */ }
     },
+    .hw_version = "0.13",
 };
+
+#define PC_COMPAT_0_12 \
+        PC_COMPAT_0_13,\
+        {\
+            .driver   = "virtio-serial-pci",\
+            .property = "max_ports",\
+            .value    = stringify(1),\
+        },{\
+            .driver   = "virtio-serial-pci",\
+            .property = "vectors",\
+            .value    = stringify(0),\
+        }
 
 static QEMUMachine pc_machine_v0_12 = {
     .name = "pc-0.12",
@@ -503,15 +535,8 @@ static QEMUMachine pc_machine_v0_12 = {
     .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_0_12,
         {
-            .driver   = "virtio-serial-pci",
-            .property = "max_ports",
-            .value    = stringify(1),
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "vectors",
-            .value    = stringify(0),
-        },{
             .driver   = "VGA",
             .property = "rombar",
             .value    = stringify(0),
@@ -519,43 +544,23 @@ static QEMUMachine pc_machine_v0_12 = {
             .driver   = "vmware-svga",
             .property = "rombar",
             .value    = stringify(0),
-        },{
-            .driver   = "PCI",
-            .property = "command_serr_enable",
-            .value    = "off",
-        },{
-            .driver   = "virtio-blk-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-net-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-balloon-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "AC97",
-            .property = "use_broken_id",
-            .value    = stringify(1),
-        },{
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
         },
         { /* end of list */ }
-    }
+    },
+    .hw_version = "0.12",
 };
+
+#define PC_COMPAT_0_11 \
+        PC_COMPAT_0_12,\
+        {\
+            .driver   = "virtio-blk-pci",\
+            .property = "vectors",\
+            .value    = stringify(0),\
+        },{\
+            .driver   = TYPE_PCI_DEVICE,\
+            .property = "rombar",\
+            .value    = stringify(0),\
+        }
 
 static QEMUMachine pc_machine_v0_11 = {
     .name = "pc-0.11",
@@ -563,19 +568,8 @@ static QEMUMachine pc_machine_v0_11 = {
     .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_0_11,
         {
-            .driver   = "virtio-blk-pci",
-            .property = "vectors",
-            .value    = stringify(0),
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "max_ports",
-            .value    = stringify(1),
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "vectors",
-            .value    = stringify(0),
-        },{
             .driver   = "ide-drive",
             .property = "ver",
             .value    = "0.11",
@@ -583,46 +577,10 @@ static QEMUMachine pc_machine_v0_11 = {
             .driver   = "scsi-disk",
             .property = "ver",
             .value    = "0.11",
-        },{
-            .driver   = "PCI",
-            .property = "rombar",
-            .value    = stringify(0),
-        },{
-            .driver   = "PCI",
-            .property = "command_serr_enable",
-            .value    = "off",
-        },{
-            .driver   = "virtio-blk-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-net-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-balloon-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "AC97",
-            .property = "use_broken_id",
-            .value    = stringify(1),
-        },{
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
         },
         { /* end of list */ }
-    }
+    },
+    .hw_version = "0.11",
 };
 
 static QEMUMachine pc_machine_v0_10 = {
@@ -631,6 +589,7 @@ static QEMUMachine pc_machine_v0_10 = {
     .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_0_11,
         {
             .driver   = "virtio-blk-pci",
             .property = "class",
@@ -640,19 +599,7 @@ static QEMUMachine pc_machine_v0_10 = {
             .property = "class",
             .value    = stringify(PCI_CLASS_DISPLAY_OTHER),
         },{
-            .driver   = "virtio-serial-pci",
-            .property = "max_ports",
-            .value    = stringify(1),
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "vectors",
-            .value    = stringify(0),
-        },{
             .driver   = "virtio-net-pci",
-            .property = "vectors",
-            .value    = stringify(0),
-        },{
-            .driver   = "virtio-blk-pci",
             .property = "vectors",
             .value    = stringify(0),
         },{
@@ -663,46 +610,10 @@ static QEMUMachine pc_machine_v0_10 = {
             .driver   = "scsi-disk",
             .property = "ver",
             .value    = "0.10",
-        },{
-            .driver   = "PCI",
-            .property = "rombar",
-            .value    = stringify(0),
-        },{
-            .driver   = "PCI",
-            .property = "command_serr_enable",
-            .value    = "off",
-        },{
-            .driver   = "virtio-blk-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-serial-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-net-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "virtio-balloon-pci",
-            .property = "event_idx",
-            .value    = "off",
-        },{
-            .driver   = "AC97",
-            .property = "use_broken_id",
-            .value    = stringify(1),
-        },{
-            .driver   = "isa-fdc",
-            .property = "check_media_rate",
-            .value    = "off",
-        },
-        {
-            .driver   = "pc-sysfw",
-            .property = "rom_only",
-            .value    = stringify(1),
         },
         { /* end of list */ }
     },
+    .hw_version = "0.10",
 };
 
 static QEMUMachine isapc_machine = {
@@ -732,6 +643,7 @@ static QEMUMachine xenfv_machine = {
 
 static void pc_machine_init(void)
 {
+    qemu_register_machine(&pc_machine_v1_2);
     qemu_register_machine(&pc_machine_v1_1);
     qemu_register_machine(&pc_machine_v1_0);
     qemu_register_machine(&pc_machine_v0_15);

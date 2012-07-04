@@ -42,10 +42,12 @@
 #include "sysbus.h"
 #include "sysemu.h"
 #include "kvm.h"
+#include "xen.h"
 #include "blockdev.h"
 #include "ui/qemu-spice.h"
 #include "memory.h"
 #include "exec-memory.h"
+#include "arch_init.h"
 
 /* output Bochs bios info messages */
 //#define DEBUG_BIOS
@@ -381,7 +383,7 @@ void pc_cmos_init(ram_addr_t ram_size, ram_addr_t above_4g_mem_size,
     if (floppy) {
         fdc_get_bs(fd, floppy);
         for (i = 0; i < 2; i++) {
-            if (fd[i] && bdrv_is_inserted(fd[i])) {
+            if (fd[i]) {
                 bdrv_get_floppy_geometry_hint(fd[i], &nb_heads, &max_track,
                                               &last_sect, FDRIVE_DRV_NONE,
                                               &fd_type[i], &rate);
@@ -891,9 +893,12 @@ static DeviceState *apic_init(void *env, uint8_t apic_id)
 
     if (kvm_irqchip_in_kernel()) {
         dev = qdev_create(NULL, "kvm-apic");
+    } else if (xen_enabled()) {
+        dev = qdev_create(NULL, "xen-apic");
     } else {
         dev = qdev_create(NULL, "apic");
     }
+
     qdev_prop_set_uint8(dev, "id", apic_id);
     qdev_prop_set_ptr(dev, "cpu_env", env);
     qdev_init_nofail(dev);
@@ -905,11 +910,6 @@ static DeviceState *apic_init(void *env, uint8_t apic_id)
         /* XXX: what if the base changes? */
         sysbus_mmio_map(sysbus_from_qdev(dev), 0, MSI_ADDR_BASE);
         apic_mapped = 1;
-    }
-
-    /* KVM does not support MSI yet. */
-    if (!kvm_irqchip_in_kernel()) {
-        msi_supported = true;
     }
 
     return dev;
@@ -926,27 +926,30 @@ void pc_acpi_smi_interrupt(void *opaque, int irq, int level)
 
 static void pc_cpu_reset(void *opaque)
 {
-    CPUX86State *env = opaque;
+    X86CPU *cpu = opaque;
+    CPUX86State *env = &cpu->env;
 
-    cpu_state_reset(env);
+    cpu_reset(CPU(cpu));
     env->halted = !cpu_is_bsp(env);
 }
 
-static CPUX86State *pc_new_cpu(const char *cpu_model)
+static X86CPU *pc_new_cpu(const char *cpu_model)
 {
+    X86CPU *cpu;
     CPUX86State *env;
 
-    env = cpu_init(cpu_model);
-    if (!env) {
+    cpu = cpu_x86_init(cpu_model);
+    if (cpu == NULL) {
         fprintf(stderr, "Unable to find x86 CPU definition\n");
         exit(1);
     }
+    env = &cpu->env;
     if ((env->cpuid_features & CPUID_APIC) || smp_cpus > 1) {
         env->apic_state = apic_init(env, env->cpuid_apic_id);
     }
-    qemu_register_reset(pc_cpu_reset, env);
-    pc_cpu_reset(env);
-    return env;
+    qemu_register_reset(pc_cpu_reset, cpu);
+    pc_cpu_reset(cpu);
+    return cpu;
 }
 
 void pc_cpus_init(const char *cpu_model)
@@ -967,7 +970,7 @@ void pc_cpus_init(const char *cpu_model)
     }
 }
 
-void pc_memory_init(MemoryRegion *system_memory,
+void *pc_memory_init(MemoryRegion *system_memory,
                     const char *kernel_filename,
                     const char *kernel_cmdline,
                     const char *initrd_filename,
@@ -1026,6 +1029,7 @@ void pc_memory_init(MemoryRegion *system_memory,
     for (i = 0; i < nb_option_roms; i++) {
         rom_add_option(option_rom[i].name, option_rom[i].bootindex);
     }
+    return fw_cfg;
 }
 
 qemu_irq *pc_allocate_cpu_irq(void)
@@ -1089,7 +1093,7 @@ void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
     qemu_irq pit_alt_irq = NULL;
     qemu_irq rtc_irq = NULL;
     qemu_irq *a20_line;
-    ISADevice *i8042, *port92, *vmmouse, *pit;
+    ISADevice *i8042, *port92, *vmmouse, *pit = NULL;
     qemu_irq *cpu_exit_irq;
 
     register_ioport_write(0x80, 1, 1, ioport80_write, NULL);
@@ -1118,16 +1122,18 @@ void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
 
     qemu_register_boot_set(pc_boot_set, *rtc_state);
 
-    if (kvm_irqchip_in_kernel()) {
-        pit = kvm_pit_init(isa_bus, 0x40);
-    } else {
-        pit = pit_init(isa_bus, 0x40, pit_isa_irq, pit_alt_irq);
+    if (!xen_enabled()) {
+        if (kvm_irqchip_in_kernel()) {
+            pit = kvm_pit_init(isa_bus, 0x40);
+        } else {
+            pit = pit_init(isa_bus, 0x40, pit_isa_irq, pit_alt_irq);
+        }
+        if (hpet) {
+            /* connect PIT to output control line of the HPET */
+            qdev_connect_gpio_out(hpet, 0, qdev_get_gpio_in(&pit->qdev, 0));
+        }
+        pcspk_init(isa_bus, pit);
     }
-    if (hpet) {
-        /* connect PIT to output control line of the HPET */
-        qdev_connect_gpio_out(hpet, 0, qdev_get_gpio_in(&pit->qdev, 0));
-    }
-    pcspk_init(isa_bus, pit);
 
     for(i = 0; i < MAX_SERIAL_PORTS; i++) {
         if (serial_hds[i]) {

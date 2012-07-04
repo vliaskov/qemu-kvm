@@ -56,19 +56,19 @@
 #include <sys/select.h>
 #ifdef CONFIG_BSD
 #include <sys/stat.h>
-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
-#include <libutil.h>
-#include <dev/ppbus/ppi.h>
-#include <dev/ppbus/ppbconf.h>
 #if defined(__GLIBC__)
 #include <pty.h>
-#endif
-#elif defined(__DragonFly__)
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 #include <libutil.h>
-#include <dev/misc/ppi/ppi.h>
-#include <bus/ppbus/ppbconf.h>
 #else
 #include <util.h>
+#endif
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+#include <dev/ppbus/ppi.h>
+#include <dev/ppbus/ppbconf.h>
+#elif defined(__DragonFly__)
+#include <dev/misc/ppi/ppi.h>
+#include <bus/ppbus/ppbconf.h>
 #endif
 #else
 #ifdef __linux__
@@ -160,7 +160,9 @@ int qemu_chr_be_can_write(CharDriverState *s)
 
 void qemu_chr_be_write(CharDriverState *s, uint8_t *buf, int len)
 {
-    s->chr_read(s->handler_opaque, buf, len);
+    if (s->chr_read) {
+        s->chr_read(s->handler_opaque, buf, len);
+    }
 }
 
 int qemu_chr_fe_get_msgfd(CharDriverState *s)
@@ -177,6 +179,7 @@ void qemu_chr_accept_input(CharDriverState *s)
 {
     if (s->chr_accept_input)
         s->chr_accept_input(s);
+    qemu_notify_event();
 }
 
 void qemu_chr_fe_printf(CharDriverState *s, const char *fmt, ...)
@@ -2441,9 +2444,9 @@ static CharDriverState *qemu_chr_open_socket(QemuOpts *opts)
         }
     } else {
         if (is_listen) {
-            fd = inet_listen_opts(opts, 0);
+            fd = inet_listen_opts(opts, 0, NULL);
         } else {
-            fd = inet_connect_opts(opts);
+            fd = inet_connect_opts(opts, NULL);
         }
     }
     if (fd < 0) {
@@ -2581,10 +2584,14 @@ QemuOpts *qemu_chr_parse_compat(const char *label, const char *filename)
     int pos;
     const char *p;
     QemuOpts *opts;
+    Error *local_err = NULL;
 
-    opts = qemu_opts_create(qemu_find_opts("chardev"), label, 1);
-    if (NULL == opts)
+    opts = qemu_opts_create(qemu_find_opts("chardev"), label, 1, &local_err);
+    if (error_is_set(&local_err)) {
+        qerror_report_err(local_err);
+        error_free(local_err);
         return NULL;
+    }
 
     if (strstart(filename, "mon:", &p)) {
         filename = p;

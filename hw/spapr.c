@@ -146,6 +146,40 @@ static int spapr_set_associativity(void *fdt, sPAPREnvironment *spapr)
     return ret;
 }
 
+
+static size_t create_page_sizes_prop(CPUPPCState *env, uint32_t *prop,
+                                     size_t maxsize)
+{
+    size_t maxcells = maxsize / sizeof(uint32_t);
+    int i, j, count;
+    uint32_t *p = prop;
+
+    for (i = 0; i < PPC_PAGE_SIZES_MAX_SZ; i++) {
+        struct ppc_one_seg_page_size *sps = &env->sps.sps[i];
+
+        if (!sps->page_shift) {
+            break;
+        }
+        for (count = 0; count < PPC_PAGE_SIZES_MAX_SZ; count++) {
+            if (sps->enc[count].page_shift == 0) {
+                break;
+            }
+        }
+        if ((p - prop) >= (maxcells - 3 - count * 2)) {
+            break;
+        }
+        *(p++) = cpu_to_be32(sps->page_shift);
+        *(p++) = cpu_to_be32(sps->slb_enc);
+        *(p++) = cpu_to_be32(count);
+        for (j = 0; j < count; j++) {
+            *(p++) = cpu_to_be32(sps->enc[j].page_shift);
+            *(p++) = cpu_to_be32(sps->enc[j].pte_enc);
+        }
+    }
+
+    return (p - prop) * sizeof(uint32_t);
+}
+
 static void *spapr_create_fdt_skel(const char *cpu_model,
                                    target_phys_addr_t rma_size,
                                    target_phys_addr_t initrd_base,
@@ -163,6 +197,7 @@ static void *spapr_create_fdt_skel(const char *cpu_model,
     uint32_t pft_size_prop[] = {0, cpu_to_be32(hash_shift)};
     char hypertas_prop[] = "hcall-pft\0hcall-term\0hcall-dabr\0hcall-interrupt"
         "\0hcall-tce\0hcall-vio\0hcall-splpar\0hcall-bulk";
+    char qemu_hypertas_prop[] = "hcall-memop1";
     uint32_t interrupt_server_ranges_prop[] = {0, cpu_to_be32(smp_cpus)};
     int i;
     char *modelname;
@@ -298,6 +333,8 @@ static void *spapr_create_fdt_skel(const char *cpu_model,
                            0xffffffff, 0xffffffff};
         uint32_t tbfreq = kvm_enabled() ? kvmppc_get_tbfreq() : TIMEBASE_FREQ;
         uint32_t cpufreq = kvm_enabled() ? kvmppc_get_clockfreq() : 1000000000;
+        uint32_t page_sizes_prop[64];
+        size_t page_sizes_prop_size;
 
         if ((index % smt) != 0) {
             continue;
@@ -362,6 +399,13 @@ static void *spapr_create_fdt_skel(const char *cpu_model,
             _FDT((fdt_property_cell(fdt, "ibm,dfp", 1)));
         }
 
+        page_sizes_prop_size = create_page_sizes_prop(env, page_sizes_prop,
+                                                      sizeof(page_sizes_prop));
+        if (page_sizes_prop_size) {
+            _FDT((fdt_property(fdt, "ibm,segment-page-sizes",
+                               page_sizes_prop, page_sizes_prop_size)));
+        }
+
         _FDT((fdt_end_node(fdt)));
     }
 
@@ -374,6 +418,8 @@ static void *spapr_create_fdt_skel(const char *cpu_model,
 
     _FDT((fdt_property(fdt, "ibm,hypertas-functions", hypertas_prop,
                        sizeof(hypertas_prop))));
+    _FDT((fdt_property(fdt, "qemu,hypertas-functions", qemu_hypertas_prop,
+                       sizeof(qemu_hypertas_prop))));
 
     _FDT((fdt_property(fdt, "ibm,associativity-reference-points",
         refpoints, sizeof(refpoints))));
@@ -505,9 +551,9 @@ static void spapr_reset(void *opaque)
 
 static void spapr_cpu_reset(void *opaque)
 {
-    CPUPPCState *env = opaque;
+    PowerPCCPU *cpu = opaque;
 
-    cpu_state_reset(env);
+    cpu_reset(CPU(cpu));
 }
 
 /* pSeries LPAR / sPAPR hardware init */
@@ -518,6 +564,7 @@ static void ppc_spapr_init(ram_addr_t ram_size,
                            const char *initrd_filename,
                            const char *cpu_model)
 {
+    PowerPCCPU *cpu;
     CPUPPCState *env;
     int i;
     MemoryRegion *sysmem = get_system_memory();
@@ -560,15 +607,16 @@ static void ppc_spapr_init(ram_addr_t ram_size,
         cpu_model = kvm_enabled() ? "host" : "POWER7";
     }
     for (i = 0; i < smp_cpus; i++) {
-        env = cpu_init(cpu_model);
-
-        if (!env) {
+        cpu = cpu_ppc_init(cpu_model);
+        if (cpu == NULL) {
             fprintf(stderr, "Unable to find PowerPC CPU definition\n");
             exit(1);
         }
+        env = &cpu->env;
+
         /* Set time-base frequency to 512 MHz */
         cpu_ppc_tb_init(env, TIMEBASE_FREQ);
-        qemu_register_reset(spapr_cpu_reset, env);
+        qemu_register_reset(spapr_cpu_reset, cpu);
 
         env->hreset_vector = 0x60;
         env->hreset_excp_prefix = 0;
@@ -626,13 +674,15 @@ static void ppc_spapr_init(ram_addr_t ram_size,
     spapr->icp = xics_system_init(XICS_IRQS);
     spapr->next_irq = 16;
 
+    /* Set up IOMMU */
+    spapr_iommu_init();
+
     /* Set up VIO bus */
     spapr->vio_bus = spapr_vio_bus_init();
 
     for (i = 0; i < MAX_SERIAL_PORTS; i++) {
         if (serial_hds[i]) {
-            spapr_vty_create(spapr->vio_bus, SPAPR_VTY_BASE_ADDRESS + i,
-                             serial_hds[i]);
+            spapr_vty_create(spapr->vio_bus, serial_hds[i]);
         }
     }
 
@@ -650,14 +700,14 @@ static void ppc_spapr_init(ram_addr_t ram_size,
         }
 
         if (strcmp(nd->model, "ibmveth") == 0) {
-            spapr_vlan_create(spapr->vio_bus, 0x1000 + i, nd);
+            spapr_vlan_create(spapr->vio_bus, nd);
         } else {
             pci_nic_init_nofail(&nd_table[i], nd->model, NULL);
         }
     }
 
     for (i = 0; i <= drive_get_max_bus(IF_SCSI); i++) {
-        spapr_vscsi_create(spapr->vio_bus, 0x2000 + i);
+        spapr_vscsi_create(spapr->vio_bus);
     }
 
     if (rma_size < (MIN_RMA_SLOF << 20)) {

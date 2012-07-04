@@ -41,7 +41,7 @@
 static void exception_action(CPUArchState *env1)
 {
 #if defined(TARGET_I386)
-    raise_exception_err_env(env1, env1->exception_index, env1->error_code);
+    raise_exception_err(env1, env1->exception_index, env1->error_code);
 #else
     cpu_loop_exit(env1);
 #endif
@@ -82,7 +82,7 @@ void cpu_resume_from_signal(CPUArchState *env1, void *puc)
    the effective address of the memory exception. 'is_write' is 1 if a
    write caused the exception and otherwise 0'. 'old_set' is the
    signal set which should be restored */
-static inline int handle_cpu_signal(unsigned long pc, unsigned long address,
+static inline int handle_cpu_signal(uintptr_t pc, unsigned long address,
                                     int is_write, sigset_t *old_set,
                                     void *puc)
 {
@@ -97,7 +97,8 @@ static inline int handle_cpu_signal(unsigned long pc, unsigned long address,
                 pc, address, is_write, *(unsigned long *)old_set);
 #endif
     /* XXX: locking issue */
-    if (is_write && page_unprotect(h2g(address), pc, puc)) {
+    if (is_write && h2g_valid(address)
+        && page_unprotect(h2g(address), pc, puc)) {
         return 1;
     }
 

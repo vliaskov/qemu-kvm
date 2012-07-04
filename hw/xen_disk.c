@@ -35,20 +35,14 @@
 #include <sys/mman.h>
 #include <sys/uio.h>
 
-#include <xs.h>
-#include <xenctrl.h>
-#include <xen/io/xenbus.h>
-
 #include "hw.h"
-#include "block_int.h"
 #include "qemu-char.h"
-#include "xen_blkif.h"
 #include "xen_backend.h"
+#include "xen_blkif.h"
 #include "blockdev.h"
 
 /* ------------------------------------------------------------- */
 
-static int syncwrite    = 0;
 static int batch_maps   = 0;
 
 static int max_requests = 32;
@@ -67,6 +61,7 @@ struct ioreq {
     QEMUIOVector        v;
     int                 presync;
     int                 postsync;
+    uint8_t             mapped;
 
     /* grant mapping */
     uint32_t            domids[BLKIF_MAX_SEGMENTS_PER_REQUEST];
@@ -154,7 +149,7 @@ static void ioreq_finish(struct ioreq *ioreq)
     blkdev->requests_finished++;
 }
 
-static void ioreq_release(struct ioreq *ioreq)
+static void ioreq_release(struct ioreq *ioreq, bool finish)
 {
     struct XenBlkDev *blkdev = ioreq->blkdev;
 
@@ -162,7 +157,11 @@ static void ioreq_release(struct ioreq *ioreq)
     memset(ioreq, 0, sizeof(*ioreq));
     ioreq->blkdev = blkdev;
     QLIST_INSERT_HEAD(&blkdev->freelist, ioreq, list);
-    blkdev->requests_finished--;
+    if (finish) {
+        blkdev->requests_finished--;
+    } else {
+        blkdev->requests_inflight--;
+    }
 }
 
 /*
@@ -189,15 +188,10 @@ static int ioreq_parse(struct ioreq *ioreq)
             ioreq->presync = 1;
             return 0;
         }
-        if (!syncwrite) {
-            ioreq->presync = ioreq->postsync = 1;
-        }
+        ioreq->presync = ioreq->postsync = 1;
         /* fall through */
     case BLKIF_OP_WRITE:
         ioreq->prot = PROT_READ; /* from memory */
-        if (syncwrite) {
-            ioreq->postsync = 1;
-        }
         break;
     default:
         xen_be_printf(&blkdev->xendev, 0, "error: unknown operation (%d)\n",
@@ -248,7 +242,7 @@ static void ioreq_unmap(struct ioreq *ioreq)
     XenGnttab gnt = ioreq->blkdev->xendev.gnttabdev;
     int i;
 
-    if (ioreq->v.niov == 0) {
+    if (ioreq->v.niov == 0 || ioreq->mapped == 0) {
         return;
     }
     if (batch_maps) {
@@ -274,6 +268,7 @@ static void ioreq_unmap(struct ioreq *ioreq)
             ioreq->page[i] = NULL;
         }
     }
+    ioreq->mapped = 0;
 }
 
 static int ioreq_map(struct ioreq *ioreq)
@@ -281,7 +276,7 @@ static int ioreq_map(struct ioreq *ioreq)
     XenGnttab gnt = ioreq->blkdev->xendev.gnttabdev;
     int i;
 
-    if (ioreq->v.niov == 0) {
+    if (ioreq->v.niov == 0 || ioreq->mapped == 1) {
         return 0;
     }
     if (batch_maps) {
@@ -313,8 +308,11 @@ static int ioreq_map(struct ioreq *ioreq)
             ioreq->blkdev->cnt_map++;
         }
     }
+    ioreq->mapped = 1;
     return 0;
 }
+
+static int ioreq_runio_qemu_aio(struct ioreq *ioreq);
 
 static void qemu_aio_complete(void *opaque, int ret)
 {
@@ -327,11 +325,19 @@ static void qemu_aio_complete(void *opaque, int ret)
     }
 
     ioreq->aio_inflight--;
+    if (ioreq->presync) {
+        ioreq->presync = 0;
+        ioreq_runio_qemu_aio(ioreq);
+        return;
+    }
     if (ioreq->aio_inflight > 0) {
         return;
     }
     if (ioreq->postsync) {
-        bdrv_flush(ioreq->blkdev->bs);
+        ioreq->postsync = 0;
+        ioreq->aio_inflight++;
+        bdrv_aio_flush(ioreq->blkdev->bs, qemu_aio_complete, ioreq);
+        return;
     }
 
     ioreq->status = ioreq->aio_errors ? BLKIF_RSP_ERROR : BLKIF_RSP_OKAY;
@@ -351,7 +357,8 @@ static int ioreq_runio_qemu_aio(struct ioreq *ioreq)
 
     ioreq->aio_inflight++;
     if (ioreq->presync) {
-        bdrv_flush(blkdev->bs); /* FIXME: aio_flush() ??? */
+        bdrv_aio_flush(ioreq->blkdev->bs, qemu_aio_complete, ioreq);
+        return 0;
     }
 
     switch (ioreq->req.operation) {
@@ -449,7 +456,7 @@ static void blk_send_response_all(struct XenBlkDev *blkdev)
     while (!QLIST_EMPTY(&blkdev->finished)) {
         ioreq = QLIST_FIRST(&blkdev->finished);
         send_notify += blk_send_response_one(ioreq);
-        ioreq_release(ioreq);
+        ioreq_release(ioreq, true);
     }
     if (send_notify) {
         xen_be_send_notify(&blkdev->xendev);
@@ -505,7 +512,7 @@ static void blk_handle_requests(struct XenBlkDev *blkdev)
             if (blk_send_response_one(ioreq)) {
                 xen_be_send_notify(&blkdev->xendev);
             }
-            ioreq_release(ioreq);
+            ioreq_release(ioreq, false);
             continue;
         }
 
@@ -525,6 +532,15 @@ static void blk_bh(void *opaque)
     blk_handle_requests(blkdev);
 }
 
+/*
+ * We need to account for the grant allocations requiring contiguous
+ * chunks; the worst case number would be
+ *     max_req * max_seg + (max_req - 1) * (max_seg - 1) + 1,
+ * but in order to keep things simple just use
+ *     2 * max_req * max_seg.
+ */
+#define MAX_GRANTS(max_req, max_seg) (2 * (max_req) * (max_seg))
+
 static void blk_alloc(struct XenDevice *xendev)
 {
     struct XenBlkDev *blkdev = container_of(xendev, struct XenBlkDev, xendev);
@@ -535,6 +551,11 @@ static void blk_alloc(struct XenDevice *xendev)
     blkdev->bh = qemu_bh_new(blk_bh, blkdev);
     if (xen_mode != XEN_EMULATE) {
         batch_maps = 1;
+    }
+    if (xc_gnttab_set_max_grants(xendev->gnttabdev,
+            MAX_GRANTS(max_requests, BLKIF_MAX_SEGMENTS_PER_REQUEST)) < 0) {
+        xen_be_printf(xendev, 0, "xc_gnttab_set_max_grants failed: %s\n",
+                      strerror(errno));
     }
 }
 
@@ -624,7 +645,7 @@ static int blk_init(struct XenDevice *xendev)
     if (blkdev->file_size < 0) {
         xen_be_printf(&blkdev->xendev, 1, "bdrv_getlength: %d (%s) | drv %s\n",
                       (int)blkdev->file_size, strerror(-blkdev->file_size),
-                      blkdev->bs->drv ? blkdev->bs->drv->format_name : "-");
+                      bdrv_get_format_name(blkdev->bs) ?: "-");
         blkdev->file_size = 0;
     }
 
@@ -744,6 +765,10 @@ static int blk_free(struct XenDevice *xendev)
 {
     struct XenBlkDev *blkdev = container_of(xendev, struct XenBlkDev, xendev);
     struct ioreq *ioreq;
+
+    if (blkdev->bs || blkdev->sring) {
+        blk_disconnect(xendev);
+    }
 
     while (!QLIST_EMPTY(&blkdev->freelist)) {
         ioreq = QLIST_FIRST(&blkdev->freelist);

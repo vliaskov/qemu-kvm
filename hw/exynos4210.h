@@ -56,7 +56,7 @@
 /*
  * exynos4210 IRQ subsystem stub definitions.
  */
-#define EXYNOS4210_IRQ_GATE_NINPUTS 8
+#define EXYNOS4210_IRQ_GATE_NINPUTS 2 /* Internal and External GIC */
 
 #define EXYNOS4210_MAX_INT_COMBINER_OUT_IRQ  64
 #define EXYNOS4210_MAX_EXT_COMBINER_OUT_IRQ  16
@@ -83,7 +83,7 @@ typedef struct Exynos4210Irq {
 } Exynos4210Irq;
 
 typedef struct Exynos4210State {
-    CPUARMState * env[EXYNOS4210_NCPUS];
+    ARMCPU *cpu[EXYNOS4210_NCPUS];
     Exynos4210Irq irqs;
     qemu_irq *irq_table;
 
@@ -96,6 +96,9 @@ typedef struct Exynos4210State {
     MemoryRegion boot_secondary;
     MemoryRegion bootreg_mem;
 } Exynos4210State;
+
+void exynos4210_write_secondary(ARMCPU *cpu,
+        const struct arm_boot_info *info);
 
 Exynos4210State *exynos4210_init(MemoryRegion *system_mem,
         unsigned long ram_size);

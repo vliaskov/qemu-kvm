@@ -6099,7 +6099,7 @@ static void gen_compute_branch1 (CPUMIPSState *env, DisasContext *ctx, uint32_t 
             TCGv_i32 t1 = tcg_temp_new_i32();
             tcg_gen_shri_i32(t0, fpu_fcr31, get_fp_bit(cc));
             tcg_gen_shri_i32(t1, fpu_fcr31, get_fp_bit(cc+1));
-            tcg_gen_nor_i32(t0, t0, t1);
+            tcg_gen_nand_i32(t0, t0, t1);
             tcg_temp_free_i32(t1);
             tcg_gen_andi_i32(t0, t0, 1);
             tcg_gen_extu_i32_tl(bcond, t0);
@@ -6123,11 +6123,11 @@ static void gen_compute_branch1 (CPUMIPSState *env, DisasContext *ctx, uint32_t 
             TCGv_i32 t1 = tcg_temp_new_i32();
             tcg_gen_shri_i32(t0, fpu_fcr31, get_fp_bit(cc));
             tcg_gen_shri_i32(t1, fpu_fcr31, get_fp_bit(cc+1));
-            tcg_gen_or_i32(t0, t0, t1);
+            tcg_gen_and_i32(t0, t0, t1);
             tcg_gen_shri_i32(t1, fpu_fcr31, get_fp_bit(cc+2));
-            tcg_gen_or_i32(t0, t0, t1);
+            tcg_gen_and_i32(t0, t0, t1);
             tcg_gen_shri_i32(t1, fpu_fcr31, get_fp_bit(cc+3));
-            tcg_gen_nor_i32(t0, t0, t1);
+            tcg_gen_nand_i32(t0, t0, t1);
             tcg_temp_free_i32(t1);
             tcg_gen_andi_i32(t0, t0, 1);
             tcg_gen_extu_i32_tl(bcond, t0);
@@ -12689,28 +12689,29 @@ static void mips_tcg_init(void)
 
 #include "translate_init.c"
 
-CPUMIPSState *cpu_mips_init (const char *cpu_model)
+MIPSCPU *cpu_mips_init(const char *cpu_model)
 {
+    MIPSCPU *cpu;
     CPUMIPSState *env;
     const mips_def_t *def;
 
     def = cpu_mips_find_by_name(cpu_model);
     if (!def)
         return NULL;
-    env = g_malloc0(sizeof(CPUMIPSState));
+    cpu = MIPS_CPU(object_new(TYPE_MIPS_CPU));
+    env = &cpu->env;
     env->cpu_model = def;
     env->cpu_model_str = cpu_model;
 
-    cpu_exec_init(env);
 #ifndef CONFIG_USER_ONLY
     mmu_init(env, def);
 #endif
     fpu_init(env, def);
     mvp_init(env, def);
     mips_tcg_init();
-    cpu_state_reset(env);
+    cpu_reset(CPU(cpu));
     qemu_init_vcpu(env);
-    return env;
+    return cpu;
 }
 
 void cpu_state_reset(CPUMIPSState *env)

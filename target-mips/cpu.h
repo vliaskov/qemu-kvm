@@ -15,13 +15,6 @@
 #include "cpu-defs.h"
 #include "softfloat.h"
 
-// uint_fast8_t and uint_fast16_t not in <sys/int_types.h>
-// XXX: move that elsewhere
-#if defined(CONFIG_SOLARIS) && CONFIG_SOLARIS_VERSION < 10
-typedef unsigned char           uint_fast8_t;
-typedef unsigned int            uint_fast16_t;
-#endif
-
 struct CPUMIPSState;
 
 typedef struct r4k_tlb_t r4k_tlb_t;
@@ -483,6 +476,8 @@ struct CPUMIPSState {
     struct QEMUTimer *timer; /* Internal timer */
 };
 
+#include "cpu-qom.h"
+
 #if !defined(CONFIG_USER_ONLY)
 int no_mmu_map_address (CPUMIPSState *env, target_phys_addr_t *physical, int *prot,
                         target_ulong address, int rw, int access_type);
@@ -501,7 +496,6 @@ void cpu_unassigned_access(CPUMIPSState *env, target_phys_addr_t addr,
 
 void mips_cpu_list (FILE *f, fprintf_function cpu_fprintf);
 
-#define cpu_init cpu_mips_init
 #define cpu_exec cpu_mips_exec
 #define cpu_gen_code cpu_mips_gen_code
 #define cpu_signal_handler cpu_mips_signal_handler
@@ -631,9 +625,20 @@ enum {
 #define CPU_INTERRUPT_WAKE CPU_INTERRUPT_TGT_INT_0
 
 int cpu_mips_exec(CPUMIPSState *s);
-CPUMIPSState *cpu_mips_init(const char *cpu_model);
-//~ uint32_t cpu_mips_get_clock (void);
+MIPSCPU *cpu_mips_init(const char *cpu_model);
 int cpu_mips_signal_handler(int host_signum, void *pinfo, void *puc);
+
+static inline CPUMIPSState *cpu_init(const char *cpu_model)
+{
+    MIPSCPU *cpu = cpu_mips_init(cpu_model);
+    if (cpu == NULL) {
+        return NULL;
+    }
+    return &cpu->env;
+}
+
+/* TODO QOM'ify CPU reset and remove */
+void cpu_state_reset(CPUMIPSState *s);
 
 /* mips_timer.c */
 uint32_t cpu_mips_get_random (CPUMIPSState *env);

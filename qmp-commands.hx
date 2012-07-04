@@ -604,12 +604,45 @@ Example:
 EQMP
 
     {
+        .name       = "dump-guest-memory",
+        .args_type  = "paging:b,protocol:s,begin:i?,end:i?",
+        .params     = "-p protocol [begin] [length]",
+        .help       = "dump guest memory to file",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = qmp_marshal_input_dump_guest_memory,
+    },
+
+SQMP
+dump
+
+
+Dump guest memory to file. The file can be processed with crash or gdb.
+
+Arguments:
+
+- "paging": do paging to get guest's memory mapping (json-bool)
+- "protocol": destination file(started with "file:") or destination file
+              descriptor (started with "fd:") (json-string)
+- "begin": the starting physical address. It's optional, and should be specified
+           with length together (json-int)
+- "length": the memory size, in bytes. It's optional, and should be specified
+            with begin together (json-int)
+
+Example:
+
+-> { "execute": "dump-guest-memory", "arguments": { "protocol": "fd:dump" } }
+<- { "return": {} }
+
+Notes:
+
+(1) All boolean arguments default to false
+
+EQMP
+
+    {
         .name       = "netdev_add",
         .args_type  = "netdev:O",
-        .params     = "[user|tap|socket],id=str[,prop=value][,...]",
-        .help       = "add host network device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_netdev_add,
+        .mhandler.cmd_new = qmp_netdev_add,
     },
 
 SQMP
@@ -638,10 +671,7 @@ EQMP
     {
         .name       = "netdev_del",
         .args_type  = "id:s",
-        .params     = "id",
-        .help       = "remove host network device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_netdev_del,
+        .mhandler.cmd_new = qmp_marshal_input_netdev_del,
     },
 
 SQMP
@@ -687,19 +717,19 @@ Example:
 EQMP
 
     {
-        .name       = "block_stream",
-        .args_type  = "device:B,base:s?",
+        .name       = "block-stream",
+        .args_type  = "device:B,base:s?,speed:o?",
         .mhandler.cmd_new = qmp_marshal_input_block_stream,
     },
 
     {
-        .name       = "block_job_set_speed",
-        .args_type  = "device:B,value:o",
+        .name       = "block-job-set-speed",
+        .args_type  = "device:B,speed:o",
         .mhandler.cmd_new = qmp_marshal_input_block_job_set_speed,
     },
 
     {
-        .name       = "block_job_cancel",
+        .name       = "block-job-cancel",
         .args_type  = "device:B",
         .mhandler.cmd_new = qmp_marshal_input_block_job_cancel,
     },
@@ -759,7 +789,7 @@ EQMP
 
     {
         .name       = "blockdev-snapshot-sync",
-        .args_type  = "device:B,snapshot-file:s,format:s?",
+        .args_type  = "device:B,snapshot-file:s,format:s?,mode:s?",
         .mhandler.cmd_new = qmp_marshal_input_blockdev_snapshot_sync,
     },
 
@@ -1176,6 +1206,43 @@ EQMP
         .name       = "query-commands",
         .args_type  = "",
         .mhandler.cmd_new = qmp_marshal_input_query_commands,
+    },
+
+SQMP
+query-events
+--------------
+
+List QMP available events.
+
+Each event is represented by a json-object, the returned value is a json-array
+of all events.
+
+Each json-object contains:
+
+- "name": event's name (json-string)
+
+Example:
+
+-> { "execute": "query-events" }
+<- {
+      "return":[
+         {
+            "name":"SHUTDOWN"
+         },
+         {
+            "name":"RESET"
+         }
+      ]
+   }
+
+Note: This example has been shortened as the real response is too long.
+
+EQMP
+
+    {
+        .name       = "query-events",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_events,
     },
 
 SQMP

@@ -1327,6 +1327,10 @@ static void vga_draw_text(VGACommonState *s, int full_update)
     line_offset = s->line_offset;
 
     vga_get_text_resolution(s, &width, &height, &cw, &cheight);
+    if ((height * width) <= 1) {
+        /* better than nothing: exit if transient size is too small */
+        return;
+    }
     if ((height * width) > CH_ATTR_SIZE) {
         /* better than nothing: exit if transient size is too big */
         return;
@@ -2221,7 +2225,7 @@ const VMStateDescription vmstate_vga_common = {
     }
 };
 
-void vga_common_init(VGACommonState *s, int vga_ram_size)
+void vga_common_init(VGACommonState *s)
 {
     int i, j, v, b;
 
@@ -2248,16 +2252,23 @@ void vga_common_init(VGACommonState *s, int vga_ram_size)
         expand4to8[i] = v;
     }
 
+    /* valid range: 1 MB -> 256 MB */
+    s->vram_size = 1024 * 1024;
+    while (s->vram_size < (s->vram_size_mb << 20) &&
+           s->vram_size < (256 << 20)) {
+        s->vram_size <<= 1;
+    }
+    s->vram_size_mb = s->vram_size >> 20;
+
 #ifdef CONFIG_BOCHS_VBE
     s->is_vbe_vmstate = 1;
 #else
     s->is_vbe_vmstate = 0;
 #endif
-    memory_region_init_ram(&s->vram, "vga.vram", vga_ram_size);
+    memory_region_init_ram(&s->vram, "vga.vram", s->vram_size);
     vmstate_register_ram_global(&s->vram);
     xen_register_framebuffer(&s->vram);
     s->vram_ptr = memory_region_get_ram_ptr(&s->vram);
-    s->vram_size = vga_ram_size;
     s->get_bpp = vga_get_bpp;
     s->get_offsets = vga_get_offsets;
     s->get_resolution = vga_get_resolution;
@@ -2353,10 +2364,15 @@ void vga_init(VGACommonState *s, MemoryRegion *address_space,
 void vga_init_vbe(VGACommonState *s, MemoryRegion *system_memory)
 {
 #ifdef CONFIG_BOCHS_VBE
+    /* With pc-0.12 and below we map both the PCI BAR and the fixed VBE region,
+     * so use an alias to avoid double-mapping the same region.
+     */
+    memory_region_init_alias(&s->vram_vbe, "vram.vbe",
+                             &s->vram, 0, memory_region_size(&s->vram));
     /* XXX: use optimized standard vga accesses */
     memory_region_add_subregion(system_memory,
                                 VBE_DISPI_LFB_PHYSICAL_ADDRESS,
-                                &s->vram);
+                                &s->vram_vbe);
     s->vbe_mapped = 1;
 #endif 
 }

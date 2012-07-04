@@ -1306,8 +1306,9 @@ do {                                                                    \
     fprintf(stderr, fmt , ## __VA_ARGS__);                              \
     cpu_dump_state(env, stderr, fprintf, 0);                            \
     qemu_log(fmt, ## __VA_ARGS__);                                      \
-    if (logfile)                                                        \
+    if (qemu_log_enabled()) {                                           \
         log_cpu_state(env, 0);                                          \
+    }                                                                   \
 } while (0)
 
 static int do_store_exclusive(CPUPPCState *env)
@@ -3405,7 +3406,7 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     }
 #if defined(TARGET_I386) || defined(TARGET_SPARC) || defined(TARGET_PPC)
-    cpu_state_reset(env);
+    cpu_reset(ENV_GET_CPU(env));
 #endif
 
     thread_env = env;

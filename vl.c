@@ -51,14 +51,12 @@
 #ifdef CONFIG_BSD
 #include <sys/stat.h>
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
-#include <libutil.h>
 #include <sys/sysctl.h>
 #else
 #include <util.h>
 #endif
 #else
 #ifdef __linux__
-#include <pty.h>
 #include <malloc.h>
 
 #include <linux/ppdev.h>
@@ -79,10 +77,6 @@
 #include <stropts.h>
 #endif
 #endif
-#endif
-
-#if defined(__OpenBSD__)
-#include <util.h>
 #endif
 
 #if defined(CONFIG_VDE)
@@ -273,6 +267,7 @@ static int default_monitor = 1;
 static int default_floppy = 1;
 static int default_cdrom = 1;
 static int default_sdcard = 1;
+static int default_vga = 1;
 
 static struct {
     const char *driver;
@@ -288,6 +283,12 @@ static struct {
     { .driver = "virtio-serial-pci",    .flag = &default_virtcon   },
     { .driver = "virtio-serial-s390",   .flag = &default_virtcon   },
     { .driver = "virtio-serial",        .flag = &default_virtcon   },
+    { .driver = "VGA",                  .flag = &default_vga       },
+    { .driver = "isa-vga",              .flag = &default_vga       },
+    { .driver = "cirrus-vga",           .flag = &default_vga       },
+    { .driver = "isa-cirrus-vga",       .flag = &default_vga       },
+    { .driver = "vmware-svga",          .flag = &default_vga       },
+    { .driver = "qxl-vga",              .flag = &default_vga       },
 };
 
 static void res_free(void)
@@ -365,6 +366,11 @@ static const RunStateTransition runstate_transitions_def[] = {
 
     { RUN_STATE_SHUTDOWN, RUN_STATE_PAUSED },
     { RUN_STATE_SHUTDOWN, RUN_STATE_FINISH_MIGRATE },
+
+    { RUN_STATE_DEBUG, RUN_STATE_SUSPENDED },
+    { RUN_STATE_RUNNING, RUN_STATE_SUSPENDED },
+    { RUN_STATE_SUSPENDED, RUN_STATE_RUNNING },
+    { RUN_STATE_SUSPENDED, RUN_STATE_FINISH_MIGRATE },
 
     { RUN_STATE_WATCHDOG, RUN_STATE_RUNNING },
     { RUN_STATE_WATCHDOG, RUN_STATE_FINISH_MIGRATE },
@@ -1288,7 +1294,6 @@ static pid_t shutdown_pid;
 static int powerdown_requested;
 static int debug_requested;
 static int suspend_requested;
-static bool is_suspended;
 static NotifierList suspend_notifiers =
     NOTIFIER_LIST_INITIALIZER(suspend_notifiers);
 static NotifierList wakeup_notifiers =
@@ -1420,13 +1425,13 @@ static void qemu_system_suspend(void)
 {
     pause_all_vcpus();
     notifier_list_notify(&suspend_notifiers, NULL);
+    runstate_set(RUN_STATE_SUSPENDED);
     monitor_protocol_event(QEVENT_SUSPEND, NULL);
-    is_suspended = true;
 }
 
 void qemu_system_suspend_request(void)
 {
-    if (is_suspended) {
+    if (runstate_check(RUN_STATE_SUSPENDED)) {
         return;
     }
     suspend_requested = 1;
@@ -1441,17 +1446,17 @@ void qemu_register_suspend_notifier(Notifier *notifier)
 
 void qemu_system_wakeup_request(WakeupReason reason)
 {
-    if (!is_suspended) {
+    if (!runstate_check(RUN_STATE_SUSPENDED)) {
         return;
     }
     if (!(wakeup_reason_mask & (1 << reason))) {
         return;
     }
+    runstate_set(RUN_STATE_RUNNING);
     monitor_protocol_event(QEVENT_WAKEUP, NULL);
     notifier_list_notify(&wakeup_notifiers, &reason);
     reset_requested = 1;
     qemu_notify_event();
-    is_suspended = false;
 }
 
 void qemu_system_wakeup_enable(WakeupReason reason, bool enabled)
@@ -1775,7 +1780,7 @@ static int balloon_parse(const char *arg)
                 return  -1;
         } else {
             /* create empty opts */
-            opts = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+            opts = qemu_opts_create(qemu_find_opts("device"), NULL, 0, NULL);
         }
         qemu_opt_set(opts, "driver", "virtio-balloon");
         return 0;
@@ -1910,7 +1915,7 @@ static void monitor_parse(const char *optarg, const char *mode)
         }
     }
 
-    opts = qemu_opts_create(qemu_find_opts("mon"), label, 1);
+    opts = qemu_opts_create(qemu_find_opts("mon"), label, 1, NULL);
     if (!opts) {
         fprintf(stderr, "duplicate chardev: %s\n", label);
         exit(1);
@@ -2024,14 +2029,14 @@ static int virtcon_parse(const char *devname)
         exit(1);
     }
 
-    bus_opts = qemu_opts_create(device, NULL, 0);
+    bus_opts = qemu_opts_create(device, NULL, 0, NULL);
     if (arch_type == QEMU_ARCH_S390X) {
         qemu_opt_set(bus_opts, "driver", "virtio-serial-s390");
     } else {
         qemu_opt_set(bus_opts, "driver", "virtio-serial-pci");
     } 
 
-    dev_opts = qemu_opts_create(device, NULL, 0);
+    dev_opts = qemu_opts_create(device, NULL, 0, NULL);
     qemu_opt_set(dev_opts, "driver", "virtconsole");
 
     snprintf(label, sizeof(label), "virtcon%d", index);
@@ -2054,7 +2059,7 @@ static int debugcon_parse(const char *devname)
     if (!qemu_chr_new("debugcon", devname, NULL)) {
         exit(1);
     }
-    opts = qemu_opts_create(qemu_find_opts("device"), "debugcon", 1);
+    opts = qemu_opts_create(qemu_find_opts("device"), "debugcon", 1, NULL);
     if (!opts) {
         fprintf(stderr, "qemu: already have a debugcon device\n");
         exit(1);
@@ -2273,13 +2278,14 @@ int main(int argc, char **argv, char **envp)
     const char *loadvm = NULL;
     QEMUMachine *machine;
     const char *cpu_model;
-    const char *vga_model = NULL;
+    const char *vga_model = "none";
     const char *pid_file = NULL;
     const char *incoming = NULL;
 #ifdef CONFIG_VNC
     int show_vnc_port = 0;
 #endif
-    int defconfig = 1;
+    bool defconfig = true;
+    bool userconfig = true;
     const char *log_mask = NULL;
     const char *log_file = NULL;
     GMemVTable mem_trace = {
@@ -2346,7 +2352,10 @@ int main(int argc, char **argv, char **envp)
             popt = lookup_opt(argc, argv, &optarg, &optind);
             switch (popt->index) {
             case QEMU_OPTION_nodefconfig:
-                defconfig=0;
+                defconfig = false;
+                break;
+            case QEMU_OPTION_nouserconfig:
+                userconfig = false;
                 break;
             }
         }
@@ -2354,14 +2363,8 @@ int main(int argc, char **argv, char **envp)
 
     if (defconfig) {
         int ret;
-
-        ret = qemu_read_config_file(CONFIG_QEMU_CONFDIR "/qemu.conf");
-        if (ret < 0 && ret != -ENOENT) {
-            exit(1);
-        }
-
-        ret = qemu_read_config_file(arch_config_name);
-        if (ret < 0 && ret != -ENOENT) {
+        ret = qemu_read_default_config_files(userconfig);
+        if (ret < 0) {
             exit(1);
         }
     }
@@ -2705,6 +2708,7 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_vga:
                 vga_model = optarg;
+                default_vga = 0;
                 break;
             case QEMU_OPTION_g:
                 {
@@ -2803,7 +2807,8 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 fsdev = qemu_opts_create(qemu_find_opts("fsdev"),
-                                         qemu_opt_get(opts, "mount_tag"), 1);
+                                         qemu_opt_get(opts, "mount_tag"),
+                                         1, NULL);
                 if (!fsdev) {
                     fprintf(stderr, "duplicate fsdev id: %s\n",
                             qemu_opt_get(opts, "mount_tag"));
@@ -2835,7 +2840,8 @@ int main(int argc, char **argv, char **envp)
 
                 qemu_opt_set_bool(fsdev, "readonly",
                                 qemu_opt_get_bool(opts, "readonly", 0));
-                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0,
+                                          NULL);
                 qemu_opt_set(device, "driver", "virtio-9p-pci");
                 qemu_opt_set(device, "fsdev",
                              qemu_opt_get(opts, "mount_tag"));
@@ -2847,14 +2853,16 @@ int main(int argc, char **argv, char **envp)
                 QemuOpts *fsdev;
                 QemuOpts *device;
 
-                fsdev = qemu_opts_create(qemu_find_opts("fsdev"), "v_synth", 1);
+                fsdev = qemu_opts_create(qemu_find_opts("fsdev"), "v_synth",
+                                         1, NULL);
                 if (!fsdev) {
                     fprintf(stderr, "duplicate option: %s\n", "virtfs_synth");
                     exit(1);
                 }
                 qemu_opt_set(fsdev, "fsdriver", "synth");
 
-                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0,
+                                          NULL);
                 qemu_opt_set(device, "driver", "virtio-9p-pci");
                 qemu_opt_set(device, "fsdev", "v_synth");
                 qemu_opt_set(device, "mount_tag", "v_synth");
@@ -3114,7 +3122,7 @@ int main(int argc, char **argv, char **envp)
                 default_floppy = 0;
                 default_cdrom = 0;
                 default_sdcard = 0;
-                vga_model = "none";
+                default_vga = 0;
                 break;
             case QEMU_OPTION_xen_domid:
                 if (!(xen_available())) {
@@ -3197,6 +3205,10 @@ int main(int argc, char **argv, char **envp)
         }
     }
     loc_set_none();
+
+    if (machine->hw_version) {
+        qemu_set_version(machine->hw_version);
+    }
 
     /* Init CPU def lists, based on config
      * - Must be called after all the qemu_read_config_file() calls
@@ -3484,14 +3496,11 @@ int main(int argc, char **argv, char **envp)
     if (foreach_device_config(DEV_DEBUGCON, debugcon_parse) < 0)
         exit(1);
 
-    /* must be after qdev registration but before machine init */
-    if (vga_model) {
-        select_vgahw(vga_model);
-    } else if (cirrus_vga_available()) {
-        select_vgahw("cirrus");
-    } else {
-        select_vgahw("none");
+    /* If no default VGA is requested, the default is "none".  */
+    if (default_vga && cirrus_vga_available()) {
+        vga_model = "cirrus";
     }
+    select_vgahw(vga_model);
 
     if (qemu_opts_foreach(qemu_find_opts("device"), device_help_func, NULL, 0) != 0)
         exit(0);
@@ -3627,8 +3636,13 @@ int main(int argc, char **argv, char **envp)
     }
 
     if (incoming) {
-        int ret = qemu_start_incoming_migration(incoming);
+        Error *errp = NULL;
+        int ret = qemu_start_incoming_migration(incoming, &errp);
         if (ret < 0) {
+            if (error_is_set(&errp)) {
+                fprintf(stderr, "Migrate: %s\n", error_get_pretty(errp));
+                error_free(errp);
+            }
             fprintf(stderr, "Migration failed. Exit code %s(%d), exiting.\n",
                     incoming, ret);
             exit(ret);

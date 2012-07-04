@@ -35,6 +35,13 @@ class QcowHeader:
         [ uint32_t, '%d',   'refcount_table_clusters' ],
         [ uint32_t, '%d',   'nb_snapshots' ],
         [ uint64_t, '%#x',  'snapshot_offset' ],
+
+        # Version 3 header fields
+        [ uint64_t, '%#x',  'incompatible_features' ],
+        [ uint64_t, '%#x',  'compatible_features' ],
+        [ uint64_t, '%#x',  'autoclear_features' ],
+        [ uint32_t, '%d',   'refcount_order' ],
+        [ uint32_t, '%d',   'header_length' ],
     ];
 
     fmt = '>' + ''.join(field[0] for field in fields)
@@ -50,9 +57,10 @@ class QcowHeader:
         self.__dict__ = dict((field[2], header[i])
             for i, field in enumerate(QcowHeader.fields))
 
+        self.set_defaults()
         self.cluster_size = 1 << self.cluster_bits
 
-        fd.seek(self.get_header_length())
+        fd.seek(self.header_length)
         self.load_extensions(fd)
 
         if self.backing_file_offset:
@@ -61,11 +69,13 @@ class QcowHeader:
         else:
             self.backing_file = None
 
-    def get_header_length(self):
+    def set_defaults(self):
         if self.version == 2:
-            return 72
-        else:
-            raise Exception("version != 2 not supported")
+            self.incompatible_features = 0
+            self.compatible_features = 0
+            self.autoclear_features = 0
+            self.refcount_order = 4
+            self.header_length = 72
 
     def load_extensions(self, fd):
         self.extensions = []
@@ -86,7 +96,7 @@ class QcowHeader:
 
     def update_extensions(self, fd):
 
-        fd.seek(self.get_header_length())
+        fd.seek(self.header_length)
         extensions = self.extensions
         extensions.append(QcowHeaderExtension(0, 0, ""))
         for ex in extensions:
@@ -103,7 +113,7 @@ class QcowHeader:
 
 
     def update(self, fd):
-        header_bytes = self.get_header_length()
+        header_bytes = self.header_length
 
         self.update_extensions(fd)
 
@@ -171,10 +181,33 @@ def cmd_del_header_ext(fd, magic):
 
     h.update(fd)
 
+def cmd_set_feature_bit(fd, group, bit):
+    try:
+        bit = int(bit, 0)
+        if bit < 0 or bit >= 64:
+            raise ValueError
+    except:
+        print "'%s' is not a valid bit number in range [0, 64)" % bit
+        sys.exit(1)
+
+    h = QcowHeader(fd)
+    if group == 'incompatible':
+        h.incompatible_features |= 1 << bit
+    elif group == 'compatible':
+        h.compatible_features |= 1 << bit
+    elif group == 'autoclear':
+        h.autoclear_features |= 1 << bit
+    else:
+        print "'%s' is not a valid group, try 'incompatible', 'compatible', or 'autoclear'" % group
+        sys.exit(1)
+
+    h.update(fd)
+
 cmds = [
     [ 'dump-header',    cmd_dump_header,    0, 'Dump image header and header extensions' ],
     [ 'add-header-ext', cmd_add_header_ext, 2, 'Add a header extension' ],
     [ 'del-header-ext', cmd_del_header_ext, 1, 'Delete a header extension' ],
+    [ 'set-feature-bit', cmd_set_feature_bit, 2, 'Set a feature bit'],
 ]
 
 def main(filename, cmd, args):

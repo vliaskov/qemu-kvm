@@ -278,7 +278,6 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
 {
     const char *buf;
     const char *file = NULL;
-    char devname[128];
     const char *serial;
     const char *mediastr = "";
     BlockInterfaceType type;
@@ -318,7 +317,6 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
     serial = qemu_opt_get(opts, "serial");
 
     if ((buf = qemu_opt_get(opts, "if")) != NULL) {
-        pstrcpy(devname, sizeof(devname), buf);
         for (type = 0; type < IF_COUNT && strcmp(buf, if_name[type]); type++)
             ;
         if (type == IF_COUNT) {
@@ -327,7 +325,6 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
 	}
     } else {
         type = default_to_scsi ? IF_SCSI : IF_IDE;
-        pstrcpy(devname, sizeof(devname), if_name[type]);
     }
 
     max_devs = if_max_devs[type];
@@ -523,10 +520,10 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
             mediastr = (media == MEDIA_CDROM) ? "-cd" : "-hd";
         if (max_devs)
             snprintf(dinfo->id, 32, "%s%i%s%i",
-                     devname, bus_id, mediastr, unit_id);
+                     if_name[type], bus_id, mediastr, unit_id);
         else
             snprintf(dinfo->id, 32, "%s%s%i",
-                     devname, mediastr, unit_id);
+                     if_name[type], mediastr, unit_id);
     }
     dinfo->bdrv = bdrv_new(dinfo->id);
     dinfo->devaddr = devaddr;
@@ -569,7 +566,7 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
         break;
     case IF_VIRTIO:
         /* add virtio block device */
-        opts = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+        opts = qemu_opts_create(qemu_find_opts("device"), NULL, 0, NULL);
         if (arch_type == QEMU_ARCH_S390X) {
             qemu_opt_set(opts, "driver", "virtio-blk-s390");
         } else {
@@ -756,14 +753,17 @@ void qmp_transaction(BlockdevActionList *dev_list, Error **errp)
             goto delete_and_fail;
         }
 
+        if (!bdrv_is_inserted(states->old_bs)) {
+            error_set(errp, QERR_DEVICE_HAS_NO_MEDIUM, device);
+            goto delete_and_fail;
+        }
+
         if (bdrv_in_use(states->old_bs)) {
             error_set(errp, QERR_DEVICE_IN_USE, device);
             goto delete_and_fail;
         }
 
-        if (!bdrv_is_read_only(states->old_bs) &&
-             bdrv_is_inserted(states->old_bs)) {
-
+        if (!bdrv_is_read_only(states->old_bs)) {
             if (bdrv_flush(states->old_bs)) {
                 error_set(errp, QERR_IO_ERROR);
                 goto delete_and_fail;
@@ -1091,11 +1091,12 @@ static void block_stream_cb(void *opaque, int ret)
 }
 
 void qmp_block_stream(const char *device, bool has_base,
-                      const char *base, Error **errp)
+                      const char *base, bool has_speed,
+                      int64_t speed, Error **errp)
 {
     BlockDriverState *bs;
     BlockDriverState *base_bs = NULL;
-    int ret;
+    Error *local_err = NULL;
 
     bs = bdrv_find(device);
     if (!bs) {
@@ -1111,16 +1112,11 @@ void qmp_block_stream(const char *device, bool has_base,
         }
     }
 
-    ret = stream_start(bs, base_bs, base, block_stream_cb, bs);
-    if (ret < 0) {
-        switch (ret) {
-        case -EBUSY:
-            error_set(errp, QERR_DEVICE_IN_USE, device);
-            return;
-        default:
-            error_set(errp, QERR_NOT_SUPPORTED);
-            return;
-        }
+    stream_start(bs, base_bs, base, has_speed ? speed : 0,
+                 block_stream_cb, bs, &local_err);
+    if (error_is_set(&local_err)) {
+        error_propagate(errp, local_err);
+        return;
     }
 
     /* Grab a reference so hotplug does not delete the BlockDriverState from
@@ -1142,7 +1138,7 @@ static BlockJob *find_block_job(const char *device)
     return bs->job;
 }
 
-void qmp_block_job_set_speed(const char *device, int64_t value, Error **errp)
+void qmp_block_job_set_speed(const char *device, int64_t speed, Error **errp)
 {
     BlockJob *job = find_block_job(device);
 
@@ -1151,9 +1147,7 @@ void qmp_block_job_set_speed(const char *device, int64_t value, Error **errp)
         return;
     }
 
-    if (block_job_set_speed(job, value) < 0) {
-        error_set(errp, QERR_NOT_SUPPORTED);
-    }
+    block_job_set_speed(job, speed, errp);
 }
 
 void qmp_block_job_cancel(const char *device, Error **errp)

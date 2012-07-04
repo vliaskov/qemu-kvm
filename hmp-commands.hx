@@ -71,8 +71,8 @@ ETEXI
 
     {
         .name       = "block_stream",
-        .args_type  = "device:B,base:s?",
-        .params     = "device [base]",
+        .args_type  = "device:B,speed:o?,base:s?",
+        .params     = "device [speed [base]]",
         .help       = "copy data from a backing file into a block device",
         .mhandler.cmd = hmp_block_stream,
     },
@@ -85,15 +85,15 @@ ETEXI
 
     {
         .name       = "block_job_set_speed",
-        .args_type  = "device:B,value:o",
-        .params     = "device value",
+        .args_type  = "device:B,speed:o",
+        .params     = "device speed",
         .help       = "set maximum speed for a background block operation",
         .mhandler.cmd = hmp_block_job_set_speed,
     },
 
 STEXI
-@item block_job_set_stream
-@findex block_job_set_stream
+@item block_job_set_speed
+@findex block_job_set_speed
 Set maximum speed for a background block operation.
 ETEXI
 
@@ -878,6 +878,34 @@ server will ask the spice/vnc client to automatically reconnect using the
 new parameters (if specified) once the vm migration finished successfully.
 ETEXI
 
+#if defined(CONFIG_HAVE_CORE_DUMP)
+    {
+        .name       = "dump-guest-memory",
+        .args_type  = "paging:-p,protocol:s,begin:i?,length:i?",
+        .params     = "[-p] protocol [begin] [length]",
+        .help       = "dump guest memory to file"
+                      "\n\t\t\t begin(optional): the starting physical address"
+                      "\n\t\t\t length(optional): the memory size, in bytes",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd = hmp_dump_guest_memory,
+    },
+
+
+STEXI
+@item dump-guest-memory [-p] @var{protocol} @var{begin} @var{length}
+@findex dump-guest-memory
+Dump guest memory to @var{protocol}. The file can be processed with crash or
+gdb.
+  protocol: destination file(started with "file:") or destination file
+            descriptor (started with "fd:")
+    paging: do paging to get guest's memory mapping
+     begin: the starting physical address. It's optional, and should be
+            specified with length together.
+    length: the memory size, in bytes. It's optional, and should be specified
+            with begin together.
+ETEXI
+#endif
+
     {
         .name       = "snapshot_blkdev",
         .args_type  = "reuse:-n,device:B,snapshot-file:s?,format:s?",
@@ -1009,8 +1037,7 @@ ETEXI
         .args_type  = "netdev:O",
         .params     = "[user|tap|socket],id=str[,prop=value][,...]",
         .help       = "add host network device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_netdev_add,
+        .mhandler.cmd = hmp_netdev_add,
     },
 
 STEXI
@@ -1024,8 +1051,7 @@ ETEXI
         .args_type  = "id:s",
         .params     = "id",
         .help       = "remove host network device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_netdev_del,
+        .mhandler.cmd = hmp_netdev_del,
     },
 
 STEXI

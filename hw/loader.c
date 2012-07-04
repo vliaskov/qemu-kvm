@@ -103,7 +103,7 @@ ssize_t read_targphys(const char *name,
 
 /* return the size or -1 if error */
 int load_image_targphys(const char *filename,
-			target_phys_addr_t addr, int max_sz)
+                        target_phys_addr_t addr, uint64_t max_sz)
 {
     int size;
 
@@ -377,9 +377,9 @@ static void zfree(void *x, void *addr)
 
 #define DEFLATED	8
 
-/* This is the maximum in uboot, so if a uImage overflows this, it would
+/* This is the usual maximum in uboot, so if a uImage overflows this, it would
  * overflow on real hardware too. */
-#define UBOOT_MAX_GUNZIP_BYTES 0x800000
+#define UBOOT_MAX_GUNZIP_BYTES (64 << 20)
 
 static ssize_t gunzip(void *dst, size_t dstlen, uint8_t *src,
                       size_t srclen)

@@ -70,8 +70,6 @@ static int spapr_vty_init(VIOsPAPRDevice *sdev)
 }
 
 /* Forward declaration */
-static VIOsPAPRDevice *vty_lookup(sPAPREnvironment *spapr, target_ulong reg);
-
 static target_ulong h_put_term_char(CPUPPCState *env, sPAPREnvironment *spapr,
                                     target_ulong opcode, target_ulong *args)
 {
@@ -125,18 +123,17 @@ static target_ulong h_get_term_char(CPUPPCState *env, sPAPREnvironment *spapr,
     return H_SUCCESS;
 }
 
-void spapr_vty_create(VIOsPAPRBus *bus, uint32_t reg, CharDriverState *chardev)
+void spapr_vty_create(VIOsPAPRBus *bus, CharDriverState *chardev)
 {
     DeviceState *dev;
 
     dev = qdev_create(&bus->bus, "spapr-vty");
-    qdev_prop_set_uint32(dev, "reg", reg);
     qdev_prop_set_chr(dev, "chardev", chardev);
     qdev_init_nofail(dev);
 }
 
 static Property spapr_vty_properties[] = {
-    DEFINE_SPAPR_PROPERTIES(VIOsPAPRVTYDevice, sdev, SPAPR_VTY_BASE_ADDRESS, 0),
+    DEFINE_SPAPR_PROPERTIES(VIOsPAPRVTYDevice, sdev),
     DEFINE_PROP_CHR("chardev", VIOsPAPRVTYDevice, chardev),
     DEFINE_PROP_END_OF_LIST(),
 };
@@ -163,7 +160,7 @@ static TypeInfo spapr_vty_info = {
 VIOsPAPRDevice *spapr_vty_get_default(VIOsPAPRBus *bus)
 {
     VIOsPAPRDevice *sdev, *selected;
-    DeviceState *iter;
+    BusChild *kid;
 
     /*
      * To avoid the console bouncing around we want one VTY to be
@@ -172,7 +169,9 @@ VIOsPAPRDevice *spapr_vty_get_default(VIOsPAPRBus *bus)
      */
 
     selected = NULL;
-    QTAILQ_FOREACH(iter, &bus->bus.children, sibling) {
+    QTAILQ_FOREACH(kid, &bus->bus.children, sibling) {
+        DeviceState *iter = kid->child;
+
         /* Only look at VTY devices */
         if (!object_dynamic_cast(OBJECT(iter), "spapr-vty")) {
             continue;
@@ -195,7 +194,7 @@ VIOsPAPRDevice *spapr_vty_get_default(VIOsPAPRBus *bus)
     return selected;
 }
 
-static VIOsPAPRDevice *vty_lookup(sPAPREnvironment *spapr, target_ulong reg)
+VIOsPAPRDevice *vty_lookup(sPAPREnvironment *spapr, target_ulong reg)
 {
     VIOsPAPRDevice *sdev;
 

@@ -25,6 +25,9 @@ typedef struct IDEState IDEState;
 typedef struct IDEDMA IDEDMA;
 typedef struct IDEDMAOps IDEDMAOps;
 
+#define TYPE_IDE_BUS "IDE"
+#define IDE_BUS(obj) OBJECT_CHECK(IDEBus, (obj), TYPE_IDE_BUS)
+
 /* Bits of HD_STATUS */
 #define ERR_STAT		0x01
 #define INDEX_STAT		0x02
@@ -385,6 +388,9 @@ struct IDEState {
     int cd_sector_size;
     int atapi_dma; /* true if dma is requested for the packet cmd */
     BlockAcctCookie acct;
+    BlockDriverAIOCB *pio_aiocb;
+    struct iovec iov;
+    QEMUIOVector qiov;
     /* ATA DMA state */
     int io_buffer_size;
     QEMUSGList sg;

@@ -8,120 +8,45 @@
  */
 
 /* This file contains implementation code for the RealView EB interrupt
-   controller, MPCore distributed interrupt controller and ARMv7-M
-   Nested Vectored Interrupt Controller.  */
+ * controller, MPCore distributed interrupt controller and ARMv7-M
+ * Nested Vectored Interrupt Controller.
+ * It is compiled in two ways:
+ *  (1) as a standalone file to produce a sysbus device which is a GIC
+ *  that can be used on the realview board and as one of the builtin
+ *  private peripherals for the ARM MP CPUs (11MPCore, A9, etc)
+ *  (2) by being directly #included into armv7m_nvic.c to produce the
+ *  armv7m_nvic device.
+ */
 
-/* Maximum number of possible interrupts, determined by the GIC architecture */
-#define GIC_MAXIRQ 1020
-/* First 32 are private to each CPU (SGIs and PPIs). */
-#define GIC_INTERNAL 32
+#include "sysbus.h"
+#include "arm_gic_internal.h"
+
 //#define DEBUG_GIC
 
 #ifdef DEBUG_GIC
 #define DPRINTF(fmt, ...) \
-do { printf("arm_gic: " fmt , ## __VA_ARGS__); } while (0)
+do { fprintf(stderr, "arm_gic: " fmt , ## __VA_ARGS__); } while (0)
 #else
 #define DPRINTF(fmt, ...) do {} while(0)
 #endif
 
-#ifdef NVIC
-static const uint8_t gic_id[] =
-{ 0x00, 0xb0, 0x1b, 0x00, 0x0d, 0xe0, 0x05, 0xb1 };
-/* The NVIC has 16 internal vectors.  However these are not exposed
-   through the normal GIC interface.  */
-#define GIC_BASE_IRQ    32
-#else
-static const uint8_t gic_id[] =
-{ 0x90, 0x13, 0x04, 0x00, 0x0d, 0xf0, 0x05, 0xb1 };
-#define GIC_BASE_IRQ    0
-#endif
+static const uint8_t gic_id[] = {
+    0x90, 0x13, 0x04, 0x00, 0x0d, 0xf0, 0x05, 0xb1
+};
 
-#define FROM_SYSBUSGIC(type, dev) \
-    DO_UPCAST(type, gic, FROM_SYSBUS(gic_state, dev))
-
-typedef struct gic_irq_state
-{
-    /* The enable bits are only banked for per-cpu interrupts.  */
-    unsigned enabled:NCPU;
-    unsigned pending:NCPU;
-    unsigned active:NCPU;
-    unsigned level:NCPU;
-    unsigned model:1; /* 0 = N:N, 1 = 1:N */
-    unsigned trigger:1; /* nonzero = edge triggered.  */
-} gic_irq_state;
-
-#define ALL_CPU_MASK ((1 << NCPU) - 1)
-#if NCPU > 1
 #define NUM_CPU(s) ((s)->num_cpu)
-#else
-#define NUM_CPU(s) 1
-#endif
 
-#define GIC_SET_ENABLED(irq, cm) s->irq_state[irq].enabled |= (cm)
-#define GIC_CLEAR_ENABLED(irq, cm) s->irq_state[irq].enabled &= ~(cm)
-#define GIC_TEST_ENABLED(irq, cm) ((s->irq_state[irq].enabled & (cm)) != 0)
-#define GIC_SET_PENDING(irq, cm) s->irq_state[irq].pending |= (cm)
-#define GIC_CLEAR_PENDING(irq, cm) s->irq_state[irq].pending &= ~(cm)
-#define GIC_TEST_PENDING(irq, cm) ((s->irq_state[irq].pending & (cm)) != 0)
-#define GIC_SET_ACTIVE(irq, cm) s->irq_state[irq].active |= (cm)
-#define GIC_CLEAR_ACTIVE(irq, cm) s->irq_state[irq].active &= ~(cm)
-#define GIC_TEST_ACTIVE(irq, cm) ((s->irq_state[irq].active & (cm)) != 0)
-#define GIC_SET_MODEL(irq) s->irq_state[irq].model = 1
-#define GIC_CLEAR_MODEL(irq) s->irq_state[irq].model = 0
-#define GIC_TEST_MODEL(irq) s->irq_state[irq].model
-#define GIC_SET_LEVEL(irq, cm) s->irq_state[irq].level = (cm)
-#define GIC_CLEAR_LEVEL(irq, cm) s->irq_state[irq].level &= ~(cm)
-#define GIC_TEST_LEVEL(irq, cm) ((s->irq_state[irq].level & (cm)) != 0)
-#define GIC_SET_TRIGGER(irq) s->irq_state[irq].trigger = 1
-#define GIC_CLEAR_TRIGGER(irq) s->irq_state[irq].trigger = 0
-#define GIC_TEST_TRIGGER(irq) s->irq_state[irq].trigger
-#define GIC_GET_PRIORITY(irq, cpu) (((irq) < GIC_INTERNAL) ?            \
-                                    s->priority1[irq][cpu] :            \
-                                    s->priority2[(irq) - GIC_INTERNAL])
-#ifdef NVIC
-#define GIC_TARGET(irq) 1
-#else
-#define GIC_TARGET(irq) s->irq_target[irq]
-#endif
-
-typedef struct gic_state
+static inline int gic_get_current_cpu(gic_state *s)
 {
-    SysBusDevice busdev;
-    qemu_irq parent_irq[NCPU];
-    int enabled;
-    int cpu_enabled[NCPU];
-
-    gic_irq_state irq_state[GIC_MAXIRQ];
-#ifndef NVIC
-    int irq_target[GIC_MAXIRQ];
-#endif
-    int priority1[GIC_INTERNAL][NCPU];
-    int priority2[GIC_MAXIRQ - GIC_INTERNAL];
-    int last_active[GIC_MAXIRQ][NCPU];
-
-    int priority_mask[NCPU];
-    int running_irq[NCPU];
-    int running_priority[NCPU];
-    int current_pending[NCPU];
-
-#if NCPU > 1
-    int num_cpu;
-#endif
-
-    MemoryRegion iomem; /* Distributor */
-#ifndef NVIC
-    /* This is just so we can have an opaque pointer which identifies
-     * both this GIC and which CPU interface we should be accessing.
-     */
-    struct gic_state *backref[NCPU];
-    MemoryRegion cpuiomem[NCPU+1]; /* CPU interfaces */
-#endif
-    uint32_t num_irq;
-} gic_state;
+    if (s->num_cpu > 1) {
+        return cpu_single_env->cpu_index;
+    }
+    return 0;
+}
 
 /* TODO: Many places that call this routine could be optimized.  */
 /* Update interrupt status after enabled or pending bits have been changed.  */
-static void gic_update(gic_state *s)
+void gic_update(gic_state *s)
 {
     int best_irq;
     int best_prio;
@@ -134,7 +59,7 @@ static void gic_update(gic_state *s)
         cm = 1 << cpu;
         s->current_pending[cpu] = 1023;
         if (!s->enabled || !s->cpu_enabled[cpu]) {
-	    qemu_irq_lower(s->parent_irq[cpu]);
+            qemu_irq_lower(s->parent_irq[cpu]);
             return;
         }
         best_prio = 0x100;
@@ -159,8 +84,7 @@ static void gic_update(gic_state *s)
     }
 }
 
-static void __attribute__((unused))
-gic_set_pending_private(gic_state *s, int cpu, int irq)
+void gic_set_pending_private(gic_state *s, int cpu, int irq)
 {
     int cm = 1 << cpu;
 
@@ -175,20 +99,40 @@ gic_set_pending_private(gic_state *s, int cpu, int irq)
 /* Process a change in an external IRQ input.  */
 static void gic_set_irq(void *opaque, int irq, int level)
 {
+    /* Meaning of the 'irq' parameter:
+     *  [0..N-1] : external interrupts
+     *  [N..N+31] : PPI (internal) interrupts for CPU 0
+     *  [N+32..N+63] : PPI (internal interrupts for CPU 1
+     *  ...
+     */
     gic_state *s = (gic_state *)opaque;
-    /* The first external input line is internal interrupt 32.  */
-    irq += GIC_INTERNAL;
-    if (level == GIC_TEST_LEVEL(irq, ALL_CPU_MASK))
+    int cm, target;
+    if (irq < (s->num_irq - GIC_INTERNAL)) {
+        /* The first external input line is internal interrupt 32.  */
+        cm = ALL_CPU_MASK;
+        irq += GIC_INTERNAL;
+        target = GIC_TARGET(irq);
+    } else {
+        int cpu;
+        irq -= (s->num_irq - GIC_INTERNAL);
+        cpu = irq / GIC_INTERNAL;
+        irq %= GIC_INTERNAL;
+        cm = 1 << cpu;
+        target = cm;
+    }
+
+    if (level == GIC_TEST_LEVEL(irq, cm)) {
         return;
+    }
 
     if (level) {
-        GIC_SET_LEVEL(irq, ALL_CPU_MASK);
-        if (GIC_TEST_TRIGGER(irq) || GIC_TEST_ENABLED(irq, ALL_CPU_MASK)) {
-            DPRINTF("Set %d pending mask %x\n", irq, GIC_TARGET(irq));
-            GIC_SET_PENDING(irq, GIC_TARGET(irq));
+        GIC_SET_LEVEL(irq, cm);
+        if (GIC_TEST_TRIGGER(irq) || GIC_TEST_ENABLED(irq, cm)) {
+            DPRINTF("Set %d pending mask %x\n", irq, target);
+            GIC_SET_PENDING(irq, target);
         }
     } else {
-        GIC_CLEAR_LEVEL(irq, ALL_CPU_MASK);
+        GIC_CLEAR_LEVEL(irq, cm);
     }
     gic_update(s);
 }
@@ -204,7 +148,7 @@ static void gic_set_running_irq(gic_state *s, int cpu, int irq)
     gic_update(s);
 }
 
-static uint32_t gic_acknowledge_irq(gic_state *s, int cpu)
+uint32_t gic_acknowledge_irq(gic_state *s, int cpu)
 {
     int new_irq;
     int cm = 1 << cpu;
@@ -223,7 +167,7 @@ static uint32_t gic_acknowledge_irq(gic_state *s, int cpu)
     return new_irq;
 }
 
-static void gic_complete_irq(gic_state * s, int cpu, int irq)
+void gic_complete_irq(gic_state *s, int cpu, int irq)
 {
     int update = 0;
     int cm = 1 << cpu;
@@ -278,10 +222,9 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
     int cm;
     int mask;
 
-    cpu = gic_get_current_cpu();
+    cpu = gic_get_current_cpu(s);
     cm = 1 << cpu;
     if (offset < 0x100) {
-#ifndef NVIC
         if (offset == 0)
             return s->enabled;
         if (offset == 4)
@@ -292,7 +235,6 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
             /* Interrupt Security , RAZ/WI */
             return 0;
         }
-#endif
         goto bad_reg;
     } else if (offset < 0x200) {
         /* Interrupt Set/Clear Enable.  */
@@ -343,16 +285,21 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
         if (irq >= s->num_irq)
             goto bad_reg;
         res = GIC_GET_PRIORITY(irq, cpu);
-#ifndef NVIC
     } else if (offset < 0xc00) {
         /* Interrupt CPU Target.  */
-        irq = (offset - 0x800) + GIC_BASE_IRQ;
-        if (irq >= s->num_irq)
-            goto bad_reg;
-        if (irq >= 29 && irq <= 31) {
-            res = cm;
+        if (s->num_cpu == 1 && s->revision != REV_11MPCORE) {
+            /* For uniprocessor GICs these RAZ/WI */
+            res = 0;
         } else {
-            res = GIC_TARGET(irq);
+            irq = (offset - 0x800) + GIC_BASE_IRQ;
+            if (irq >= s->num_irq) {
+                goto bad_reg;
+            }
+            if (irq >= 29 && irq <= 31) {
+                res = cm;
+            } else {
+                res = GIC_TARGET(irq);
+            }
         }
     } else if (offset < 0xf00) {
         /* Interrupt Configuration.  */
@@ -366,7 +313,6 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
             if (GIC_TEST_TRIGGER(irq + i))
                 res |= (2 << (i * 2));
         }
-#endif
     } else if (offset < 0xfe0) {
         goto bad_reg;
     } else /* offset >= 0xfe0 */ {
@@ -393,13 +339,6 @@ static uint32_t gic_dist_readw(void *opaque, target_phys_addr_t offset)
 static uint32_t gic_dist_readl(void *opaque, target_phys_addr_t offset)
 {
     uint32_t val;
-#ifdef NVIC
-    gic_state *s = (gic_state *)opaque;
-    uint32_t addr;
-    addr = offset;
-    if (addr < 0x100 || addr > 0xd00)
-        return nvic_readl(s, addr);
-#endif
     val = gic_dist_readw(opaque, offset);
     val |= gic_dist_readw(opaque, offset + 2) << 16;
     return val;
@@ -413,11 +352,8 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
     int i;
     int cpu;
 
-    cpu = gic_get_current_cpu();
+    cpu = gic_get_current_cpu(s);
     if (offset < 0x100) {
-#ifdef NVIC
-        goto bad_reg;
-#else
         if (offset == 0) {
             s->enabled = (value & 1);
             DPRINTF("Distribution %sabled\n", s->enabled ? "En" : "Dis");
@@ -428,7 +364,6 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
         } else {
             goto bad_reg;
         }
-#endif
     } else if (offset < 0x180) {
         /* Interrupt Set Enable.  */
         irq = (offset - 0x100) * 8 + GIC_BASE_IRQ;
@@ -510,17 +445,22 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
         } else {
             s->priority2[irq - GIC_INTERNAL] = value;
         }
-#ifndef NVIC
     } else if (offset < 0xc00) {
-        /* Interrupt CPU Target.  */
-        irq = (offset - 0x800) + GIC_BASE_IRQ;
-        if (irq >= s->num_irq)
-            goto bad_reg;
-        if (irq < 29)
-            value = 0;
-        else if (irq < GIC_INTERNAL)
-            value = ALL_CPU_MASK;
-        s->irq_target[irq] = value & ALL_CPU_MASK;
+        /* Interrupt CPU Target. RAZ/WI on uniprocessor GICs, with the
+         * annoying exception of the 11MPCore's GIC.
+         */
+        if (s->num_cpu != 1 || s->revision == REV_11MPCORE) {
+            irq = (offset - 0x800) + GIC_BASE_IRQ;
+            if (irq >= s->num_irq) {
+                goto bad_reg;
+            }
+            if (irq < 29) {
+                value = 0;
+            } else if (irq < GIC_INTERNAL) {
+                value = ALL_CPU_MASK;
+            }
+            s->irq_target[irq] = value & ALL_CPU_MASK;
+        }
     } else if (offset < 0xf00) {
         /* Interrupt Configuration.  */
         irq = (offset - 0xc00) * 4 + GIC_BASE_IRQ;
@@ -540,7 +480,6 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
                 GIC_CLEAR_TRIGGER(irq + i);
             }
         }
-#endif
     } else {
         /* 0xf00 is only handled for 32-bit writes.  */
         goto bad_reg;
@@ -562,20 +501,12 @@ static void gic_dist_writel(void *opaque, target_phys_addr_t offset,
                             uint32_t value)
 {
     gic_state *s = (gic_state *)opaque;
-#ifdef NVIC
-    uint32_t addr;
-    addr = offset;
-    if (addr < 0x100 || (addr > 0xd00 && addr != 0xf00)) {
-        nvic_writel(s, addr, value);
-        return;
-    }
-#endif
     if (offset == 0xf00) {
         int cpu;
         int irq;
         int mask;
 
-        cpu = gic_get_current_cpu();
+        cpu = gic_get_current_cpu(s);
         irq = value & 0x3ff;
         switch ((value >> 24) & 3) {
         case 0:
@@ -608,7 +539,6 @@ static const MemoryRegionOps gic_dist_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-#ifndef NVIC
 static uint32_t gic_cpu_read(gic_state *s, int cpu, int offset)
 {
     switch (offset) {
@@ -658,14 +588,14 @@ static uint64_t gic_thiscpu_read(void *opaque, target_phys_addr_t addr,
                                  unsigned size)
 {
     gic_state *s = (gic_state *)opaque;
-    return gic_cpu_read(s, gic_get_current_cpu(), addr);
+    return gic_cpu_read(s, gic_get_current_cpu(s), addr);
 }
 
 static void gic_thiscpu_write(void *opaque, target_phys_addr_t addr,
                               uint64_t value, unsigned size)
 {
     gic_state *s = (gic_state *)opaque;
-    gic_cpu_write(s, gic_get_current_cpu(), addr, value);
+    gic_cpu_write(s, gic_get_current_cpu(s), addr, value);
 }
 
 /* Wrappers to read/write the GIC CPU interface for a specific CPU.
@@ -700,140 +630,40 @@ static const MemoryRegionOps gic_cpu_ops = {
     .write = gic_do_cpu_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
-#endif
 
-static void gic_reset(gic_state *s)
-{
-    int i;
-    memset(s->irq_state, 0, GIC_MAXIRQ * sizeof(gic_irq_state));
-    for (i = 0 ; i < NUM_CPU(s); i++) {
-        s->priority_mask[i] = 0xf0;
-        s->current_pending[i] = 1023;
-        s->running_irq[i] = 1023;
-        s->running_priority[i] = 0x100;
-#ifdef NVIC
-        /* The NVIC doesn't have per-cpu interfaces, so enable by default.  */
-        s->cpu_enabled[i] = 1;
-#else
-        s->cpu_enabled[i] = 0;
-#endif
-    }
-    for (i = 0; i < 16; i++) {
-        GIC_SET_ENABLED(i, ALL_CPU_MASK);
-        GIC_SET_TRIGGER(i);
-    }
-#ifdef NVIC
-    /* The NVIC is always enabled.  */
-    s->enabled = 1;
-#else
-    s->enabled = 0;
-#endif
-}
-
-static void gic_save(QEMUFile *f, void *opaque)
-{
-    gic_state *s = (gic_state *)opaque;
-    int i;
-    int j;
-
-    qemu_put_be32(f, s->enabled);
-    for (i = 0; i < NUM_CPU(s); i++) {
-        qemu_put_be32(f, s->cpu_enabled[i]);
-        for (j = 0; j < GIC_INTERNAL; j++)
-            qemu_put_be32(f, s->priority1[j][i]);
-        for (j = 0; j < s->num_irq; j++)
-            qemu_put_be32(f, s->last_active[j][i]);
-        qemu_put_be32(f, s->priority_mask[i]);
-        qemu_put_be32(f, s->running_irq[i]);
-        qemu_put_be32(f, s->running_priority[i]);
-        qemu_put_be32(f, s->current_pending[i]);
-    }
-    for (i = 0; i < s->num_irq - GIC_INTERNAL; i++) {
-        qemu_put_be32(f, s->priority2[i]);
-    }
-    for (i = 0; i < s->num_irq; i++) {
-#ifndef NVIC
-        qemu_put_be32(f, s->irq_target[i]);
-#endif
-        qemu_put_byte(f, s->irq_state[i].enabled);
-        qemu_put_byte(f, s->irq_state[i].pending);
-        qemu_put_byte(f, s->irq_state[i].active);
-        qemu_put_byte(f, s->irq_state[i].level);
-        qemu_put_byte(f, s->irq_state[i].model);
-        qemu_put_byte(f, s->irq_state[i].trigger);
-    }
-}
-
-static int gic_load(QEMUFile *f, void *opaque, int version_id)
-{
-    gic_state *s = (gic_state *)opaque;
-    int i;
-    int j;
-
-    if (version_id != 2)
-        return -EINVAL;
-
-    s->enabled = qemu_get_be32(f);
-    for (i = 0; i < NUM_CPU(s); i++) {
-        s->cpu_enabled[i] = qemu_get_be32(f);
-        for (j = 0; j < GIC_INTERNAL; j++)
-            s->priority1[j][i] = qemu_get_be32(f);
-        for (j = 0; j < s->num_irq; j++)
-            s->last_active[j][i] = qemu_get_be32(f);
-        s->priority_mask[i] = qemu_get_be32(f);
-        s->running_irq[i] = qemu_get_be32(f);
-        s->running_priority[i] = qemu_get_be32(f);
-        s->current_pending[i] = qemu_get_be32(f);
-    }
-    for (i = 0; i < s->num_irq - GIC_INTERNAL; i++) {
-        s->priority2[i] = qemu_get_be32(f);
-    }
-    for (i = 0; i < s->num_irq; i++) {
-#ifndef NVIC
-        s->irq_target[i] = qemu_get_be32(f);
-#endif
-        s->irq_state[i].enabled = qemu_get_byte(f);
-        s->irq_state[i].pending = qemu_get_byte(f);
-        s->irq_state[i].active = qemu_get_byte(f);
-        s->irq_state[i].level = qemu_get_byte(f);
-        s->irq_state[i].model = qemu_get_byte(f);
-        s->irq_state[i].trigger = qemu_get_byte(f);
-    }
-
-    return 0;
-}
-
-#if NCPU > 1
-static void gic_init(gic_state *s, int num_cpu, int num_irq)
-#else
-static void gic_init(gic_state *s, int num_irq)
-#endif
+void gic_init_irqs_and_distributor(gic_state *s, int num_irq)
 {
     int i;
 
-#if NCPU > 1
-    s->num_cpu = num_cpu;
-#endif
-    s->num_irq = num_irq + GIC_BASE_IRQ;
-    if (s->num_irq > GIC_MAXIRQ) {
-        hw_error("requested %u interrupt lines exceeds GIC maximum %d\n",
-                 num_irq, GIC_MAXIRQ);
-    }
-    /* ITLinesNumber is represented as (N / 32) - 1 (see
-     * gic_dist_readb) so this is an implementation imposed
-     * restriction, not an architectural one:
+    i = s->num_irq - GIC_INTERNAL;
+    /* For the GIC, also expose incoming GPIO lines for PPIs for each CPU.
+     * GPIO array layout is thus:
+     *  [0..N-1] SPIs
+     *  [N..N+31] PPIs for CPU 0
+     *  [N+32..N+63] PPIs for CPU 1
+     *   ...
      */
-    if (s->num_irq < 32 || (s->num_irq % 32)) {
-        hw_error("%d interrupt lines unsupported: not divisible by 32\n",
-                 num_irq);
+    if (s->revision != REV_NVIC) {
+        i += (GIC_INTERNAL * s->num_cpu);
     }
-
-    qdev_init_gpio_in(&s->busdev.qdev, gic_set_irq, s->num_irq - GIC_INTERNAL);
+    qdev_init_gpio_in(&s->busdev.qdev, gic_set_irq, i);
     for (i = 0; i < NUM_CPU(s); i++) {
         sysbus_init_irq(&s->busdev, &s->parent_irq[i]);
     }
     memory_region_init_io(&s->iomem, &gic_dist_ops, s, "gic_dist", 0x1000);
-#ifndef NVIC
+}
+
+static int arm_gic_init(SysBusDevice *dev)
+{
+    /* Device instance init function for the GIC sysbus device */
+    int i;
+    gic_state *s = FROM_SYSBUS(gic_state, dev);
+    ARMGICClass *agc = ARM_GIC_GET_CLASS(s);
+
+    agc->parent_init(dev);
+
+    gic_init_irqs_and_distributor(s, s->num_irq);
+
     /* Memory regions for the CPU interfaces (NVIC doesn't have these):
      * a region for "CPU interface for this core", then a region for
      * "CPU interface for core 0", "for core 1", ...
@@ -849,8 +679,35 @@ static void gic_init(gic_state *s, int num_irq)
         memory_region_init_io(&s->cpuiomem[i+1], &gic_cpu_ops, &s->backref[i],
                               "gic_cpu", 0x100);
     }
-#endif
-
-    gic_reset(s);
-    register_savevm(NULL, "arm_gic", -1, 2, gic_save, gic_load, s);
+    /* Distributor */
+    sysbus_init_mmio(dev, &s->iomem);
+    /* cpu interfaces (one for "current cpu" plus one per cpu) */
+    for (i = 0; i <= NUM_CPU(s); i++) {
+        sysbus_init_mmio(dev, &s->cpuiomem[i]);
+    }
+    return 0;
 }
+
+static void arm_gic_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *sbc = SYS_BUS_DEVICE_CLASS(klass);
+    ARMGICClass *agc = ARM_GIC_CLASS(klass);
+    agc->parent_init = sbc->init;
+    sbc->init = arm_gic_init;
+    dc->no_user = 1;
+}
+
+static TypeInfo arm_gic_info = {
+    .name = TYPE_ARM_GIC,
+    .parent = TYPE_ARM_GIC_COMMON,
+    .instance_size = sizeof(gic_state),
+    .class_init = arm_gic_class_init,
+};
+
+static void arm_gic_register_types(void)
+{
+    type_register_static(&arm_gic_info);
+}
+
+type_init(arm_gic_register_types)

@@ -66,8 +66,8 @@ static void help(void)
            "  'filename' is a disk image filename\n"
            "  'fmt' is the disk image format. It is guessed automatically in most cases\n"
            "  'cache' is the cache mode used to write the output disk image, the valid\n"
-           "    options are: 'none', 'writeback' (default), 'writethrough', 'directsync'\n"
-           "    and 'unsafe'\n"
+           "    options are: 'none', 'writeback' (default, except for convert), 'writethrough',\n"
+           "    'directsync' and 'unsafe' (default for convert)\n"
            "  'size' is the disk image size in bytes. Optional suffixes\n"
            "    'k' or 'K' (kilobyte, 1024), 'M' (megabyte, 1024k), 'G' (gigabyte, 1024M)\n"
            "    and T (terabyte, 1024G) are supported. 'b' is ignored.\n"
@@ -84,6 +84,12 @@ static void help(void)
            "  '-p' show progress of command (only certain commands)\n"
            "  '-S' indicates the consecutive number of bytes that must contain only zeros\n"
            "       for qemu-img to create a sparse image during conversion\n"
+           "\n"
+           "Parameters to check subcommand:\n"
+           "  '-r' tries to repair any inconsistencies that are found during the check.\n"
+           "       '-r leaks' repairs only cluster leaks, whereas '-r all' fixes all\n"
+           "       kinds of errors, with a higher risk of choosing the wrong fix or\n"
+           "       hiding corruption that has already occured.\n"
            "\n"
            "Parameters to snapshot subcommand:\n"
            "  'snapshot' is the name of the snapshot to create, apply or delete\n"
@@ -372,10 +378,12 @@ static int img_check(int argc, char **argv)
     const char *filename, *fmt;
     BlockDriverState *bs;
     BdrvCheckResult result;
+    int fix = 0;
+    int flags = BDRV_O_FLAGS;
 
     fmt = NULL;
     for(;;) {
-        c = getopt(argc, argv, "f:h");
+        c = getopt(argc, argv, "f:hr:");
         if (c == -1) {
             break;
         }
@@ -387,6 +395,17 @@ static int img_check(int argc, char **argv)
         case 'f':
             fmt = optarg;
             break;
+        case 'r':
+            flags |= BDRV_O_RDWR;
+
+            if (!strcmp(optarg, "leaks")) {
+                fix = BDRV_FIX_LEAKS;
+            } else if (!strcmp(optarg, "all")) {
+                fix = BDRV_FIX_LEAKS | BDRV_FIX_ERRORS;
+            } else {
+                help();
+            }
+            break;
         }
     }
     if (optind >= argc) {
@@ -394,16 +413,26 @@ static int img_check(int argc, char **argv)
     }
     filename = argv[optind++];
 
-    bs = bdrv_new_open(filename, fmt, BDRV_O_FLAGS);
+    bs = bdrv_new_open(filename, fmt, flags);
     if (!bs) {
         return 1;
     }
-    ret = bdrv_check(bs, &result);
+    ret = bdrv_check(bs, &result, fix);
 
     if (ret == -ENOTSUP) {
         error_report("This image format does not support checks");
         bdrv_delete(bs);
         return 1;
+    }
+
+    if (result.corruptions_fixed || result.leaks_fixed) {
+        printf("The following inconsistencies were found and repaired:\n\n"
+               "    %d leaked clusters\n"
+               "    %d corruptions\n\n"
+               "Double checking the fixed image now...\n",
+               result.leaks_fixed,
+               result.corruptions_fixed);
+        ret = bdrv_check(bs, &result, 0);
     }
 
     if (!(result.corruptions || result.leaks || result.check_errors)) {
@@ -712,6 +741,9 @@ static int img_convert(int argc, char **argv)
 
     out_filename = argv[argc - 1];
 
+    /* Initialize before goto out */
+    qemu_progress_init(progress, 2.0);
+
     if (options && !strcmp(options, "?")) {
         ret = print_block_option_help(out_filename, out_fmt);
         goto out;
@@ -724,7 +756,6 @@ static int img_convert(int argc, char **argv)
         goto out;
     }
 
-    qemu_progress_init(progress, 2.0);
     qemu_progress_print(0, 100);
 
     bs = g_malloc0(bs_n * sizeof(BlockDriverState *));
@@ -1076,7 +1107,7 @@ static int img_info(int argc, char **argv)
     int c;
     const char *filename, *fmt;
     BlockDriverState *bs;
-    char fmt_name[128], size_buf[128], dsize_buf[128];
+    char size_buf[128], dsize_buf[128];
     uint64_t total_sectors;
     int64_t allocated_size;
     char backing_filename[1024];
@@ -1108,7 +1139,6 @@ static int img_info(int argc, char **argv)
     if (!bs) {
         return 1;
     }
-    bdrv_get_format(bs, fmt_name, sizeof(fmt_name));
     bdrv_get_geometry(bs, &total_sectors);
     get_human_readable_size(size_buf, sizeof(size_buf), total_sectors * 512);
     allocated_size = bdrv_get_allocated_file_size(bs);
@@ -1122,7 +1152,7 @@ static int img_info(int argc, char **argv)
            "file format: %s\n"
            "virtual size: %s (%" PRId64 " bytes)\n"
            "disk size: %s\n",
-           filename, fmt_name, size_buf,
+           filename, bdrv_get_format_name(bs), size_buf,
            (total_sectors * 512),
            dsize_buf);
     if (bdrv_is_encrypted(bs)) {
@@ -1138,11 +1168,13 @@ static int img_info(int argc, char **argv)
     }
     bdrv_get_backing_filename(bs, backing_filename, sizeof(backing_filename));
     if (backing_filename[0] != '\0') {
-        path_combine(backing_filename2, sizeof(backing_filename2),
-                     filename, backing_filename);
-        printf("backing file: %s (actual path: %s)\n",
-               backing_filename,
-               backing_filename2);
+        bdrv_get_full_backing_filename(bs, backing_filename2,
+                                       sizeof(backing_filename2));
+        printf("backing file: %s", backing_filename);
+        if (strcmp(backing_filename, backing_filename2) != 0) {
+            printf(" (actual path: %s)", backing_filename2);
+        }
+        putchar('\n');
     }
     dump_snapshots(bs);
     bdrv_delete(bs);

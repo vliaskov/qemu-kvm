@@ -507,10 +507,10 @@ static int slirp_smb(SlirpState* s, const char *exported_dir,
     fprintf(f,
             "[global]\n"
             "private dir=%s\n"
-            "smb ports=0\n"
             "socket address=127.0.0.1\n"
             "pid directory=%s\n"
             "lock directory=%s\n"
+            "state directory=%s\n"
             "log file=%s/log.smbd\n"
             "smb passwd file=%s/smbpasswd\n"
             "security = share\n"
@@ -518,6 +518,7 @@ static int slirp_smb(SlirpState* s, const char *exported_dir,
             "path=%s\n"
             "read only=no\n"
             "guest ok=yes\n",
+            s->smb_dir,
             s->smb_dir,
             s->smb_dir,
             s->smb_dir,
@@ -675,10 +676,7 @@ static int net_init_slirp_configs(const char *name, const char *value, void *opa
     return 0;
 }
 
-int net_init_slirp(QemuOpts *opts,
-                   Monitor *mon,
-                   const char *name,
-                   VLANState *vlan)
+int net_init_slirp(QemuOpts *opts, const char *name, VLANState *vlan)
 {
     struct slirp_config_str *config;
     const char *vhost;

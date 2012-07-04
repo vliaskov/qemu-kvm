@@ -146,8 +146,13 @@ static void virtio_balloon_set_config(VirtIODevice *vdev,
 {
     VirtIOBalloon *dev = to_virtio_balloon(vdev);
     struct virtio_balloon_config config;
+    uint32_t oldactual = dev->actual;
     memcpy(&config, config_data, 8);
     dev->actual = le32_to_cpu(config.actual);
+    if (dev->actual != oldactual) {
+        qemu_balloon_changed(ram_size -
+                             (dev->actual << VIRTIO_BALLOON_PFN_SHIFT));
+    }
 }
 
 static uint32_t virtio_balloon_get_features(VirtIODevice *vdev, uint32_t f)
@@ -211,11 +216,15 @@ static void virtio_balloon_save(QEMUFile *f, void *opaque)
 static int virtio_balloon_load(QEMUFile *f, void *opaque, int version_id)
 {
     VirtIOBalloon *s = opaque;
+    int ret;
 
     if (version_id != 1)
         return -EINVAL;
 
-    virtio_load(&s->vdev, f);
+    ret = virtio_load(&s->vdev, f);
+    if (ret) {
+        return ret;
+    }
 
     s->num_pages = qemu_get_be32(f);
     s->actual = qemu_get_be32(f);

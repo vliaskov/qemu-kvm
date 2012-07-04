@@ -174,7 +174,6 @@ combiner_grp_to_gic_id[64-EXYNOS4210_MAX_EXT_COMBINER_OUT_IRQ][8] = {
 };
 
 #define EXYNOS4210_GIC_NIRQ 160
-#define NCPU                EXYNOS4210_NCPUS
 
 #define EXYNOS4210_EXT_GIC_CPU_REGION_SIZE     0x10000
 #define EXYNOS4210_EXT_GIC_DIST_REGION_SIZE    0x10000
@@ -263,33 +262,44 @@ uint32_t exynos4210_get_irq(uint32_t grp, uint32_t bit)
 
 /********* GIC part *********/
 
-static inline int
-gic_get_current_cpu(void)
-{
-    return cpu_single_env->cpu_index;
-}
-
-#include "arm_gic.c"
-
 typedef struct {
-    gic_state gic;
+    SysBusDevice busdev;
     MemoryRegion cpu_container;
     MemoryRegion dist_container;
-    MemoryRegion cpu_alias[NCPU];
-    MemoryRegion dist_alias[NCPU];
+    MemoryRegion cpu_alias[EXYNOS4210_NCPUS];
+    MemoryRegion dist_alias[EXYNOS4210_NCPUS];
     uint32_t num_cpu;
+    DeviceState *gic;
 } Exynos4210GicState;
+
+static void exynos4210_gic_set_irq(void *opaque, int irq, int level)
+{
+    Exynos4210GicState *s = (Exynos4210GicState *)opaque;
+    qemu_set_irq(qdev_get_gpio_in(s->gic, irq), level);
+}
 
 static int exynos4210_gic_init(SysBusDevice *dev)
 {
-    Exynos4210GicState *s = FROM_SYSBUSGIC(Exynos4210GicState, dev);
+    Exynos4210GicState *s = FROM_SYSBUS(Exynos4210GicState, dev);
     uint32_t i;
     const char cpu_prefix[] = "exynos4210-gic-alias_cpu";
     const char dist_prefix[] = "exynos4210-gic-alias_dist";
     char cpu_alias_name[sizeof(cpu_prefix) + 3];
     char dist_alias_name[sizeof(cpu_prefix) + 3];
+    SysBusDevice *busdev;
 
-    gic_init(&s->gic, s->num_cpu, EXYNOS4210_GIC_NIRQ);
+    s->gic = qdev_create(NULL, "arm_gic");
+    qdev_prop_set_uint32(s->gic, "num-cpu", s->num_cpu);
+    qdev_prop_set_uint32(s->gic, "num-irq", EXYNOS4210_GIC_NIRQ);
+    qdev_init_nofail(s->gic);
+    busdev = sysbus_from_qdev(s->gic);
+
+    /* Pass through outbound IRQ lines from the GIC */
+    sysbus_pass_irq(dev, busdev);
+
+    /* Pass through inbound GPIO lines to the GIC */
+    qdev_init_gpio_in(&s->busdev.qdev, exynos4210_gic_set_irq,
+                      EXYNOS4210_GIC_NIRQ - 32);
 
     memory_region_init(&s->cpu_container, "exynos4210-cpu-container",
             EXYNOS4210_EXT_GIC_CPU_REGION_SIZE);
@@ -301,7 +311,7 @@ static int exynos4210_gic_init(SysBusDevice *dev)
         sprintf(cpu_alias_name, "%s%x", cpu_prefix, i);
         memory_region_init_alias(&s->cpu_alias[i],
                                  cpu_alias_name,
-                                 &s->gic.cpuiomem[0],
+                                 sysbus_mmio_get_region(busdev, 1),
                                  0,
                                  EXYNOS4210_GIC_CPU_REGION_SIZE);
         memory_region_add_subregion(&s->cpu_container,
@@ -311,7 +321,7 @@ static int exynos4210_gic_init(SysBusDevice *dev)
         sprintf(dist_alias_name, "%s%x", dist_prefix, i);
         memory_region_init_alias(&s->dist_alias[i],
                                  dist_alias_name,
-                                 &s->gic.iomem,
+                                 sysbus_mmio_get_region(busdev, 0),
                                  0,
                                  EXYNOS4210_GIC_DIST_REGION_SIZE);
         memory_region_add_subregion(&s->dist_container,
@@ -320,8 +330,6 @@ static int exynos4210_gic_init(SysBusDevice *dev)
 
     sysbus_init_mmio(dev, &s->cpu_container);
     sysbus_init_mmio(dev, &s->dist_container);
-
-    gic_cpu_write(&s->gic, 1, 0, 1);
 
     return 0;
 }
@@ -354,61 +362,64 @@ static void exynos4210_gic_register_types(void)
 
 type_init(exynos4210_gic_register_types)
 
-/*
- * IRQGate struct.
- * IRQ Gate represents OR gate between GICs to pass IRQ to PIC.
+/* IRQ OR Gate struct.
+ *
+ * This device models an OR gate. There are n_in input qdev gpio lines and one
+ * output sysbus IRQ line. The output IRQ level is formed as OR between all
+ * gpio inputs.
  */
 typedef struct {
     SysBusDevice busdev;
 
-    qemu_irq pic_irq[NCPU]; /* output IRQs to PICs */
-    uint32_t gpio_level[EXYNOS4210_IRQ_GATE_NINPUTS]; /* Input levels */
+    uint32_t n_in;      /* inputs amount */
+    uint32_t *level;    /* input levels */
+    qemu_irq out;       /* output IRQ */
 } Exynos4210IRQGateState;
+
+static Property exynos4210_irq_gate_properties[] = {
+    DEFINE_PROP_UINT32("n_in", Exynos4210IRQGateState, n_in, 1),
+    DEFINE_PROP_END_OF_LIST(),
+};
 
 static const VMStateDescription vmstate_exynos4210_irq_gate = {
     .name = "exynos4210.irq_gate",
-    .version_id = 1,
-    .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
+    .minimum_version_id_old = 2,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT32_ARRAY(gpio_level, Exynos4210IRQGateState,
-                EXYNOS4210_IRQ_GATE_NINPUTS),
+        VMSTATE_VBUFFER_UINT32(level, Exynos4210IRQGateState, 1, NULL, 0, n_in),
         VMSTATE_END_OF_LIST()
     }
 };
 
-/* Process a change in an external IRQ input.  */
+/* Process a change in IRQ input. */
 static void exynos4210_irq_gate_handler(void *opaque, int irq, int level)
 {
-    Exynos4210IRQGateState *s =
-            (Exynos4210IRQGateState *)opaque;
-    uint32_t odd, even;
+    Exynos4210IRQGateState *s = (Exynos4210IRQGateState *)opaque;
+    uint32_t i;
 
-    if (irq & 1) {
-        odd = irq;
-        even = irq & ~1;
-    } else {
-        even = irq;
-        odd = irq | 1;
+    assert(irq < s->n_in);
+
+    s->level[irq] = level;
+
+    for (i = 0; i < s->n_in; i++) {
+        if (s->level[i] >= 1) {
+            qemu_irq_raise(s->out);
+            return;
+        }
     }
 
-    assert(irq < EXYNOS4210_IRQ_GATE_NINPUTS);
-    s->gpio_level[irq] = level;
-
-    if (s->gpio_level[odd] >= 1 || s->gpio_level[even] >= 1) {
-        qemu_irq_raise(s->pic_irq[even >> 1]);
-    } else {
-        qemu_irq_lower(s->pic_irq[even >> 1]);
-    }
+    qemu_irq_lower(s->out);
 
     return;
 }
 
 static void exynos4210_irq_gate_reset(DeviceState *d)
 {
-    Exynos4210IRQGateState *s = (Exynos4210IRQGateState *)d;
+    Exynos4210IRQGateState *s =
+            DO_UPCAST(Exynos4210IRQGateState, busdev.qdev, d);
 
-    memset(&s->gpio_level, 0, sizeof(s->gpio_level));
+    memset(s->level, 0, s->n_in * sizeof(*s->level));
 }
 
 /*
@@ -416,19 +427,15 @@ static void exynos4210_irq_gate_reset(DeviceState *d)
  */
 static int exynos4210_irq_gate_init(SysBusDevice *dev)
 {
-    unsigned int i;
-    Exynos4210IRQGateState *s =
-            FROM_SYSBUS(Exynos4210IRQGateState, dev);
+    Exynos4210IRQGateState *s = FROM_SYSBUS(Exynos4210IRQGateState, dev);
 
     /* Allocate general purpose input signals and connect a handler to each of
      * them */
-    qdev_init_gpio_in(&s->busdev.qdev, exynos4210_irq_gate_handler,
-            EXYNOS4210_IRQ_GATE_NINPUTS);
+    qdev_init_gpio_in(&s->busdev.qdev, exynos4210_irq_gate_handler, s->n_in);
 
-    /* Connect SysBusDev irqs to device specific irqs */
-    for (i = 0; i < NCPU; i++) {
-        sysbus_init_irq(dev, &s->pic_irq[i]);
-    }
+    s->level = g_malloc0(s->n_in * sizeof(*s->level));
+
+    sysbus_init_irq(dev, &s->out);
 
     return 0;
 }
@@ -441,6 +448,7 @@ static void exynos4210_irq_gate_class_init(ObjectClass *klass, void *data)
     k->init = exynos4210_irq_gate_init;
     dc->reset = exynos4210_irq_gate_reset;
     dc->vmsd = &vmstate_exynos4210_irq_gate;
+    dc->props = exynos4210_irq_gate_properties;
 }
 
 static TypeInfo exynos4210_irq_gate_info = {

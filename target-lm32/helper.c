@@ -192,8 +192,9 @@ static uint32_t cfg_by_def(const LM32Def *def)
     return cfg;
 }
 
-CPULM32State *cpu_lm32_init(const char *cpu_model)
+LM32CPU *cpu_lm32_init(const char *cpu_model)
 {
+    LM32CPU *cpu;
     CPULM32State *env;
     const LM32Def *def;
     static int tcg_initialized;
@@ -203,16 +204,14 @@ CPULM32State *cpu_lm32_init(const char *cpu_model)
         return NULL;
     }
 
-    env = g_malloc0(sizeof(CPULM32State));
+    cpu = LM32_CPU(object_new(TYPE_LM32_CPU));
+    env = &cpu->env;
 
     env->features = def->features;
     env->num_bps = def->num_breakpoints;
     env->num_wps = def->num_watchpoints;
     env->cfg = cfg_by_def(def);
-    env->flags = 0;
 
-    cpu_exec_init(env);
-    cpu_state_reset(env);
     qemu_init_vcpu(env);
 
     if (tcg_enabled() && !tcg_initialized) {
@@ -220,7 +219,7 @@ CPULM32State *cpu_lm32_init(const char *cpu_model)
         lm32_translate_init();
     }
 
-    return env;
+    return cpu;
 }
 
 /* Some soc ignores the MSB on the address bus. Thus creating a shadow memory
@@ -234,17 +233,3 @@ void cpu_lm32_set_phys_msb_ignore(CPULM32State *env, int value)
         env->flags &= ~LM32_FLAG_IGNORE_MSB;
     }
 }
-
-void cpu_state_reset(CPULM32State *env)
-{
-    if (qemu_loglevel_mask(CPU_LOG_RESET)) {
-        qemu_log("CPU Reset (CPU %d)\n", env->cpu_index);
-        log_cpu_state(env, 0);
-    }
-
-    tlb_flush(env, 1);
-
-    /* reset cpu state */
-    memset(env, 0, offsetof(CPULM32State, breakpoints));
-}
-

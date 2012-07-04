@@ -13,13 +13,17 @@ check-unit-y += tests/test-qmp-commands$(EXESUF)
 check-unit-y += tests/test-string-input-visitor$(EXESUF)
 check-unit-y += tests/test-string-output-visitor$(EXESUF)
 check-unit-y += tests/test-coroutine$(EXESUF)
+check-unit-y += tests/test-visitor-serialization$(EXESUF)
 
 check-block-$(CONFIG_POSIX) += tests/qemu-iotests-quick.sh
 
 # All QTests for now are POSIX-only, but the dependencies are
 # really in libqtest, not in the testcases themselves.
-check-qtest-i386-y = tests/rtc-test
+check-qtest-i386-y = tests/fdc-test$(EXESUF)
+check-qtest-i386-y += tests/rtc-test$(EXESUF)
 check-qtest-x86_64-y = $(check-qtest-i386-y)
+check-qtest-sparc-y = tests/m48t59-test$(EXESUF)
+check-qtest-sparc64-y = tests/m48t59-test$(EXESUF)
 
 GENERATED_HEADERS += tests/test-qapi-types.h tests/test-qapi-visit.h tests/test-qmp-commands.h
 
@@ -28,13 +32,12 @@ test-obj-y = tests/check-qint.o tests/check-qstring.o tests/check-qdict.o \
 	tests/test-coroutine.o tests/test-string-output-visitor.o \
 	tests/test-string-input-visitor.o tests/test-qmp-output-visitor.o \
 	tests/test-qmp-input-visitor.o tests/test-qmp-input-strict.o \
-	tests/test-qmp-commands.o
+	tests/test-qmp-commands.o tests/test-visitor-serialization.o
 
 test-qapi-obj-y =  $(qobject-obj-y) $(qapi-obj-y) $(tools-obj-y)
 test-qapi-obj-y += tests/test-qapi-visit.o tests/test-qapi-types.o
 test-qapi-obj-y += module.o
 
-$(test-obj-y): $(GENERATED_HEADERS)
 $(test-obj-y): QEMU_INCLUDES += -Itests
 
 tests/check-qint$(EXESUF): tests/check-qint.o qint.o $(tools-obj-y)
@@ -62,8 +65,11 @@ tests/test-qmp-output-visitor$(EXESUF): tests/test-qmp-output-visitor.o $(test-q
 tests/test-qmp-input-visitor$(EXESUF): tests/test-qmp-input-visitor.o $(test-qapi-obj-y)
 tests/test-qmp-input-strict$(EXESUF): tests/test-qmp-input-strict.o $(test-qapi-obj-y)
 tests/test-qmp-commands$(EXESUF): tests/test-qmp-commands.o tests/test-qmp-marshal.o $(test-qapi-obj-y)
+tests/test-visitor-serialization$(EXESUF): tests/test-visitor-serialization.o $(test-qapi-obj-y)
 
 tests/rtc-test$(EXESUF): tests/rtc-test.o $(trace-obj-y)
+tests/m48t59-test$(EXESUF): tests/m48t59-test.o $(trace-obj-y)
+tests/fdc-test$(EXESUF): tests/fdc-test.o tests/libqtest.o $(trace-obj-y)
 
 # QTest rules
 
@@ -91,8 +97,6 @@ check-help:
 	@echo "The variable SPEED can be set to control the gtester speed setting."
 	@echo "Default options are -k and (for make V=1) --verbose; they can be"
 	@echo "changed with variable GTESTER_OPTIONS."
-
-.SECONDARY:
 
 SPEED = quick
 GTESTER_OPTIONS = -k $(if $(V),--verbose,-q)

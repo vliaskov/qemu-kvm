@@ -10,6 +10,13 @@
 
 #include <sys/time.h>
 
+#if defined(CONFIG_SOLARIS) && CONFIG_SOLARIS_VERSION < 10
+/* [u]int_fast*_t not in <sys/int_types.h> */
+typedef unsigned char           uint_fast8_t;
+typedef unsigned int            uint_fast16_t;
+typedef signed int              int_fast16_t;
+#endif
+
 #ifndef glue
 #define xglue(x, y) x ## y
 #define glue(x, y) xglue(x, y)
@@ -141,5 +148,8 @@ static inline void qemu_timersub(const struct timeval *val1,
 #endif
 
 void qemu_set_cloexec(int fd);
+
+void qemu_set_version(const char *);
+const char *qemu_get_version(void);
 
 #endif

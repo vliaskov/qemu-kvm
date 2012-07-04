@@ -400,7 +400,7 @@ static int block_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
 
 static int bdrv_fclose(void *opaque)
 {
-    return 0;
+    return bdrv_flush(opaque);
 }
 
 static QEMUFile *qemu_fopen_bdrv(BlockDriverState *bs, int is_writable)
@@ -1248,8 +1248,8 @@ int register_savevm_live(DeviceState *dev,
         se->is_ram = 1;
     }
 
-    if (dev && dev->parent_bus && dev->parent_bus->info->get_dev_path) {
-        char *id = dev->parent_bus->info->get_dev_path(dev);
+    if (dev) {
+        char *id = qdev_get_dev_path(dev);
         if (id) {
             pstrcpy(se->idstr, sizeof(se->idstr), id);
             pstrcat(se->idstr, sizeof(se->idstr), "/");
@@ -1292,8 +1292,8 @@ void unregister_savevm(DeviceState *dev, const char *idstr, void *opaque)
     SaveStateEntry *se, *new_se;
     char id[256] = "";
 
-    if (dev && dev->parent_bus && dev->parent_bus->info->get_dev_path) {
-        char *path = dev->parent_bus->info->get_dev_path(dev);
+    if (dev) {
+        char *path = qdev_get_dev_path(dev);
         if (path) {
             pstrcpy(id, sizeof(id), path);
             pstrcat(id, sizeof(id), "/");
@@ -1334,8 +1334,8 @@ int vmstate_register_with_alias_id(DeviceState *dev, int instance_id,
     se->alias_id = alias_id;
     se->no_migrate = vmsd->unmigratable;
 
-    if (dev && dev->parent_bus && dev->parent_bus->info->get_dev_path) {
-        char *id = dev->parent_bus->info->get_dev_path(dev);
+    if (dev) {
+        char *id = qdev_get_dev_path(dev);
         if (id) {
             pstrcpy(se->idstr, sizeof(se->idstr), id);
             pstrcat(se->idstr, sizeof(se->idstr), "/");
@@ -2106,7 +2106,8 @@ void do_savevm(Monitor *mon, const QDict *qdict)
         }
     } else {
 #ifdef _WIN32
-        ptm = localtime(&tb.time);
+        time_t t = tb.time;
+        ptm = localtime(&t);
         strftime(sn->name, sizeof(sn->name), "vm-%Y%m%d%H%M%S", ptm);
 #else
         /* cast below needed for OpenBSD where tv_sec is still 'long' */

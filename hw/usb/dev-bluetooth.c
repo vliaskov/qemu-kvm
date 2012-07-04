@@ -57,7 +57,7 @@ enum {
 };
 
 static const USBDescStrings desc_strings = {
-    [STR_MANUFACTURER]     = "QEMU " QEMU_VERSION,
+    [STR_MANUFACTURER]     = "QEMU",
     [STR_SERIALNUMBER]     = "1",
 };
 
@@ -494,6 +494,7 @@ static void usb_bt_handle_destroy(USBDevice *dev)
 
 static int usb_bt_initfn(USBDevice *dev)
 {
+    usb_desc_create_serial(dev);
     usb_desc_init(dev);
     return 0;
 }

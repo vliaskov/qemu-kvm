@@ -139,6 +139,9 @@ QError *qobject_to_qerror(const QObject *obj);
 #define QERR_INVALID_BLOCK_FORMAT \
     "{ 'class': 'InvalidBlockFormat', 'data': { 'name': %s } }"
 
+#define QERR_INVALID_OPTION_GROUP \
+    "{ 'class': 'InvalidOptionGroup', 'data': { 'group': %s } }"
+
 #define QERR_INVALID_PARAMETER \
     "{ 'class': 'InvalidParameter', 'data': { 'name': %s } }"
 
@@ -247,5 +250,20 @@ QError *qobject_to_qerror(const QObject *obj);
 
 #define QERR_VNC_SERVER_FAILED \
     "{ 'class': 'VNCServerFailed', 'data': { 'target': %s } }"
+
+#define QERR_SOCKET_CONNECT_IN_PROGRESS \
+    "{ 'class': 'SockConnectInprogress', 'data': {} }"
+
+#define QERR_SOCKET_CONNECT_FAILED \
+    "{ 'class': 'SockConnectFailed', 'data': {} }"
+
+#define QERR_SOCKET_LISTEN_FAILED \
+    "{ 'class': 'SockListenFailed', 'data': {} }"
+
+#define QERR_SOCKET_BIND_FAILED \
+    "{ 'class': 'SockBindFailed', 'data': {} }"
+
+#define QERR_SOCKET_CREATE_FAILED \
+    "{ 'class': 'SockCreateFailed', 'data': {} }"
 
 #endif /* QERROR_H */

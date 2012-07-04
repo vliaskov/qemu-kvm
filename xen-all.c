@@ -59,6 +59,9 @@ static inline ioreq_t *xen_vcpu_ioreq(shared_iopage_t *shared_page, int vcpu)
 }
 #  define FMT_ioreq_size "u"
 #endif
+#ifndef HVM_PARAM_BUFIOREQ_EVTCHN
+#define HVM_PARAM_BUFIOREQ_EVTCHN 26
+#endif
 
 #define BUFFER_IO_MAX_DELAY  100
 
@@ -77,6 +80,8 @@ typedef struct XenIOState {
     QEMUTimer *buffered_io_timer;
     /* the evtchn port for polling the notification, */
     evtchn_port_t *ioreq_local_port;
+    /* evtchn local port for buffered io */
+    evtchn_port_t bufioreq_local_port;
     /* the evtchn fd for polling */
     XenEvtchn xce_handle;
     /* which vcpu we are serving */
@@ -120,6 +125,11 @@ void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len)
             xc_hvm_set_pci_link_route(xen_xc, xen_domid, address + i - 0x60, v);
         }
     }
+}
+
+void xen_hvm_inject_msi(uint64_t addr, uint32_t data)
+{
+    xen_xc_hvm_inject_msi(xen_xc, xen_domid, addr, data);
 }
 
 static void xen_suspend_notifier(Notifier *notifier, void *data)
@@ -593,6 +603,10 @@ void xen_vcpu_init(void)
         qemu_register_reset(xen_reset_vcpu, first_cpu);
         xen_reset_vcpu(first_cpu);
     }
+    /* if rtc_clock is left to default (host_clock), disable it */
+    if (rtc_clock == host_clock) {
+        qemu_clock_enable(rtc_clock, false);
+    }
 }
 
 /* get the ioreq packets from share mem */
@@ -624,6 +638,12 @@ static ioreq_t *cpu_get_ioreq(XenIOState *state)
     evtchn_port_t port;
 
     port = xc_evtchn_pending(state->xce_handle);
+    if (port == state->bufioreq_local_port) {
+        qemu_mod_timer(state->buffered_io_timer,
+                BUFFER_IO_MAX_DELAY + qemu_get_clock_ms(rt_clock));
+        return NULL;
+    }
+
     if (port != -1) {
         for (i = 0; i < smp_cpus; i++) {
             if (state->ioreq_local_port[i] == port) {
@@ -772,15 +792,17 @@ static void handle_ioreq(ioreq_t *req)
     }
 }
 
-static void handle_buffered_iopage(XenIOState *state)
+static int handle_buffered_iopage(XenIOState *state)
 {
     buf_ioreq_t *buf_req = NULL;
     ioreq_t req;
     int qw;
 
     if (!state->buffered_io_page) {
-        return;
+        return 0;
     }
+
+    memset(&req, 0x00, sizeof(req));
 
     while (state->buffered_io_page->read_pointer != state->buffered_io_page->write_pointer) {
         buf_req = &state->buffered_io_page->buf_ioreq[
@@ -806,15 +828,21 @@ static void handle_buffered_iopage(XenIOState *state)
         xen_mb();
         state->buffered_io_page->read_pointer += qw ? 2 : 1;
     }
+
+    return req.count;
 }
 
 static void handle_buffered_io(void *opaque)
 {
     XenIOState *state = opaque;
 
-    handle_buffered_iopage(state);
-    qemu_mod_timer(state->buffered_io_timer,
-                   BUFFER_IO_MAX_DELAY + qemu_get_clock_ms(rt_clock));
+    if (handle_buffered_iopage(state)) {
+        qemu_mod_timer(state->buffered_io_timer,
+                BUFFER_IO_MAX_DELAY + qemu_get_clock_ms(rt_clock));
+    } else {
+        qemu_del_timer(state->buffered_io_timer);
+        xc_evtchn_unmask(state->xce_handle, state->bufioreq_local_port);
+    }
 }
 
 static void cpu_handle_ioreq(void *opaque)
@@ -832,7 +860,7 @@ static void cpu_handle_ioreq(void *opaque)
                     "data: %"PRIx64", count: %" FMT_ioreq_size ", size: %" FMT_ioreq_size "\n",
                     req->state, req->data_is_ptr, req->addr,
                     req->data, req->count, req->size);
-            destroy_hvm_domain();
+            destroy_hvm_domain(false);
             return;
         }
 
@@ -846,10 +874,11 @@ static void cpu_handle_ioreq(void *opaque)
          */
         if (runstate_is_running()) {
             if (qemu_shutdown_requested_get()) {
-                destroy_hvm_domain();
+                destroy_hvm_domain(false);
             }
             if (qemu_reset_requested_get()) {
                 qemu_system_reset(VMRESET_REPORT);
+                destroy_hvm_domain(true);
             }
         }
 
@@ -944,7 +973,6 @@ static void xen_main_loop_prepare(XenIOState *state)
 
     state->buffered_io_timer = qemu_new_timer_ms(rt_clock, handle_buffered_io,
                                                  state);
-    qemu_mod_timer(state->buffered_io_timer, qemu_get_clock_ms(rt_clock));
 
     if (evtchn_fd != -1) {
         qemu_set_fd_handler(evtchn_fd, cpu_handle_ioreq, NULL, state);
@@ -1045,6 +1073,7 @@ int xen_hvm_init(void)
 {
     int i, rc;
     unsigned long ioreq_pfn;
+    unsigned long bufioreq_evtchn;
     XenIOState *state;
 
     state = g_malloc0(sizeof (XenIOState));
@@ -1097,6 +1126,20 @@ int xen_hvm_init(void)
         state->ioreq_local_port[i] = rc;
     }
 
+    rc = xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_BUFIOREQ_EVTCHN,
+            &bufioreq_evtchn);
+    if (rc < 0) {
+        fprintf(stderr, "failed to get HVM_PARAM_BUFIOREQ_EVTCHN\n");
+        return -1;
+    }
+    rc = xc_evtchn_bind_interdomain(state->xce_handle, xen_domid,
+            (uint32_t)bufioreq_evtchn);
+    if (rc == -1) {
+        fprintf(stderr, "bind interdomain ioctl error %d\n", errno);
+        return -1;
+    }
+    state->bufioreq_local_port = rc;
+
     /* Init RAM management */
     xen_map_cache_init(xen_phys_offset_to_gaddr, state);
     xen_ram_init(ram_size);
@@ -1121,7 +1164,7 @@ int xen_hvm_init(void)
     return 0;
 }
 
-void destroy_hvm_domain(void)
+void destroy_hvm_domain(bool reboot)
 {
     XenXC xc_handle;
     int sts;
@@ -1130,12 +1173,15 @@ void destroy_hvm_domain(void)
     if (xc_handle == XC_HANDLER_INITIAL_VALUE) {
         fprintf(stderr, "Cannot acquire xenctrl handle\n");
     } else {
-        sts = xc_domain_shutdown(xc_handle, xen_domid, SHUTDOWN_poweroff);
+        sts = xc_domain_shutdown(xc_handle, xen_domid,
+                                 reboot ? SHUTDOWN_reboot : SHUTDOWN_poweroff);
         if (sts != 0) {
-            fprintf(stderr, "? xc_domain_shutdown failed to issue poweroff, "
-                    "sts %d, %s\n", sts, strerror(errno));
+            fprintf(stderr, "xc_domain_shutdown failed to issue %s, "
+                    "sts %d, %s\n", reboot ? "reboot" : "poweroff",
+                    sts, strerror(errno));
         } else {
-            fprintf(stderr, "Issued domain %d poweroff\n", xen_domid);
+            fprintf(stderr, "Issued domain %d %s\n", xen_domid,
+                    reboot ? "reboot" : "poweroff");
         }
         xc_interface_close(xc_handle);
     }
@@ -1144,4 +1190,16 @@ void destroy_hvm_domain(void)
 void xen_register_framebuffer(MemoryRegion *mr)
 {
     framebuffer = mr;
+}
+
+void xen_shutdown_fatal_error(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fprintf(stderr, "Will destroy the domain.\n");
+    /* destroy the domain */
+    qemu_system_shutdown_request();
 }

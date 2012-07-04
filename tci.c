@@ -20,7 +20,7 @@
 #include "config.h"
 
 /* Defining NDEBUG disables assertions (which makes the code faster). */
-#if !defined(CONFIG_TCG_DEBUG) && !defined(NDEBUG)
+#if !defined(CONFIG_DEBUG_TCG) && !defined(NDEBUG)
 # define NDEBUG
 #endif
 
@@ -58,7 +58,7 @@ CPUArchState *env;
 /* Targets which don't use GETPC also don't need tci_tb_ptr
    which makes them a little faster. */
 #if defined(GETPC)
-void *tci_tb_ptr;
+uintptr_t tci_tb_ptr;
 #endif
 
 static tcg_target_ulong tci_reg[TCG_TARGET_NB_REGS];
@@ -450,7 +450,7 @@ tcg_target_ulong tcg_qemu_tb_exec(CPUArchState *cpustate, uint8_t *tb_ptr)
 
     for (;;) {
 #if defined(GETPC)
-        tci_tb_ptr = tb_ptr;
+        tci_tb_ptr = (uintptr_t)tb_ptr;
 #endif
         TCGOpcode opc = tb_ptr[0];
 #if !defined(NDEBUG)
@@ -1014,7 +1014,6 @@ tcg_target_ulong tcg_qemu_tb_exec(CPUArchState *cpustate, uint8_t *tb_ptr)
 #endif
 #if TCG_TARGET_HAS_bswap64_i64
         case INDEX_op_bswap64_i64:
-            TODO();
             t0 = *tb_ptr++;
             t1 = tci_read_r64(&tb_ptr);
             tci_write_reg64(t0, bswap64(t1));

@@ -14,11 +14,21 @@
 #include <glib.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include "qga/guest-agent-core.h"
 #include "qga-qmp-commands.h"
 #include "qerror.h"
 #include "qemu-queue.h"
 #include "host-utils.h"
+
+#ifndef CONFIG_HAS_ENVIRON
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#else
+extern char **environ;
+#endif
+#endif
 
 #if defined(__linux__)
 #include <mntent.h>
@@ -27,36 +37,20 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <net/if.h>
-#include <sys/wait.h>
 
-#if defined(__linux__) && defined(FIFREEZE)
+#ifdef FIFREEZE
 #define CONFIG_FSFREEZE
 #endif
+#ifdef FITRIM
+#define CONFIG_FSTRIM
 #endif
-
-#if defined(__linux__)
-/* TODO: use this in place of all post-fork() fclose(std*) callers */
-static void reopen_fd_to_null(int fd)
-{
-    int nullfd;
-
-    nullfd = open("/dev/null", O_RDWR);
-    if (nullfd < 0) {
-        return;
-    }
-
-    dup2(nullfd, fd);
-
-    if (nullfd != fd) {
-        close(nullfd);
-    }
-}
-#endif /* defined(__linux__) */
+#endif
 
 void qmp_guest_shutdown(bool has_mode, const char *mode, Error **err)
 {
-    int ret;
     const char *shutdown_flag;
+    pid_t rpid, pid;
+    int status;
 
     slog("guest-shutdown called, mode: %s", mode);
     if (!has_mode || strcmp(mode, "powerdown") == 0) {
@@ -71,23 +65,30 @@ void qmp_guest_shutdown(bool has_mode, const char *mode, Error **err)
         return;
     }
 
-    ret = fork();
-    if (ret == 0) {
+    pid = fork();
+    if (pid == 0) {
         /* child, start the shutdown */
         setsid();
-        fclose(stdin);
-        fclose(stdout);
-        fclose(stderr);
+        reopen_fd_to_null(0);
+        reopen_fd_to_null(1);
+        reopen_fd_to_null(2);
 
-        ret = execl("/sbin/shutdown", "shutdown", shutdown_flag, "+0",
-                    "hypervisor initiated shutdown", (char*)NULL);
-        if (ret) {
-            slog("guest-shutdown failed: %s", strerror(errno));
-        }
-        exit(!!ret);
-    } else if (ret < 0) {
-        error_set(err, QERR_UNDEFINED_ERROR);
+        execle("/sbin/shutdown", "shutdown", shutdown_flag, "+0",
+               "hypervisor initiated shutdown", (char*)NULL, environ);
+        _exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        goto exit_err;
     }
+
+    do {
+        rpid = waitpid(pid, &status, 0);
+    } while (rpid == -1 && errno == EINTR);
+    if (rpid == pid && WIFEXITED(status) && !WEXITSTATUS(status)) {
+        return;
+    }
+
+exit_err:
+    error_set(err, QERR_UNDEFINED_ERROR);
 }
 
 typedef struct GuestFileHandle {
@@ -314,45 +315,40 @@ static void guest_file_init(void)
 /* linux-specific implementations. avoid this if at all possible. */
 #if defined(__linux__)
 
-#if defined(CONFIG_FSFREEZE)
-
-static void disable_logging(void)
-{
-    ga_disable_logging(ga_state);
-}
-
-static void enable_logging(void)
-{
-    ga_enable_logging(ga_state);
-}
-
-typedef struct GuestFsfreezeMount {
+#if defined(CONFIG_FSFREEZE) || defined(CONFIG_FSTRIM)
+typedef struct FsMount {
     char *dirname;
     char *devtype;
-    QTAILQ_ENTRY(GuestFsfreezeMount) next;
-} GuestFsfreezeMount;
+    QTAILQ_ENTRY(FsMount) next;
+} FsMount;
 
-struct {
-    GuestFsfreezeStatus status;
-    QTAILQ_HEAD(, GuestFsfreezeMount) mount_list;
-} guest_fsfreeze_state;
+typedef QTAILQ_HEAD(, FsMount) FsMountList;
+
+static void free_fs_mount_list(FsMountList *mounts)
+{
+     FsMount *mount, *temp;
+
+     if (!mounts) {
+         return;
+     }
+
+     QTAILQ_FOREACH_SAFE(mount, mounts, next, temp) {
+         QTAILQ_REMOVE(mounts, mount, next);
+         g_free(mount->dirname);
+         g_free(mount->devtype);
+         g_free(mount);
+     }
+}
 
 /*
  * Walk the mount table and build a list of local file systems
  */
-static int guest_fsfreeze_build_mount_list(void)
+static int build_fs_mount_list(FsMountList *mounts)
 {
     struct mntent *ment;
-    GuestFsfreezeMount *mount, *temp;
-    char const *mtab = MOUNTED;
+    FsMount *mount;
+    char const *mtab = "/proc/self/mounts";
     FILE *fp;
-
-    QTAILQ_FOREACH_SAFE(mount, &guest_fsfreeze_state.mount_list, next, temp) {
-        QTAILQ_REMOVE(&guest_fsfreeze_state.mount_list, mount, next);
-        g_free(mount->dirname);
-        g_free(mount->devtype);
-        g_free(mount);
-    }
 
     fp = setmntent(mtab, "r");
     if (!fp) {
@@ -373,24 +369,31 @@ static int guest_fsfreeze_build_mount_list(void)
             continue;
         }
 
-        mount = g_malloc0(sizeof(GuestFsfreezeMount));
+        mount = g_malloc0(sizeof(FsMount));
         mount->dirname = g_strdup(ment->mnt_dir);
         mount->devtype = g_strdup(ment->mnt_type);
 
-        QTAILQ_INSERT_TAIL(&guest_fsfreeze_state.mount_list, mount, next);
+        QTAILQ_INSERT_TAIL(mounts, mount, next);
     }
 
     endmntent(fp);
 
     return 0;
 }
+#endif
+
+#if defined(CONFIG_FSFREEZE)
 
 /*
  * Return status of freeze/thaw
  */
 GuestFsfreezeStatus qmp_guest_fsfreeze_status(Error **err)
 {
-    return guest_fsfreeze_state.status;
+    if (ga_is_frozen(ga_state)) {
+        return GUEST_FSFREEZE_STATUS_FROZEN;
+    }
+
+    return GUEST_FSFREEZE_STATUS_THAWED;
 }
 
 /*
@@ -400,61 +403,61 @@ GuestFsfreezeStatus qmp_guest_fsfreeze_status(Error **err)
 int64_t qmp_guest_fsfreeze_freeze(Error **err)
 {
     int ret = 0, i = 0;
-    struct GuestFsfreezeMount *mount, *temp;
+    FsMountList mounts;
+    struct FsMount *mount;
     int fd;
     char err_msg[512];
 
     slog("guest-fsfreeze called");
 
-    if (guest_fsfreeze_state.status == GUEST_FSFREEZE_STATUS_FROZEN) {
-        return 0;
-    }
-
-    ret = guest_fsfreeze_build_mount_list();
+    QTAILQ_INIT(&mounts);
+    ret = build_fs_mount_list(&mounts);
     if (ret < 0) {
         return ret;
     }
 
     /* cannot risk guest agent blocking itself on a write in this state */
-    disable_logging();
+    ga_set_frozen(ga_state);
 
-    QTAILQ_FOREACH_SAFE(mount, &guest_fsfreeze_state.mount_list, next, temp) {
+    QTAILQ_FOREACH(mount, &mounts, next) {
         fd = qemu_open(mount->dirname, O_RDONLY);
         if (fd == -1) {
-            sprintf(err_msg, "failed to open %s, %s", mount->dirname, strerror(errno));
+            sprintf(err_msg, "failed to open %s, %s", mount->dirname,
+                    strerror(errno));
             error_set(err, QERR_QGA_COMMAND_FAILED, err_msg);
             goto error;
         }
 
         /* we try to cull filesytems we know won't work in advance, but other
          * filesytems may not implement fsfreeze for less obvious reasons.
-         * these will report EOPNOTSUPP, so we simply ignore them. when
-         * thawing, these filesystems will return an EINVAL instead, due to
-         * not being in a frozen state. Other filesystem-specific
-         * errors may result in EINVAL, however, so the user should check the
-         * number * of filesystems returned here against those returned by the
-         * thaw operation to determine whether everything completed
-         * successfully
+         * these will report EOPNOTSUPP. we simply ignore these when tallying
+         * the number of frozen filesystems.
+         *
+         * any other error means a failure to freeze a filesystem we
+         * expect to be freezable, so return an error in those cases
+         * and return system to thawed state.
          */
         ret = ioctl(fd, FIFREEZE);
-        if (ret < 0 && errno != EOPNOTSUPP) {
-            sprintf(err_msg, "failed to freeze %s, %s", mount->dirname, strerror(errno));
-            error_set(err, QERR_QGA_COMMAND_FAILED, err_msg);
-            close(fd);
-            goto error;
+        if (ret == -1) {
+            if (errno != EOPNOTSUPP) {
+                sprintf(err_msg, "failed to freeze %s, %s",
+                        mount->dirname, strerror(errno));
+                error_set(err, QERR_QGA_COMMAND_FAILED, err_msg);
+                close(fd);
+                goto error;
+            }
+        } else {
+            i++;
         }
         close(fd);
-
-        i++;
     }
 
-    guest_fsfreeze_state.status = GUEST_FSFREEZE_STATUS_FROZEN;
+    free_fs_mount_list(&mounts);
     return i;
 
 error:
-    if (i > 0) {
-        qmp_guest_fsfreeze_thaw(NULL);
-    }
+    free_fs_mount_list(&mounts);
+    qmp_guest_fsfreeze_thaw(NULL);
     return 0;
 }
 
@@ -464,39 +467,53 @@ error:
 int64_t qmp_guest_fsfreeze_thaw(Error **err)
 {
     int ret;
-    GuestFsfreezeMount *mount, *temp;
-    int fd, i = 0;
-    bool has_error = false;
+    FsMountList mounts;
+    FsMount *mount;
+    int fd, i = 0, logged;
 
-    QTAILQ_FOREACH_SAFE(mount, &guest_fsfreeze_state.mount_list, next, temp) {
+    QTAILQ_INIT(&mounts);
+    ret = build_fs_mount_list(&mounts);
+    if (ret) {
+        error_set(err, QERR_QGA_COMMAND_FAILED,
+                  "failed to enumerate filesystems");
+        return 0;
+    }
+
+    QTAILQ_FOREACH(mount, &mounts, next) {
+        logged = false;
         fd = qemu_open(mount->dirname, O_RDONLY);
         if (fd == -1) {
-            has_error = true;
             continue;
         }
-        ret = ioctl(fd, FITHAW);
-        if (ret < 0 && errno != EOPNOTSUPP && errno != EINVAL) {
-            has_error = true;
-            close(fd);
-            continue;
-        }
+        /* we have no way of knowing whether a filesystem was actually unfrozen
+         * as a result of a successful call to FITHAW, only that if an error
+         * was returned the filesystem was *not* unfrozen by that particular
+         * call.
+         *
+         * since multiple preceding FIFREEZEs require multiple calls to FITHAW
+         * to unfreeze, continuing issuing FITHAW until an error is returned,
+         * in which case either the filesystem is in an unfreezable state, or,
+         * more likely, it was thawed previously (and remains so afterward).
+         *
+         * also, since the most recent successful call is the one that did
+         * the actual unfreeze, we can use this to provide an accurate count
+         * of the number of filesystems unfrozen by guest-fsfreeze-thaw, which
+         * may * be useful for determining whether a filesystem was unfrozen
+         * during the freeze/thaw phase by a process other than qemu-ga.
+         */
+        do {
+            ret = ioctl(fd, FITHAW);
+            if (ret == 0 && !logged) {
+                i++;
+                logged = true;
+            }
+        } while (ret == 0);
         close(fd);
-        i++;
     }
 
-    if (has_error) {
-        guest_fsfreeze_state.status = GUEST_FSFREEZE_STATUS_ERROR;
-    } else {
-        guest_fsfreeze_state.status = GUEST_FSFREEZE_STATUS_THAWED;
-    }
-    enable_logging();
+    ga_unset_frozen(ga_state);
+    free_fs_mount_list(&mounts);
     return i;
-}
-
-static void guest_fsfreeze_init(void)
-{
-    guest_fsfreeze_state.status = GUEST_FSFREEZE_STATUS_THAWED;
-    QTAILQ_INIT(&guest_fsfreeze_state.mount_list);
 }
 
 static void guest_fsfreeze_cleanup(void)
@@ -504,7 +521,7 @@ static void guest_fsfreeze_cleanup(void)
     int64_t ret;
     Error *err = NULL;
 
-    if (guest_fsfreeze_state.status == GUEST_FSFREEZE_STATUS_FROZEN) {
+    if (ga_is_frozen(ga_state) == GUEST_FSFREEZE_STATUS_FROZEN) {
         ret = qmp_guest_fsfreeze_thaw(&err);
         if (ret < 0 || err) {
             slog("failed to clean up frozen filesystems");
@@ -513,121 +530,151 @@ static void guest_fsfreeze_cleanup(void)
 }
 #endif /* CONFIG_FSFREEZE */
 
+#if defined(CONFIG_FSTRIM)
+/*
+ * Walk list of mounted file systems in the guest, and trim them.
+ */
+void qmp_guest_fstrim(bool has_minimum, int64_t minimum, Error **err)
+{
+    int ret = 0;
+    FsMountList mounts;
+    struct FsMount *mount;
+    int fd;
+    char err_msg[512];
+    struct fstrim_range r = {
+        .start = 0,
+        .len = -1,
+        .minlen = has_minimum ? minimum : 0,
+    };
+
+    slog("guest-fstrim called");
+
+    QTAILQ_INIT(&mounts);
+    ret = build_fs_mount_list(&mounts);
+    if (ret < 0) {
+        return;
+    }
+
+    QTAILQ_FOREACH(mount, &mounts, next) {
+        fd = qemu_open(mount->dirname, O_RDONLY);
+        if (fd == -1) {
+            sprintf(err_msg, "failed to open %s, %s", mount->dirname,
+                    strerror(errno));
+            error_set(err, QERR_QGA_COMMAND_FAILED, err_msg);
+            goto error;
+        }
+
+        /* We try to cull filesytems we know won't work in advance, but other
+         * filesytems may not implement fstrim for less obvious reasons.  These
+         * will report EOPNOTSUPP; we simply ignore these errors.  Any other
+         * error means an unexpected error, so return it in those cases.  In
+         * some other cases ENOTTY will be reported (e.g. CD-ROMs).
+         */
+        ret = ioctl(fd, FITRIM, &r);
+        if (ret == -1) {
+            if (errno != ENOTTY && errno != EOPNOTSUPP) {
+                sprintf(err_msg, "failed to trim %s, %s",
+                        mount->dirname, strerror(errno));
+                error_set(err, QERR_QGA_COMMAND_FAILED, err_msg);
+                close(fd);
+                goto error;
+            }
+        }
+        close(fd);
+    }
+
+error:
+    free_fs_mount_list(&mounts);
+}
+#endif /* CONFIG_FSTRIM */
+
+
 #define LINUX_SYS_STATE_FILE "/sys/power/state"
 #define SUSPEND_SUPPORTED 0
 #define SUSPEND_NOT_SUPPORTED 1
 
-/**
- * This function forks twice and the information about the mode support
- * status is passed to the qemu-ga process via a pipe.
- *
- * This approach allows us to keep the way we reap terminated children
- * in qemu-ga quite simple.
- */
 static void bios_supports_mode(const char *pmutils_bin, const char *pmutils_arg,
                                const char *sysfile_str, Error **err)
 {
-    pid_t pid;
-    ssize_t ret;
     char *pmutils_path;
-    int status, pipefds[2];
-
-    if (pipe(pipefds) < 0) {
-        error_set(err, QERR_UNDEFINED_ERROR);
-        return;
-    }
+    pid_t pid, rpid;
+    int status;
 
     pmutils_path = g_find_program_in_path(pmutils_bin);
 
     pid = fork();
     if (!pid) {
-        struct sigaction act;
-
-        memset(&act, 0, sizeof(act));
-        act.sa_handler = SIG_DFL;
-        sigaction(SIGCHLD, &act, NULL);
+        char buf[32]; /* hopefully big enough */
+        ssize_t ret;
+        int fd;
 
         setsid();
-        close(pipefds[0]);
         reopen_fd_to_null(0);
         reopen_fd_to_null(1);
         reopen_fd_to_null(2);
 
-        pid = fork();
-        if (!pid) {
-            int fd;
-            char buf[32]; /* hopefully big enough */
+        if (pmutils_path) {
+            execle(pmutils_path, pmutils_bin, pmutils_arg, NULL, environ);
+        }
 
-            if (pmutils_path) {
-                execle(pmutils_path, pmutils_bin, pmutils_arg, NULL, environ);
-            }
+        /*
+         * If we get here either pm-utils is not installed or execle() has
+         * failed. Let's try the manual method if the caller wants it.
+         */
 
-            /*
-             * If we get here either pm-utils is not installed or execle() has
-             * failed. Let's try the manual method if the caller wants it.
-             */
-
-            if (!sysfile_str) {
-                _exit(SUSPEND_NOT_SUPPORTED);
-            }
-
-            fd = open(LINUX_SYS_STATE_FILE, O_RDONLY);
-            if (fd < 0) {
-                _exit(SUSPEND_NOT_SUPPORTED);
-            }
-
-            ret = read(fd, buf, sizeof(buf)-1);
-            if (ret <= 0) {
-                _exit(SUSPEND_NOT_SUPPORTED);
-            }
-            buf[ret] = '\0';
-
-            if (strstr(buf, sysfile_str)) {
-                _exit(SUSPEND_SUPPORTED);
-            }
-
+        if (!sysfile_str) {
             _exit(SUSPEND_NOT_SUPPORTED);
         }
 
-        if (pid > 0) {
-            wait(&status);
-        } else {
-            status = SUSPEND_NOT_SUPPORTED;
+        fd = open(LINUX_SYS_STATE_FILE, O_RDONLY);
+        if (fd < 0) {
+            _exit(SUSPEND_NOT_SUPPORTED);
         }
 
-        ret = write(pipefds[1], &status, sizeof(status));
-        if (ret != sizeof(status)) {
-            _exit(EXIT_FAILURE);
+        ret = read(fd, buf, sizeof(buf)-1);
+        if (ret <= 0) {
+            _exit(SUSPEND_NOT_SUPPORTED);
+        }
+        buf[ret] = '\0';
+
+        if (strstr(buf, sysfile_str)) {
+            _exit(SUSPEND_SUPPORTED);
         }
 
-        _exit(EXIT_SUCCESS);
+        _exit(SUSPEND_NOT_SUPPORTED);
     }
 
-    close(pipefds[1]);
     g_free(pmutils_path);
 
     if (pid < 0) {
-        error_set(err, QERR_UNDEFINED_ERROR);
-        goto out;
+        goto undef_err;
     }
 
-    ret = read(pipefds[0], &status, sizeof(status));
-    if (ret == sizeof(status) && WIFEXITED(status) &&
-        WEXITSTATUS(status) == SUSPEND_SUPPORTED) {
-            goto out;
+    do {
+        rpid = waitpid(pid, &status, 0);
+    } while (rpid == -1 && errno == EINTR);
+    if (rpid == pid && WIFEXITED(status)) {
+        switch (WEXITSTATUS(status)) {
+        case SUSPEND_SUPPORTED:
+            return;
+        case SUSPEND_NOT_SUPPORTED:
+            error_set(err, QERR_UNSUPPORTED);
+            return;
+        default:
+            goto undef_err;
+        }
     }
 
-    error_set(err, QERR_UNSUPPORTED);
-
-out:
-    close(pipefds[0]);
+undef_err:
+    error_set(err, QERR_UNDEFINED_ERROR);
 }
 
 static void guest_suspend(const char *pmutils_bin, const char *sysfile_str,
                           Error **err)
 {
-    pid_t pid;
     char *pmutils_path;
+    pid_t rpid, pid;
+    int status;
 
     pmutils_path = g_find_program_in_path(pmutils_bin);
 
@@ -669,9 +716,18 @@ static void guest_suspend(const char *pmutils_bin, const char *sysfile_str,
     g_free(pmutils_path);
 
     if (pid < 0) {
-        error_set(err, QERR_UNDEFINED_ERROR);
+        goto exit_err;
+    }
+
+    do {
+        rpid = waitpid(pid, &status, 0);
+    } while (rpid == -1 && errno == EINTR);
+    if (rpid == pid && WIFEXITED(status) && !WEXITSTATUS(status)) {
         return;
     }
+
+exit_err:
+    error_set(err, QERR_UNDEFINED_ERROR);
 }
 
 void qmp_guest_suspend_disk(Error **err)
@@ -775,7 +831,7 @@ GuestNetworkInterfaceList *qmp_guest_network_get_interfaces(Error **errp)
             strncpy(ifr.ifr_name,  info->value->name, IF_NAMESIZE);
             if (ioctl(sock, SIOCGIFHWADDR, &ifr) == -1) {
                 snprintf(err_msg, sizeof(err_msg),
-                         "failed to get MAC addres of %s: %s",
+                         "failed to get MAC address of %s: %s",
                          ifa->ifa_name,
                          strerror(errno));
                 error_set(errp, QERR_QGA_COMMAND_FAILED, err_msg);
@@ -881,27 +937,6 @@ error:
 
 #else /* defined(__linux__) */
 
-GuestFsfreezeStatus qmp_guest_fsfreeze_status(Error **err)
-{
-    error_set(err, QERR_UNSUPPORTED);
-
-    return 0;
-}
-
-int64_t qmp_guest_fsfreeze_freeze(Error **err)
-{
-    error_set(err, QERR_UNSUPPORTED);
-
-    return 0;
-}
-
-int64_t qmp_guest_fsfreeze_thaw(Error **err)
-{
-    error_set(err, QERR_UNSUPPORTED);
-
-    return 0;
-}
-
 void qmp_guest_suspend_disk(Error **err)
 {
     error_set(err, QERR_UNSUPPORTED);
@@ -925,11 +960,44 @@ GuestNetworkInterfaceList *qmp_guest_network_get_interfaces(Error **errp)
 
 #endif
 
+#if !defined(CONFIG_FSFREEZE)
+
+GuestFsfreezeStatus qmp_guest_fsfreeze_status(Error **err)
+{
+    error_set(err, QERR_UNSUPPORTED);
+
+    return 0;
+}
+
+int64_t qmp_guest_fsfreeze_freeze(Error **err)
+{
+    error_set(err, QERR_UNSUPPORTED);
+
+    return 0;
+}
+
+int64_t qmp_guest_fsfreeze_thaw(Error **err)
+{
+    error_set(err, QERR_UNSUPPORTED);
+
+    return 0;
+}
+#endif /* CONFIG_FSFREEZE */
+
+#if !defined(CONFIG_FSTRIM)
+void qmp_guest_fstrim(bool has_minimum, int64_t minimum, Error **err)
+{
+    error_set(err, QERR_UNSUPPORTED);
+
+    return;
+}
+#endif
+
 /* register init/cleanup routines for stateful command groups */
 void ga_command_state_init(GAState *s, GACommandState *cs)
 {
 #if defined(CONFIG_FSFREEZE)
-    ga_command_state_add(cs, guest_fsfreeze_init, guest_fsfreeze_cleanup);
+    ga_command_state_add(cs, NULL, guest_fsfreeze_cleanup);
 #endif
     ga_command_state_add(cs, guest_file_init, NULL);
 }

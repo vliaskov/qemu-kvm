@@ -3503,97 +3503,77 @@ static uint32_t vr_by_name(const char *name)
     return 32;
 }
 
-CPUCRISState *cpu_cris_init (const char *cpu_model)
+CRISCPU *cpu_cris_init(const char *cpu_model)
 {
-	CPUCRISState *env;
-	static int tcg_initialized = 0;
-	int i;
+    CRISCPU *cpu;
+    CPUCRISState *env;
+    static int tcg_initialized = 0;
+    int i;
 
-	env = g_malloc0(sizeof(CPUCRISState));
+    cpu = CRIS_CPU(object_new(TYPE_CRIS_CPU));
+    env = &cpu->env;
 
-	env->pregs[PR_VR] = vr_by_name(cpu_model);
-	cpu_exec_init(env);
-    cpu_state_reset(env);
-	qemu_init_vcpu(env);
+    env->pregs[PR_VR] = vr_by_name(cpu_model);
 
-	if (tcg_initialized)
-		return env;
+    cpu_reset(CPU(cpu));
+    qemu_init_vcpu(env);
 
-	tcg_initialized = 1;
+    if (tcg_initialized) {
+        return cpu;
+    }
+
+    tcg_initialized = 1;
 
 #define GEN_HELPER 2
 #include "helper.h"
 
-	if (env->pregs[PR_VR] < 32) {
-		cpu_crisv10_init(env);
-		return env; 
-	}
+    if (env->pregs[PR_VR] < 32) {
+        cpu_crisv10_init(env);
+        return cpu;
+    }
 
 
-	cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
-	cc_x = tcg_global_mem_new(TCG_AREG0,
-				  offsetof(CPUCRISState, cc_x), "cc_x");
-	cc_src = tcg_global_mem_new(TCG_AREG0,
-				    offsetof(CPUCRISState, cc_src), "cc_src");
-	cc_dest = tcg_global_mem_new(TCG_AREG0,
-				     offsetof(CPUCRISState, cc_dest),
-				     "cc_dest");
-	cc_result = tcg_global_mem_new(TCG_AREG0,
-				       offsetof(CPUCRISState, cc_result),
-				       "cc_result");
-	cc_op = tcg_global_mem_new(TCG_AREG0,
-				   offsetof(CPUCRISState, cc_op), "cc_op");
-	cc_size = tcg_global_mem_new(TCG_AREG0,
-				     offsetof(CPUCRISState, cc_size),
-				     "cc_size");
-	cc_mask = tcg_global_mem_new(TCG_AREG0,
-				     offsetof(CPUCRISState, cc_mask),
-				     "cc_mask");
+    cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
+    cc_x = tcg_global_mem_new(TCG_AREG0,
+                              offsetof(CPUCRISState, cc_x), "cc_x");
+    cc_src = tcg_global_mem_new(TCG_AREG0,
+                                offsetof(CPUCRISState, cc_src), "cc_src");
+    cc_dest = tcg_global_mem_new(TCG_AREG0,
+                                 offsetof(CPUCRISState, cc_dest),
+                                 "cc_dest");
+    cc_result = tcg_global_mem_new(TCG_AREG0,
+                                   offsetof(CPUCRISState, cc_result),
+                                   "cc_result");
+    cc_op = tcg_global_mem_new(TCG_AREG0,
+                               offsetof(CPUCRISState, cc_op), "cc_op");
+    cc_size = tcg_global_mem_new(TCG_AREG0,
+                                 offsetof(CPUCRISState, cc_size),
+                                 "cc_size");
+    cc_mask = tcg_global_mem_new(TCG_AREG0,
+                                 offsetof(CPUCRISState, cc_mask),
+                                 "cc_mask");
 
-	env_pc = tcg_global_mem_new(TCG_AREG0, 
-				    offsetof(CPUCRISState, pc),
-				    "pc");
-	env_btarget = tcg_global_mem_new(TCG_AREG0,
-					 offsetof(CPUCRISState, btarget),
-					 "btarget");
-	env_btaken = tcg_global_mem_new(TCG_AREG0,
-					 offsetof(CPUCRISState, btaken),
-					 "btaken");
-	for (i = 0; i < 16; i++) {
-		cpu_R[i] = tcg_global_mem_new(TCG_AREG0,
-					      offsetof(CPUCRISState, regs[i]),
-					      regnames[i]);
-	}
-	for (i = 0; i < 16; i++) {
-		cpu_PR[i] = tcg_global_mem_new(TCG_AREG0,
-					       offsetof(CPUCRISState, pregs[i]),
-					       pregnames[i]);
-	}
+    env_pc = tcg_global_mem_new(TCG_AREG0,
+                                offsetof(CPUCRISState, pc),
+                                "pc");
+    env_btarget = tcg_global_mem_new(TCG_AREG0,
+                                     offsetof(CPUCRISState, btarget),
+                                     "btarget");
+    env_btaken = tcg_global_mem_new(TCG_AREG0,
+                                    offsetof(CPUCRISState, btaken),
+                                    "btaken");
+    for (i = 0; i < 16; i++) {
+        cpu_R[i] = tcg_global_mem_new(TCG_AREG0,
+                                      offsetof(CPUCRISState, regs[i]),
+                                      regnames[i]);
+    }
+    for (i = 0; i < 16; i++) {
+        cpu_PR[i] = tcg_global_mem_new(TCG_AREG0,
+                                       offsetof(CPUCRISState, pregs[i]),
+                                       pregnames[i]);
+    }
 
-	return env;
-}
-
-void cpu_state_reset(CPUCRISState *env)
-{
-	uint32_t vr;
-
-	if (qemu_loglevel_mask(CPU_LOG_RESET)) {
-		qemu_log("CPU Reset (CPU %d)\n", env->cpu_index);
-		log_cpu_state(env, 0);
-	}
-
-	vr = env->pregs[PR_VR];
-	memset(env, 0, offsetof(CPUCRISState, breakpoints));
-	env->pregs[PR_VR] = vr;
-	tlb_flush(env, 1);
-
-#if defined(CONFIG_USER_ONLY)
-	/* start in user mode with interrupts enabled.  */
-	env->pregs[PR_CCS] |= U_FLAG | I_FLAG | P_FLAG;
-#else
-	cris_mmu_init(env);
-	env->pregs[PR_CCS] = 0;
-#endif
+    return cpu;
 }
 
 void restore_state_to_opc(CPUCRISState *env, TranslationBlock *tb, int pc_pos)

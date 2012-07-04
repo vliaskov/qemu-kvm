@@ -528,6 +528,53 @@ static void set_config(VirtIODevice *vdev, const uint8_t *config_data)
     memcpy(&config, config_data, sizeof(config));
 }
 
+static void guest_reset(VirtIOSerial *vser)
+{
+    VirtIOSerialPort *port;
+    VirtIOSerialPortClass *vsc;
+
+    QTAILQ_FOREACH(port, &vser->ports, next) {
+        vsc = VIRTIO_SERIAL_PORT_GET_CLASS(port);
+        if (port->guest_connected) {
+            port->guest_connected = false;
+
+            if (vsc->guest_close)
+                vsc->guest_close(port);
+        }
+    }
+}
+
+static void set_status(VirtIODevice *vdev, uint8_t status)
+{
+    VirtIOSerial *vser;
+    VirtIOSerialPort *port;
+
+    vser = DO_UPCAST(VirtIOSerial, vdev, vdev);
+    port = find_port_by_id(vser, 0);
+
+    if (port && !use_multiport(port->vser)
+        && (status & VIRTIO_CONFIG_S_DRIVER_OK)) {
+        /*
+         * Non-multiport guests won't be able to tell us guest
+         * open/close status.  Such guests can only have a port at id
+         * 0, so set guest_connected for such ports as soon as guest
+         * is up.
+         */
+        port->guest_connected = true;
+    }
+    if (!(status & VIRTIO_CONFIG_S_DRIVER_OK)) {
+        guest_reset(vser);
+    }
+}
+
+static void vser_reset(VirtIODevice *vdev)
+{
+    VirtIOSerial *vser;
+
+    vser = DO_UPCAST(VirtIOSerial, vdev, vdev);
+    guest_reset(vser);
+}
+
 static void virtio_serial_save(QEMUFile *f, void *opaque)
 {
     VirtIOSerial *s = opaque;
@@ -590,13 +637,17 @@ static int virtio_serial_load(QEMUFile *f, void *opaque, int version_id)
     VirtIOSerialPort *port;
     uint32_t max_nr_ports, nr_active_ports, ports_map;
     unsigned int i;
+    int ret;
 
     if (version_id > 3) {
         return -EINVAL;
     }
 
     /* The virtio device */
-    virtio_load(&s->vdev, f);
+    ret = virtio_load(&s->vdev, f);
+    if (ret) {
+        return ret;
+    }
 
     if (version_id < 2) {
         return 0;
@@ -677,15 +728,27 @@ static int virtio_serial_load(QEMUFile *f, void *opaque, int version_id)
 
 static void virtser_bus_dev_print(Monitor *mon, DeviceState *qdev, int indent);
 
-static struct BusInfo virtser_bus_info = {
-    .name      = "virtio-serial-bus",
-    .size      = sizeof(VirtIOSerialBus),
-    .print_dev = virtser_bus_dev_print,
-    .props      = (Property[]) {
-        DEFINE_PROP_UINT32("nr", VirtIOSerialPort, id, VIRTIO_CONSOLE_BAD_ID),
-        DEFINE_PROP_STRING("name", VirtIOSerialPort, name),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property virtser_props[] = {
+    DEFINE_PROP_UINT32("nr", VirtIOSerialPort, id, VIRTIO_CONSOLE_BAD_ID),
+    DEFINE_PROP_STRING("name", VirtIOSerialPort, name),
+    DEFINE_PROP_END_OF_LIST()
+};
+
+#define TYPE_VIRTIO_SERIAL_BUS "virtio-serial-bus"
+#define VIRTIO_SERIAL_BUS(obj) \
+      OBJECT_CHECK(VirtIOSerialBus, (obj), TYPE_VIRTIO_SERIAL_BUS)
+
+static void virtser_bus_class_init(ObjectClass *klass, void *data)
+{
+    BusClass *k = BUS_CLASS(klass);
+    k->print_dev = virtser_bus_dev_print;
+}
+
+static const TypeInfo virtser_bus_info = {
+    .name = TYPE_VIRTIO_SERIAL_BUS,
+    .parent = TYPE_BUS,
+    .instance_size = sizeof(VirtIOSerialBus),
+    .class_init = virtser_bus_class_init,
 };
 
 static void virtser_bus_dev_print(Monitor *mon, DeviceState *qdev, int indent)
@@ -798,14 +861,6 @@ static int virtser_port_qdev_init(DeviceState *qdev)
         return ret;
     }
 
-    if (!use_multiport(port->vser)) {
-        /*
-         * Allow writes to guest in this case; we have no way of
-         * knowing if a guest port is connected.
-         */
-        port->guest_connected = true;
-    }
-
     port->elem.out_num = 0;
 
     QTAILQ_INSERT_TAIL(&port->vser->ports, port, next);
@@ -861,7 +916,7 @@ VirtIODevice *virtio_serial_init(DeviceState *dev, virtio_serial_conf *conf)
     vser = DO_UPCAST(VirtIOSerial, vdev, vdev);
 
     /* Spawn a new virtio-serial bus on which the ports will ride as devices */
-    qbus_create_inplace(&vser->bus.qbus, &virtser_bus_info, dev, NULL);
+    qbus_create_inplace(&vser->bus.qbus, TYPE_VIRTIO_SERIAL_BUS, dev, NULL);
     vser->bus.qbus.allow_hotplug = 1;
     vser->bus.vser = vser;
     QTAILQ_INIT(&vser->ports);
@@ -905,6 +960,8 @@ VirtIODevice *virtio_serial_init(DeviceState *dev, virtio_serial_conf *conf)
     vser->vdev.get_features = get_features;
     vser->vdev.get_config = get_config;
     vser->vdev.set_config = set_config;
+    vser->vdev.set_status = set_status;
+    vser->vdev.reset = vser_reset;
 
     vser->qdev = dev;
 
@@ -935,9 +992,10 @@ static void virtio_serial_port_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *k = DEVICE_CLASS(klass);
     k->init = virtser_port_qdev_init;
-    k->bus_info = &virtser_bus_info;
+    k->bus_type = TYPE_VIRTIO_SERIAL_BUS;
     k->exit = virtser_port_qdev_exit;
     k->unplug = qdev_simple_unplug_cb;
+    k->props = virtser_props;
 }
 
 static TypeInfo virtio_serial_port_type_info = {
@@ -951,6 +1009,7 @@ static TypeInfo virtio_serial_port_type_info = {
 
 static void virtio_serial_register_types(void)
 {
+    type_register_static(&virtser_bus_info);
     type_register_static(&virtio_serial_port_type_info);
 }
 

@@ -36,6 +36,7 @@
 #include "qdev-addr.h"
 #include "blockdev.h"
 #include "sysemu.h"
+#include "qemu-log.h"
 
 /********************************************************/
 /* debug Floppy devices */
@@ -47,9 +48,6 @@
 #else
 #define FLOPPY_DPRINTF(fmt, ...)
 #endif
-
-#define FLOPPY_ERROR(fmt, ...)                                          \
-    do { printf("FLOPPY ERROR: %s: " fmt, __func__ , ## __VA_ARGS__); } while (0)
 
 /********************************************************/
 /* Floppy drive emulation                               */
@@ -147,8 +145,10 @@ static int fd_seek(FDrive *drv, uint8_t head, uint8_t track, uint8_t sect,
     if (sector != fd_sector(drv)) {
 #if 0
         if (!enable_seek) {
-            FLOPPY_ERROR("no implicit seek %d %02x %02x (max=%d %02x %02x)\n",
-                         head, track, sect, 1, drv->max_track, drv->last_sect);
+            FLOPPY_DPRINTF("error: no implicit seek %d %02x %02x"
+                           " (max=%d %02x %02x)\n",
+                           head, track, sect, 1, drv->max_track,
+                           drv->last_sect);
             return 4;
         }
 #endif
@@ -157,6 +157,10 @@ static int fd_seek(FDrive *drv, uint8_t head, uint8_t track, uint8_t sect,
             ret = 1;
         drv->track = track;
         drv->sect = sect;
+    }
+
+    if (drv->bs == NULL || !bdrv_is_inserted(drv->bs)) {
+        ret = 2;
     }
 
     return ret;
@@ -179,12 +183,14 @@ static void fd_revalidate(FDrive *drv)
     FDriveRate rate;
 
     FLOPPY_DPRINTF("revalidate\n");
-    if (drv->bs != NULL && bdrv_is_inserted(drv->bs)) {
+    if (drv->bs != NULL) {
         ro = bdrv_is_read_only(drv->bs);
         bdrv_get_floppy_geometry_hint(drv->bs, &nb_heads, &max_track,
                                       &last_sect, drv->drive, &drive, &rate);
-        if (nb_heads != 0 && max_track != 0 && last_sect != 0) {
-            FLOPPY_DPRINTF("User defined disk (%d %d %d)",
+        if (!bdrv_is_inserted(drv->bs)) {
+            FLOPPY_DPRINTF("No disk in drive\n");
+        } else if (nb_heads != 0 && max_track != 0 && last_sect != 0) {
+            FLOPPY_DPRINTF("User defined disk (%d %d %d)\n",
                            nb_heads - 1, max_track, last_sect);
         } else {
             FLOPPY_DPRINTF("Floppy disk (%d h %d t %d s) %s\n", nb_heads,
@@ -201,7 +207,7 @@ static void fd_revalidate(FDrive *drv)
         drv->drive = drive;
         drv->media_rate = rate;
     } else {
-        FLOPPY_DPRINTF("No disk in drive\n");
+        FLOPPY_DPRINTF("No drive connected\n");
         drv->last_sect = 0;
         drv->max_track = 0;
         drv->flags &= ~FDISK_DBL_SIDES;
@@ -438,6 +444,9 @@ typedef struct FDCtrlSysBus {
 
 typedef struct FDCtrlISABus {
     ISADevice busdev;
+    uint32_t iobase;
+    uint32_t irq;
+    uint32_t dma;
     struct FDCtrl state;
     int32_t bootindexA;
     int32_t bootindexB;
@@ -702,6 +711,15 @@ static void fdctrl_raise_irq(FDCtrl *fdctrl, uint8_t status0)
         qemu_set_irq(fdctrl->irq, 1);
         fdctrl->sra |= FD_SRA_INTPEND;
     }
+    if (status0 & FD_SR0_SEEK) {
+        FDrive *cur_drv;
+        /* A seek clears the disk change line (if a disk is inserted) */
+        cur_drv = get_cur_drv(fdctrl);
+        if (cur_drv->bs != NULL && bdrv_is_inserted(cur_drv->bs)) {
+            cur_drv->media_changed = 0;
+        }
+    }
+
     fdctrl->reset_sensei = 0;
     fdctrl->status0 = status0;
     FLOPPY_DPRINTF("Set interrupt status to 0x%02x\n", fdctrl->status0);
@@ -933,23 +951,7 @@ static void fdctrl_write_ccr(FDCtrl *fdctrl, uint32_t value)
 
 static int fdctrl_media_changed(FDrive *drv)
 {
-    int ret;
-
-    if (!drv->bs)
-        return 0;
-    if (drv->media_changed) {
-        drv->media_changed = 0;
-        ret = 1;
-    } else {
-        ret = bdrv_media_changed(drv->bs);
-        if (ret < 0) {
-            ret = 0;            /* we don't know, assume no */
-        }
-    }
-    if (ret) {
-        fd_revalidate(drv);
-    }
-    return ret;
+    return drv->media_changed;
 }
 
 /* Digital input register : 0x07 (read-only) */
@@ -989,7 +991,8 @@ static void fdctrl_set_fifo(FDCtrl *fdctrl, int fifo_len, int do_irq)
 /* Set an error: unimplemented/unknown command */
 static void fdctrl_unimplemented(FDCtrl *fdctrl, int direction)
 {
-    FLOPPY_ERROR("unimplemented command 0x%02x\n", fdctrl->fifo[0]);
+    qemu_log_mask(LOG_UNIMP, "fdc: unimplemented command 0x%02x\n",
+                  fdctrl->fifo[0]);
     fdctrl->fifo[0] = FD_SR0_INVCMD;
     fdctrl_set_fifo(fdctrl, 1, 0);
 }
@@ -1157,7 +1160,8 @@ static void fdctrl_start_transfer(FDCtrl *fdctrl, int direction)
             DMA_schedule(fdctrl->dma_chann);
             return;
         } else {
-            FLOPPY_ERROR("dma_mode=%d direction=%d\n", dma_mode, direction);
+            FLOPPY_DPRINTF("bad dma_mode=%d direction=%d\n", dma_mode,
+                           direction);
         }
     }
     FLOPPY_DPRINTF("start non-DMA transfer\n");
@@ -1173,7 +1177,7 @@ static void fdctrl_start_transfer(FDCtrl *fdctrl, int direction)
 /* Prepare a transfer of deleted data */
 static void fdctrl_start_transfer_del(FDCtrl *fdctrl, int direction)
 {
-    FLOPPY_ERROR("fdctrl_start_transfer_del() unimplemented\n");
+    qemu_log_mask(LOG_UNIMP, "fdctrl_start_transfer_del() unimplemented\n");
 
     /* We don't handle deleted data,
      * so we don't return *ANYTHING*
@@ -1252,7 +1256,8 @@ static int fdctrl_transfer_handler (void *opaque, int nchan,
                              fdctrl->data_pos, len);
             if (bdrv_write(cur_drv->bs, fd_sector(cur_drv),
                            fdctrl->fifo, 1) < 0) {
-                FLOPPY_ERROR("writing sector %d\n", fd_sector(cur_drv));
+                FLOPPY_DPRINTF("error writing sector %d\n",
+                               fd_sector(cur_drv));
                 fdctrl_stop_transfer(fdctrl, FD_SR0_ABNTERM | FD_SR0_SEEK, 0x00, 0x00);
                 goto transfer_error;
             }
@@ -1311,7 +1316,7 @@ static uint32_t fdctrl_read_data(FDCtrl *fdctrl)
     cur_drv = get_cur_drv(fdctrl);
     fdctrl->dsr &= ~FD_DSR_PWRDOWN;
     if (!(fdctrl->msr & FD_MSR_RQM) || !(fdctrl->msr & FD_MSR_DIO)) {
-        FLOPPY_ERROR("controller not ready for reading\n");
+        FLOPPY_DPRINTF("error: controller not ready for reading\n");
         return 0;
     }
     pos = fdctrl->data_pos;
@@ -1395,7 +1400,7 @@ static void fdctrl_format_sector(FDCtrl *fdctrl)
     memset(fdctrl->fifo, 0, FD_SECTOR_LEN);
     if (cur_drv->bs == NULL ||
         bdrv_write(cur_drv->bs, fd_sector(cur_drv), fdctrl->fifo, 1) < 0) {
-        FLOPPY_ERROR("formatting sector %d\n", fd_sector(cur_drv));
+        FLOPPY_DPRINTF("error formatting sector %d\n", fd_sector(cur_drv));
         fdctrl_stop_transfer(fdctrl, FD_SR0_ABNTERM | FD_SR0_SEEK, 0x00, 0x00);
     } else {
         if (cur_drv->sect == cur_drv->last_sect) {
@@ -1770,7 +1775,7 @@ static void fdctrl_write_data(FDCtrl *fdctrl, uint32_t value)
         return;
     }
     if (!(fdctrl->msr & FD_MSR_RQM) || (fdctrl->msr & FD_MSR_DIO)) {
-        FLOPPY_ERROR("controller not ready for writing\n");
+        FLOPPY_DPRINTF("error: controller not ready for writing\n");
         return;
     }
     fdctrl->dsr &= ~FD_DSR_PWRDOWN;
@@ -1784,7 +1789,8 @@ static void fdctrl_write_data(FDCtrl *fdctrl, uint32_t value)
             fdctrl->data_pos == fdctrl->data_len) {
             cur_drv = get_cur_drv(fdctrl);
             if (bdrv_write(cur_drv->bs, fd_sector(cur_drv), fdctrl->fifo, 1) < 0) {
-                FLOPPY_ERROR("writing sector %d\n", fd_sector(cur_drv));
+                FLOPPY_DPRINTF("error writing sector %d\n",
+                               fd_sector(cur_drv));
                 return;
             }
             if (!fdctrl_seek_to_next_sect(fdctrl, cur_drv)) {
@@ -1853,6 +1859,7 @@ static void fdctrl_change_cb(void *opaque, bool load)
     FDrive *drive = opaque;
 
     drive->media_changed = 1;
+    fd_revalidate(drive);
 }
 
 static const BlockDevOps fdctrl_block_ops = {
@@ -1881,13 +1888,32 @@ static int fdctrl_connect_drives(FDCtrl *fdctrl)
         }
 
         fd_init(drive);
-        fd_revalidate(drive);
+        fdctrl_change_cb(drive, 0);
         if (drive->bs) {
-            drive->media_changed = 1;
             bdrv_set_dev_ops(drive->bs, &fdctrl_block_ops, drive);
         }
     }
     return 0;
+}
+
+ISADevice *fdctrl_init_isa(ISABus *bus, DriveInfo **fds)
+{
+    ISADevice *dev;
+
+    dev = isa_try_create(bus, "isa-fdc");
+    if (!dev) {
+        return NULL;
+    }
+
+    if (fds[0]) {
+        qdev_prop_set_drive_nofail(&dev->qdev, "driveA", fds[0]->bdrv);
+    }
+    if (fds[1]) {
+        qdev_prop_set_drive_nofail(&dev->qdev, "driveB", fds[1]->bdrv);
+    }
+    qdev_init_nofail(&dev->qdev);
+
+    return dev;
 }
 
 void fdctrl_init_sysbus(qemu_irq irq, int dma_chann,
@@ -1971,17 +1997,14 @@ static int isabus_fdc_init1(ISADevice *dev)
 {
     FDCtrlISABus *isa = DO_UPCAST(FDCtrlISABus, busdev, dev);
     FDCtrl *fdctrl = &isa->state;
-    int iobase = 0x3f0;
-    int isairq = 6;
-    int dma_chann = 2;
     int ret;
 
-    isa_register_portio_list(dev, iobase, fdc_portio_list, fdctrl, "fdc");
+    isa_register_portio_list(dev, isa->iobase, fdc_portio_list, fdctrl, "fdc");
 
-    isa_init_irq(&isa->busdev, &fdctrl->irq, isairq);
-    fdctrl->dma_chann = dma_chann;
+    isa_init_irq(&isa->busdev, &fdctrl->irq, isa->irq);
+    fdctrl->dma_chann = isa->dma;
 
-    qdev_set_legacy_instance_id(&dev->qdev, iobase, 2);
+    qdev_set_legacy_instance_id(&dev->qdev, isa->iobase, 2);
     ret = fdctrl_init_common(fdctrl);
 
     add_boot_device_path(isa->bootindexA, &dev->qdev, "/floppy@0");
@@ -2046,6 +2069,9 @@ static const VMStateDescription vmstate_isa_fdc ={
 };
 
 static Property isa_fdc_properties[] = {
+    DEFINE_PROP_HEX32("iobase", FDCtrlISABus, iobase, 0x3f0),
+    DEFINE_PROP_UINT32("irq", FDCtrlISABus, irq, 6),
+    DEFINE_PROP_UINT32("dma", FDCtrlISABus, dma, 2),
     DEFINE_PROP_DRIVE("driveA", FDCtrlISABus, state.drives[0].bs),
     DEFINE_PROP_DRIVE("driveB", FDCtrlISABus, state.drives[1].bs),
     DEFINE_PROP_INT32("bootindexA", FDCtrlISABus, bootindexA, -1),

@@ -367,6 +367,12 @@ static void qed_cancel_need_check_timer(BDRVQEDState *s)
     qemu_del_timer(s->need_check_timer);
 }
 
+static void bdrv_qed_rebind(BlockDriverState *bs)
+{
+    BDRVQEDState *s = bs->opaque;
+    s->bs = bs;
+}
+
 static int bdrv_qed_open(BlockDriverState *bs, int flags)
 {
     BDRVQEDState *s = bs->opaque;
@@ -1511,11 +1517,12 @@ static void bdrv_qed_invalidate_cache(BlockDriverState *bs)
     bdrv_qed_open(bs, bs->open_flags);
 }
 
-static int bdrv_qed_check(BlockDriverState *bs, BdrvCheckResult *result)
+static int bdrv_qed_check(BlockDriverState *bs, BdrvCheckResult *result,
+                          BdrvCheckMode fix)
 {
     BDRVQEDState *s = bs->opaque;
 
-    return qed_check(s, result, false);
+    return qed_check(s, result, !!fix);
 }
 
 static QEMUOptionParameter qed_create_options[] = {
@@ -1550,6 +1557,7 @@ static BlockDriver bdrv_qed = {
     .create_options           = qed_create_options,
 
     .bdrv_probe               = bdrv_qed_probe,
+    .bdrv_rebind              = bdrv_qed_rebind,
     .bdrv_open                = bdrv_qed_open,
     .bdrv_close               = bdrv_qed_close,
     .bdrv_create              = bdrv_qed_create,

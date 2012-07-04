@@ -41,6 +41,7 @@ int singlestep;
 unsigned long mmap_min_addr;
 unsigned long guest_base;
 int have_guest_base;
+unsigned long reserved_va;
 #endif
 
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
@@ -917,7 +918,7 @@ int main(int argc, char **argv)
         exit(1);
     }
 #if defined(TARGET_I386) || defined(TARGET_SPARC) || defined(TARGET_PPC)
-    cpu_state_reset(env);
+    cpu_reset(ENV_GET_CPU(env));
 #endif
     thread_env = env;
 

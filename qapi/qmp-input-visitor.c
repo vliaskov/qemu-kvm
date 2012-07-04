@@ -87,20 +87,29 @@ static void qmp_input_push(QmpInputVisitor *qiv, QObject *obj, Error **errp)
     qiv->nb_stack++;
 }
 
+/** Only for qmp_input_pop. */
+static gboolean always_true(gpointer key, gpointer val, gpointer user_pkey)
+{
+    *(const char **)user_pkey = (const char *)key;
+    return TRUE;
+}
+
 static void qmp_input_pop(QmpInputVisitor *qiv, Error **errp)
 {
-    GHashTableIter iter;
-    gpointer key;
+    assert(qiv->nb_stack > 0);
 
-    if (qiv->strict && qiv->stack[qiv->nb_stack - 1].h) {
-        g_hash_table_iter_init(&iter, qiv->stack[qiv->nb_stack - 1].h);
-        if (g_hash_table_iter_next(&iter, &key, NULL)) {
-            error_set(errp, QERR_QMP_EXTRA_MEMBER, (char *) key);
+    if (qiv->strict) {
+        GHashTable * const top_ht = qiv->stack[qiv->nb_stack - 1].h;
+        if (top_ht) {
+            if (g_hash_table_size(top_ht)) {
+                const char *key;
+                g_hash_table_find(top_ht, always_true, &key);
+                error_set(errp, QERR_QMP_EXTRA_MEMBER, key);
+            }
+            g_hash_table_unref(top_ht);
         }
-        g_hash_table_unref(qiv->stack[qiv->nb_stack - 1].h);
     }
 
-    assert(qiv->nb_stack > 0);
     qiv->nb_stack--;
 }
 
@@ -237,13 +246,18 @@ static void qmp_input_type_number(Visitor *v, double *obj, const char *name,
     QmpInputVisitor *qiv = to_qiv(v);
     QObject *qobj = qmp_input_get_object(qiv, name);
 
-    if (!qobj || qobject_type(qobj) != QTYPE_QFLOAT) {
+    if (!qobj || (qobject_type(qobj) != QTYPE_QFLOAT &&
+        qobject_type(qobj) != QTYPE_QINT)) {
         error_set(errp, QERR_INVALID_PARAMETER_TYPE, name ? name : "null",
-                  "double");
+                  "number");
         return;
     }
 
-    *obj = qfloat_get_double(qobject_to_qfloat(qobj));
+    if (qobject_type(qobj) == QTYPE_QINT) {
+        *obj = qint_get_int(qobject_to_qint(qobj));
+    } else {
+        *obj = qfloat_get_double(qobject_to_qfloat(qobj));
+    }
 }
 
 static void qmp_input_start_optional(Visitor *v, bool *present,

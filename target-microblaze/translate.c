@@ -162,6 +162,14 @@ static void write_carry(DisasContext *dc, TCGv v)
     tcg_temp_free(t0);
 }
 
+static void write_carryi(DisasContext *dc, int carry)
+{
+    TCGv t0 = tcg_temp_new();
+    tcg_gen_movi_tl(t0, carry ? 1 : 0);
+    write_carry(dc, t0);
+    tcg_temp_free(t0);
+}
+
 /* True if ALU operand b is a small immediate that may deserve
    faster treatment.  */
 static inline int dec_alu_op_b_is_small_imm(DisasContext *dc)
@@ -743,7 +751,7 @@ static void dec_bit(DisasContext *dc)
     unsigned int op;
     int mem_index = cpu_mmu_index(dc->env);
 
-    op = dc->ir & ((1 << 8) - 1);
+    op = dc->ir & ((1 << 9) - 1);
     switch (op) {
         case 0x21:
             /* src.  */
@@ -824,6 +832,16 @@ static void dec_bit(DisasContext *dc)
             if (dc->env->pvr.regs[2] & PVR2_USE_PCMP_INSTR) {
                 gen_helper_clz(cpu_R[dc->rd], cpu_R[dc->ra]);
             }
+            break;
+        case 0x1e0:
+            /* swapb */
+            LOG_DIS("swapb r%d r%d\n", dc->rd, dc->ra);
+            tcg_gen_bswap32_i32(cpu_R[dc->rd], cpu_R[dc->ra]);
+            break;
+        case 0x1e1:
+            /*swaph */
+            LOG_DIS("swaph r%d r%d\n", dc->rd, dc->ra);
+            tcg_gen_rotri_i32(cpu_R[dc->rd], cpu_R[dc->ra], 16);
             break;
         default:
             cpu_abort(dc->env, "unknown bit oc=%x op=%x rd=%d ra=%d rb=%d\n",
@@ -938,12 +956,13 @@ static inline void dec_byteswap(DisasContext *dc, TCGv dst, TCGv src, int size)
 static void dec_load(DisasContext *dc)
 {
     TCGv t, *addr;
-    unsigned int size, rev = 0;
+    unsigned int size, rev = 0, ex = 0;
 
     size = 1 << (dc->opcode & 3);
 
     if (!dc->type_b) {
         rev = (dc->ir >> 9) & 1;
+        ex = (dc->ir >> 10) & 1;
     }
 
     if (size > 4 && (dc->tb_flags & MSR_EE_FLAG)
@@ -953,7 +972,8 @@ static void dec_load(DisasContext *dc)
         return;
     }
 
-    LOG_DIS("l%d%s%s\n", size, dc->type_b ? "i" : "", rev ? "r" : "");
+    LOG_DIS("l%d%s%s%s\n", size, dc->type_b ? "i" : "", rev ? "r" : "",
+                                                        ex ? "x" : "");
 
     t_sync_flags(dc);
     addr = compute_ldst_addr(dc, &t);
@@ -1009,6 +1029,17 @@ static void dec_load(DisasContext *dc)
         }
     }
 
+    /* lwx does not throw unaligned access errors, so force alignment */
+    if (ex) {
+        /* Force addr into the temp.  */
+        if (addr != &t) {
+            t = tcg_temp_new();
+            tcg_gen_mov_tl(t, *addr);
+            addr = &t;
+        }
+        tcg_gen_andi_tl(t, t, ~3);
+    }
+
     /* If we get a fault on a dslot, the jmpstate better be in sync.  */
     sync_jmpstate(dc);
 
@@ -1047,6 +1078,12 @@ static void dec_load(DisasContext *dc)
         }
     }
 
+    if (ex) { /* lwx */
+        /* no support for for AXI exclusive so always clear C */
+        write_carryi(dc, 0);
+        tcg_gen_st_tl(*addr, cpu_env, offsetof(CPUMBState, res_addr));
+    }
+
     if (addr == &t)
         tcg_temp_free(t);
 }
@@ -1068,12 +1105,14 @@ static void gen_store(DisasContext *dc, TCGv addr, TCGv val,
 
 static void dec_store(DisasContext *dc)
 {
-    TCGv t, *addr;
-    unsigned int size, rev = 0;
+    TCGv t, *addr, swx_addr, r_check;
+    int swx_skip = 0;
+    unsigned int size, rev = 0, ex = 0;
 
     size = 1 << (dc->opcode & 3);
     if (!dc->type_b) {
         rev = (dc->ir >> 9) & 1;
+        ex = (dc->ir >> 10) & 1;
     }
 
     if (size > 4 && (dc->tb_flags & MSR_EE_FLAG)
@@ -1083,11 +1122,29 @@ static void dec_store(DisasContext *dc)
         return;
     }
 
-    LOG_DIS("s%d%s%s\n", size, dc->type_b ? "i" : "", rev ? "r" : "");
+    LOG_DIS("s%d%s%s%s\n", size, dc->type_b ? "i" : "", rev ? "r" : "",
+                                                        ex ? "x" : "");
     t_sync_flags(dc);
     /* If we get a fault on a dslot, the jmpstate better be in sync.  */
     sync_jmpstate(dc);
     addr = compute_ldst_addr(dc, &t);
+
+    r_check = tcg_temp_new();
+    swx_addr = tcg_temp_local_new();
+    if (ex) { /* swx */
+
+        /* Force addr into the swx_addr. */
+        tcg_gen_mov_tl(swx_addr, *addr);
+        addr = &swx_addr;
+        /* swx does not throw unaligned access errors, so force alignment */
+        tcg_gen_andi_tl(swx_addr, swx_addr, ~3);
+
+        tcg_gen_ld_tl(r_check, cpu_env, offsetof(CPUMBState, res_addr));
+        write_carryi(dc, 1);
+        swx_skip = gen_new_label();
+        tcg_gen_brcond_tl(TCG_COND_NE, r_check, swx_addr, swx_skip);
+        write_carryi(dc, 0);
+    }
 
     if (rev && size != 4) {
         /* Endian reverse the address. t is addr.  */
@@ -1164,6 +1221,12 @@ static void dec_store(DisasContext *dc)
         gen_helper_memalign(*addr, tcg_const_tl(dc->rd),
                             tcg_const_tl(1), tcg_const_tl(size - 1));
     }
+
+    if (ex) {
+        gen_set_label(swx_skip);
+    }
+    tcg_temp_free(r_check);
+    tcg_temp_free(swx_addr);
 
     if (addr == &t)
         tcg_temp_free(t);
@@ -1476,8 +1539,10 @@ static void dec_fpu(DisasContext *dc)
                                        cpu_R[dc->ra], cpu_R[dc->rb]);
                     break;
                 default:
-                    qemu_log ("unimplemented fcmp fpu_insn=%x pc=%x opc=%x\n",
-                              fpu_insn, dc->pc, dc->opcode);
+                    qemu_log_mask(LOG_UNIMP,
+                                  "unimplemented fcmp fpu_insn=%x pc=%x"
+                                  " opc=%x\n",
+                                  fpu_insn, dc->pc, dc->opcode);
                     dc->abort_at_next_insn = 1;
                     break;
             }
@@ -1505,8 +1570,9 @@ static void dec_fpu(DisasContext *dc)
             break;
 
         default:
-            qemu_log ("unimplemented FPU insn fpu_insn=%x pc=%x opc=%x\n",
-                      fpu_insn, dc->pc, dc->opcode);
+            qemu_log_mask(LOG_UNIMP, "unimplemented FPU insn fpu_insn=%x pc=%x"
+                          " opc=%x\n",
+                          fpu_insn, dc->pc, dc->opcode);
             dc->abort_at_next_insn = 1;
             break;
     }
@@ -1889,21 +1955,20 @@ void cpu_dump_state (CPUMBState *env, FILE *f, fprintf_function cpu_fprintf,
     cpu_fprintf(f, "\n\n");
 }
 
-CPUMBState *cpu_mb_init (const char *cpu_model)
+MicroBlazeCPU *cpu_mb_init(const char *cpu_model)
 {
-    CPUMBState *env;
+    MicroBlazeCPU *cpu;
     static int tcg_initialized = 0;
     int i;
 
-    env = g_malloc0(sizeof(CPUMBState));
+    cpu = MICROBLAZE_CPU(object_new(TYPE_MICROBLAZE_CPU));
 
-    cpu_exec_init(env);
-    cpu_state_reset(env);
-    qemu_init_vcpu(env);
-    set_float_rounding_mode(float_round_nearest_even, &env->fp_status);
+    cpu_reset(CPU(cpu));
+    qemu_init_vcpu(&cpu->env);
 
-    if (tcg_initialized)
-        return env;
+    if (tcg_initialized) {
+        return cpu;
+    }
 
     tcg_initialized = 1;
 
@@ -1937,59 +2002,7 @@ CPUMBState *cpu_mb_init (const char *cpu_model)
 #define GEN_HELPER 2
 #include "helper.h"
 
-    return env;
-}
-
-void cpu_state_reset(CPUMBState *env)
-{
-    if (qemu_loglevel_mask(CPU_LOG_RESET)) {
-        qemu_log("CPU Reset (CPU %d)\n", env->cpu_index);
-        log_cpu_state(env, 0);
-    }
-
-    memset(env, 0, offsetof(CPUMBState, breakpoints));
-    tlb_flush(env, 1);
-
-    /* Disable stack protector.  */
-    env->shr = ~0;
-
-    env->pvr.regs[0] = PVR0_PVR_FULL_MASK \
-                       | PVR0_USE_BARREL_MASK \
-                       | PVR0_USE_DIV_MASK \
-                       | PVR0_USE_HW_MUL_MASK \
-                       | PVR0_USE_EXC_MASK \
-                       | PVR0_USE_ICACHE_MASK \
-                       | PVR0_USE_DCACHE_MASK \
-                       | PVR0_USE_MMU \
-                       | (0xb << 8);
-    env->pvr.regs[2] = PVR2_D_OPB_MASK \
-                        | PVR2_D_LMB_MASK \
-                        | PVR2_I_OPB_MASK \
-                        | PVR2_I_LMB_MASK \
-                        | PVR2_USE_MSR_INSTR \
-                        | PVR2_USE_PCMP_INSTR \
-                        | PVR2_USE_BARREL_MASK \
-                        | PVR2_USE_DIV_MASK \
-                        | PVR2_USE_HW_MUL_MASK \
-                        | PVR2_USE_MUL64_MASK \
-                        | PVR2_USE_FPU_MASK \
-                        | PVR2_USE_FPU2_MASK \
-                        | PVR2_FPU_EXC_MASK \
-                        | 0;
-    env->pvr.regs[10] = 0x0c000000; /* Default to spartan 3a dsp family.  */
-    env->pvr.regs[11] = PVR11_USE_MMU | (16 << 17);
-
-#if defined(CONFIG_USER_ONLY)
-    /* start in user mode with interrupts enabled.  */
-    env->sregs[SR_MSR] = MSR_EE | MSR_IE | MSR_VM | MSR_UM;
-    env->pvr.regs[10] = 0x0c000000; /* Spartan 3a dsp.  */
-#else
-    env->sregs[SR_MSR] = 0;
-    mmu_init(&env->mmu);
-    env->mmu.c_mmu = 3;
-    env->mmu.c_mmu_tlb_access = 3;
-    env->mmu.c_mmu_zones = 16;
-#endif
+    return cpu;
 }
 
 void restore_state_to_opc(CPUMBState *env, TranslationBlock *tb, int pc_pos)

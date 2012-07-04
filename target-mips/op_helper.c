@@ -101,11 +101,10 @@ void helper_raise_exception (uint32_t exception)
 }
 
 #if !defined(CONFIG_USER_ONLY)
-static void do_restore_state (void *pc_ptr)
+static void do_restore_state(uintptr_t pc)
 {
     TranslationBlock *tb;
-    unsigned long pc = (unsigned long) pc_ptr;
-    
+
     tb = tb_find_pc (pc);
     if (tb) {
         cpu_restore_state(tb, env, pc);
@@ -191,12 +190,6 @@ target_ulong helper_dclz (target_ulong arg1)
 static inline uint64_t get_HILO (void)
 {
     return ((uint64_t)(env->active_tc.HI[0]) << 32) | (uint32_t)env->active_tc.LO[0];
-}
-
-static inline void set_HILO (uint64_t HILO)
-{
-    env->active_tc.LO[0] = (int32_t)HILO;
-    env->active_tc.HI[0] = (int32_t)(HILO >> 32);
 }
 
 static inline void set_HIT0_LO (target_ulong arg1, uint64_t HILO)
@@ -2276,7 +2269,7 @@ void helper_pmon (int function)
         break;
     case 158:
         {
-            unsigned char *fmt = (void *)(unsigned long)env->active_tc.gpr[4];
+            unsigned char *fmt = (void *)(uintptr_t)env->active_tc.gpr[4];
             printf("%s", fmt);
         }
         break;
@@ -2293,7 +2286,7 @@ void helper_wait (void)
 #if !defined(CONFIG_USER_ONLY)
 
 static void QEMU_NORETURN do_unaligned_access(target_ulong addr, int is_write,
-                                              int is_user, void *retaddr);
+                                              int is_user, uintptr_t retaddr);
 
 #define MMUSUFFIX _mmu
 #define ALIGNED_ONLY
@@ -2310,7 +2303,8 @@ static void QEMU_NORETURN do_unaligned_access(target_ulong addr, int is_write,
 #define SHIFT 3
 #include "softmmu_template.h"
 
-static void do_unaligned_access (target_ulong addr, int is_write, int is_user, void *retaddr)
+static void do_unaligned_access(target_ulong addr, int is_write,
+                                int is_user, uintptr_t retaddr)
 {
     env->CP0_BadVAddr = addr;
     do_restore_state (retaddr);
@@ -2318,11 +2312,10 @@ static void do_unaligned_access (target_ulong addr, int is_write, int is_user, v
 }
 
 void tlb_fill(CPUMIPSState *env1, target_ulong addr, int is_write, int mmu_idx,
-              void *retaddr)
+              uintptr_t retaddr)
 {
     TranslationBlock *tb;
     CPUMIPSState *saved_env;
-    unsigned long pc;
     int ret;
 
     saved_env = env;
@@ -2331,12 +2324,11 @@ void tlb_fill(CPUMIPSState *env1, target_ulong addr, int is_write, int mmu_idx,
     if (ret) {
         if (retaddr) {
             /* now we have a real cpu fault */
-            pc = (unsigned long)retaddr;
-            tb = tb_find_pc(pc);
+            tb = tb_find_pc(retaddr);
             if (tb) {
                 /* the PC is inside the translated code. It means that we have
                    a virtual CPU fault */
-                cpu_restore_state(tb, env, pc);
+                cpu_restore_state(tb, env, retaddr);
             }
         }
         helper_raise_exception_err(env->exception_index, env->error_code);

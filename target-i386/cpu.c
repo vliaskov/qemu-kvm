@@ -27,6 +27,8 @@
 #include "qemu-option.h"
 #include "qemu-config.h"
 
+#include "qapi/qapi-visit-core.h"
+
 #include "hyperv.h"
 
 /* feature flags taken from "Intel Processor Identification and the CPUID
@@ -236,6 +238,8 @@ typedef struct x86_def_t {
     /* Store the results of Centaur's CPUID instructions */
     uint32_t ext4_features;
     uint32_t xlevel2;
+    /* The feature bits on CPUID[EAX=7,ECX=0].EBX */
+    uint32_t cpuid_7_0_ebx_features;
 } x86_def_t;
 
 #define I486_FEATURES (CPUID_FP87 | CPUID_VME | CPUID_PSE)
@@ -301,7 +305,6 @@ static x86_def_t builtin_x86_defs[] = {
         .ext3_features = CPUID_EXT3_LAHF_LM | CPUID_EXT3_SVM |
             CPUID_EXT3_ABM | CPUID_EXT3_SSE4A,
         .xlevel = 0x8000000A,
-        .model_id = "QEMU Virtual CPU version " QEMU_VERSION,
     },
     {
         .name = "phenom",
@@ -384,7 +387,6 @@ static x86_def_t builtin_x86_defs[] = {
         .features = PPRO_FEATURES,
         .ext_features = CPUID_EXT_SSE3 | CPUID_EXT_POPCNT,
         .xlevel = 0x80000004,
-        .model_id = "QEMU Virtual CPU version " QEMU_VERSION,
     },
     {
         .name = "kvm32",
@@ -463,8 +465,6 @@ static x86_def_t builtin_x86_defs[] = {
         .features = PPRO_FEATURES | CPUID_PSE36 | CPUID_VME | CPUID_MTRR | CPUID_MCA,
         .ext2_features = (PPRO_FEATURES & EXT2_FEATURE_MASK) | CPUID_EXT2_MMXEXT | CPUID_EXT2_3DNOW | CPUID_EXT2_3DNOWEXT,
         .xlevel = 0x80000008,
-        /* XXX: put another string ? */
-        .model_id = "QEMU Virtual CPU version " QEMU_VERSION,
     },
     {
         .name = "n270",
@@ -518,6 +518,12 @@ static int cpu_x86_fill_host(x86_def_t *x86_cpu_def)
     x86_cpu_def->stepping = eax & 0x0F;
     x86_cpu_def->ext_features = ecx;
     x86_cpu_def->features = edx;
+
+    if (kvm_enabled() && x86_cpu_def->level >= 7) {
+        x86_cpu_def->cpuid_7_0_ebx_features = kvm_arch_get_supported_cpuid(kvm_state, 0x7, 0, R_EBX);
+    } else {
+        x86_cpu_def->cpuid_7_0_ebx_features = 0;
+    }
 
     host_cpuid(0x80000000, 0, &eax, &ebx, &ecx, &edx);
     x86_cpu_def->xlevel = eax;
@@ -597,36 +603,218 @@ static int check_features_against_host(x86_def_t *guest_def)
     return rv;
 }
 
-static void x86_cpuid_version_set_family(CPUX86State *env, int family)
+static void x86_cpuid_version_get_family(Object *obj, Visitor *v, void *opaque,
+                                         const char *name, Error **errp)
 {
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    int64_t value;
+
+    value = (env->cpuid_version >> 8) & 0xf;
+    if (value == 0xf) {
+        value += (env->cpuid_version >> 20) & 0xff;
+    }
+    visit_type_int(v, &value, name, errp);
+}
+
+static void x86_cpuid_version_set_family(Object *obj, Visitor *v, void *opaque,
+                                         const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    const int64_t min = 0;
+    const int64_t max = 0xff + 0xf;
+    int64_t value;
+
+    visit_type_int(v, &value, name, errp);
+    if (error_is_set(errp)) {
+        return;
+    }
+    if (value < min || value > max) {
+        error_set(errp, QERR_PROPERTY_VALUE_OUT_OF_RANGE, "",
+                  name ? name : "null", value, min, max);
+        return;
+    }
+
     env->cpuid_version &= ~0xff00f00;
-    if (family > 0x0f) {
-        env->cpuid_version |= 0xf00 | ((family - 0x0f) << 20);
+    if (value > 0x0f) {
+        env->cpuid_version |= 0xf00 | ((value - 0x0f) << 20);
     } else {
-        env->cpuid_version |= family << 8;
+        env->cpuid_version |= value << 8;
     }
 }
 
-static void x86_cpuid_version_set_model(CPUX86State *env, int model)
+static void x86_cpuid_version_get_model(Object *obj, Visitor *v, void *opaque,
+                                        const char *name, Error **errp)
 {
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    int64_t value;
+
+    value = (env->cpuid_version >> 4) & 0xf;
+    value |= ((env->cpuid_version >> 16) & 0xf) << 4;
+    visit_type_int(v, &value, name, errp);
+}
+
+static void x86_cpuid_version_set_model(Object *obj, Visitor *v, void *opaque,
+                                        const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    const int64_t min = 0;
+    const int64_t max = 0xff;
+    int64_t value;
+
+    visit_type_int(v, &value, name, errp);
+    if (error_is_set(errp)) {
+        return;
+    }
+    if (value < min || value > max) {
+        error_set(errp, QERR_PROPERTY_VALUE_OUT_OF_RANGE, "",
+                  name ? name : "null", value, min, max);
+        return;
+    }
+
     env->cpuid_version &= ~0xf00f0;
-    env->cpuid_version |= ((model & 0xf) << 4) | ((model >> 4) << 16);
+    env->cpuid_version |= ((value & 0xf) << 4) | ((value >> 4) << 16);
 }
 
-static void x86_cpuid_version_set_stepping(CPUX86State *env, int stepping)
+static void x86_cpuid_version_get_stepping(Object *obj, Visitor *v,
+                                           void *opaque, const char *name,
+                                           Error **errp)
 {
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    int64_t value;
+
+    value = env->cpuid_version & 0xf;
+    visit_type_int(v, &value, name, errp);
+}
+
+static void x86_cpuid_version_set_stepping(Object *obj, Visitor *v,
+                                           void *opaque, const char *name,
+                                           Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    const int64_t min = 0;
+    const int64_t max = 0xf;
+    int64_t value;
+
+    visit_type_int(v, &value, name, errp);
+    if (error_is_set(errp)) {
+        return;
+    }
+    if (value < min || value > max) {
+        error_set(errp, QERR_PROPERTY_VALUE_OUT_OF_RANGE, "",
+                  name ? name : "null", value, min, max);
+        return;
+    }
+
     env->cpuid_version &= ~0xf;
-    env->cpuid_version |= stepping & 0xf;
+    env->cpuid_version |= value & 0xf;
 }
 
-static void x86_cpuid_set_model_id(CPUX86State *env, const char *model_id)
+static void x86_cpuid_get_level(Object *obj, Visitor *v, void *opaque,
+                                const char *name, Error **errp)
 {
+    X86CPU *cpu = X86_CPU(obj);
+
+    visit_type_uint32(v, &cpu->env.cpuid_level, name, errp);
+}
+
+static void x86_cpuid_set_level(Object *obj, Visitor *v, void *opaque,
+                                const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+
+    visit_type_uint32(v, &cpu->env.cpuid_level, name, errp);
+}
+
+static void x86_cpuid_get_xlevel(Object *obj, Visitor *v, void *opaque,
+                                 const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+
+    visit_type_uint32(v, &cpu->env.cpuid_xlevel, name, errp);
+}
+
+static void x86_cpuid_set_xlevel(Object *obj, Visitor *v, void *opaque,
+                                 const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+
+    visit_type_uint32(v, &cpu->env.cpuid_xlevel, name, errp);
+}
+
+static char *x86_cpuid_get_vendor(Object *obj, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    char *value;
+    int i;
+
+    value = (char *)g_malloc(12 + 1);
+    for (i = 0; i < 4; i++) {
+        value[i    ] = env->cpuid_vendor1 >> (8 * i);
+        value[i + 4] = env->cpuid_vendor2 >> (8 * i);
+        value[i + 8] = env->cpuid_vendor3 >> (8 * i);
+    }
+    value[12] = '\0';
+    return value;
+}
+
+static void x86_cpuid_set_vendor(Object *obj, const char *value,
+                                 Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    int i;
+
+    if (strlen(value) != 12) {
+        error_set(errp, QERR_PROPERTY_VALUE_BAD, "",
+                  "vendor", value);
+        return;
+    }
+
+    env->cpuid_vendor1 = 0;
+    env->cpuid_vendor2 = 0;
+    env->cpuid_vendor3 = 0;
+    for (i = 0; i < 4; i++) {
+        env->cpuid_vendor1 |= ((uint8_t)value[i    ]) << (8 * i);
+        env->cpuid_vendor2 |= ((uint8_t)value[i + 4]) << (8 * i);
+        env->cpuid_vendor3 |= ((uint8_t)value[i + 8]) << (8 * i);
+    }
+    env->cpuid_vendor_override = 1;
+}
+
+static char *x86_cpuid_get_model_id(Object *obj, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
+    char *value;
+    int i;
+
+    value = g_malloc(48 + 1);
+    for (i = 0; i < 48; i++) {
+        value[i] = env->cpuid_model[i >> 2] >> (8 * (i & 3));
+    }
+    value[48] = '\0';
+    return value;
+}
+
+static void x86_cpuid_set_model_id(Object *obj, const char *model_id,
+                                   Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    CPUX86State *env = &cpu->env;
     int c, len, i;
 
     if (model_id == NULL) {
         model_id = "";
     }
     len = strlen(model_id);
+    memset(env->cpuid_model, 0, 48);
     for (i = 0; i < 48; i++) {
         if (i >= len) {
             c = '\0';
@@ -635,6 +823,37 @@ static void x86_cpuid_set_model_id(CPUX86State *env, const char *model_id)
         }
         env->cpuid_model[i >> 2] |= c << (8 * (i & 3));
     }
+}
+
+static void x86_cpuid_get_tsc_freq(Object *obj, Visitor *v, void *opaque,
+                                   const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    int64_t value;
+
+    value = cpu->env.tsc_khz * 1000;
+    visit_type_int(v, &value, name, errp);
+}
+
+static void x86_cpuid_set_tsc_freq(Object *obj, Visitor *v, void *opaque,
+                                   const char *name, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+    const int64_t min = 0;
+    const int64_t max = INT_MAX;
+    int64_t value;
+
+    visit_type_int(v, &value, name, errp);
+    if (error_is_set(errp)) {
+        return;
+    }
+    if (value < min || value > max) {
+        error_set(errp, QERR_PROPERTY_VALUE_OUT_OF_RANGE, "",
+                  name ? name : "null", value, min, max);
+        return;
+    }
+
+    cpu->env.tsc_khz = value / 1000;
 }
 
 static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
@@ -690,7 +909,7 @@ static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
             if (!strcmp(featurestr, "family")) {
                 char *err;
                 numvalue = strtoul(val, &err, 0);
-                if (!*val || *err) {
+                if (!*val || *err || numvalue > 0xff + 0xf) {
                     fprintf(stderr, "bad numerical value %s\n", val);
                     goto error;
                 }
@@ -904,9 +1123,11 @@ void x86_cpu_list(FILE *f, fprintf_function cpu_fprintf, const char *optarg)
     }
 }
 
-int cpu_x86_register (CPUX86State *env, const char *cpu_model)
+int cpu_x86_register(X86CPU *cpu, const char *cpu_model)
 {
+    CPUX86State *env = &cpu->env;
     x86_def_t def1, *def = &def1;
+    Error *error = NULL;
 
     memset(def, 0, sizeof(*def));
 
@@ -922,20 +1143,22 @@ int cpu_x86_register (CPUX86State *env, const char *cpu_model)
         env->cpuid_vendor3 = CPUID_VENDOR_INTEL_3;
     }
     env->cpuid_vendor_override = def->vendor_override;
-    env->cpuid_level = def->level;
-    x86_cpuid_version_set_family(env, def->family);
-    x86_cpuid_version_set_model(env, def->model);
-    x86_cpuid_version_set_stepping(env, def->stepping);
+    object_property_set_int(OBJECT(cpu), def->level, "level", &error);
+    object_property_set_int(OBJECT(cpu), def->family, "family", &error);
+    object_property_set_int(OBJECT(cpu), def->model, "model", &error);
+    object_property_set_int(OBJECT(cpu), def->stepping, "stepping", &error);
     env->cpuid_features = def->features;
     env->cpuid_ext_features = def->ext_features;
     env->cpuid_ext2_features = def->ext2_features;
     env->cpuid_ext3_features = def->ext3_features;
-    env->cpuid_xlevel = def->xlevel;
+    object_property_set_int(OBJECT(cpu), def->xlevel, "xlevel", &error);
     env->cpuid_kvm_features = def->kvm_features;
     env->cpuid_svm_features = def->svm_features;
     env->cpuid_ext4_features = def->ext4_features;
+    env->cpuid_7_0_ebx = def->cpuid_7_0_ebx_features;
     env->cpuid_xlevel2 = def->xlevel2;
-    env->tsc_khz = def->tsc_khz;
+    object_property_set_int(OBJECT(cpu), (int64_t)def->tsc_khz * 1000,
+                            "tsc-frequency", &error);
     if (!kvm_enabled()) {
         env->cpuid_features &= TCG_FEATURES;
         env->cpuid_ext_features &= TCG_EXT_FEATURES;
@@ -947,7 +1170,11 @@ int cpu_x86_register (CPUX86State *env, const char *cpu_model)
         env->cpuid_ext3_features &= TCG_EXT3_FEATURES;
         env->cpuid_svm_features &= TCG_SVM_FEATURES;
     }
-    x86_cpuid_set_model_id(env, def->model_id);
+    object_property_set_str(OBJECT(cpu), def->model_id, "model-id", &error);
+    if (error_is_set(&error)) {
+        error_free(error);
+        return -1;
+    }
     return 0;
 }
 
@@ -1068,11 +1295,23 @@ void cpu_clear_apic_feature(CPUX86State *env)
  */
 void x86_cpudef_setup(void)
 {
-    int i;
+    int i, j;
+    static const char *model_with_versions[] = { "qemu32", "qemu64", "athlon" };
 
     for (i = 0; i < ARRAY_SIZE(builtin_x86_defs); ++i) {
         builtin_x86_defs[i].next = x86_defs;
         builtin_x86_defs[i].flags = 1;
+
+        /* Look for specific "cpudef" models that */
+        /* have the QEMU version in .model_id */
+        for (j = 0; j < ARRAY_SIZE(model_with_versions); j++) {
+            if (strcmp(model_with_versions[j], builtin_x86_defs[i].name) == 0) {
+                pstrcpy(builtin_x86_defs[i].model_id, sizeof(builtin_x86_defs[i].model_id), "QEMU Virtual CPU version ");
+                pstrcat(builtin_x86_defs[i].model_id, sizeof(builtin_x86_defs[i].model_id), qemu_get_version());
+                break;
+            }
+        }
+
         x86_defs = &builtin_x86_defs[i];
     }
 #if !defined(CONFIG_USER_ONLY)
@@ -1195,13 +1434,12 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *edx = 0;
         break;
     case 7:
-        if (kvm_enabled()) {
-            KVMState *s = env->kvm_state;
-
-            *eax = kvm_arch_get_supported_cpuid(s, 0x7, count, R_EAX);
-            *ebx = kvm_arch_get_supported_cpuid(s, 0x7, count, R_EBX);
-            *ecx = kvm_arch_get_supported_cpuid(s, 0x7, count, R_ECX);
-            *edx = kvm_arch_get_supported_cpuid(s, 0x7, count, R_EDX);
+        /* Structured Extended Feature Flags Enumeration Leaf */
+        if (count == 0) {
+            *eax = 0; /* Maximum ECX value for sub-leaves */
+            *ebx = env->cpuid_7_0_ebx; /* Feature flags */
+            *ecx = 0; /* Reserved */
+            *edx = 0; /* Reserved */
         } else {
             *eax = 0;
             *ebx = 0;
@@ -1466,14 +1704,47 @@ static void mce_init(X86CPU *cpu)
     }
 }
 
+void x86_cpu_realize(Object *obj, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(obj);
+
+    mce_init(cpu);
+    qemu_init_vcpu(&cpu->env);
+}
+
 static void x86_cpu_initfn(Object *obj)
 {
     X86CPU *cpu = X86_CPU(obj);
     CPUX86State *env = &cpu->env;
 
     cpu_exec_init(env);
+
+    object_property_add(obj, "family", "int",
+                        x86_cpuid_version_get_family,
+                        x86_cpuid_version_set_family, NULL, NULL, NULL);
+    object_property_add(obj, "model", "int",
+                        x86_cpuid_version_get_model,
+                        x86_cpuid_version_set_model, NULL, NULL, NULL);
+    object_property_add(obj, "stepping", "int",
+                        x86_cpuid_version_get_stepping,
+                        x86_cpuid_version_set_stepping, NULL, NULL, NULL);
+    object_property_add(obj, "level", "int",
+                        x86_cpuid_get_level,
+                        x86_cpuid_set_level, NULL, NULL, NULL);
+    object_property_add(obj, "xlevel", "int",
+                        x86_cpuid_get_xlevel,
+                        x86_cpuid_set_xlevel, NULL, NULL, NULL);
+    object_property_add_str(obj, "vendor",
+                            x86_cpuid_get_vendor,
+                            x86_cpuid_set_vendor, NULL);
+    object_property_add_str(obj, "model-id",
+                            x86_cpuid_get_model_id,
+                            x86_cpuid_set_model_id, NULL);
+    object_property_add(obj, "tsc-frequency", "int",
+                        x86_cpuid_get_tsc_freq,
+                        x86_cpuid_set_tsc_freq, NULL, NULL, NULL);
+
     env->cpuid_apic_id = env->cpu_index;
-    mce_init(cpu);
 }
 
 static void x86_cpu_common_class_init(ObjectClass *oc, void *data)

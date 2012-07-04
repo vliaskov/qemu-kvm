@@ -11,24 +11,49 @@ static char *usb_get_dev_path(DeviceState *dev);
 static char *usb_get_fw_dev_path(DeviceState *qdev);
 static int usb_qdev_exit(DeviceState *qdev);
 
-static struct BusInfo usb_bus_info = {
-    .name      = "USB",
-    .size      = sizeof(USBBus),
-    .print_dev = usb_bus_dev_print,
-    .get_dev_path = usb_get_dev_path,
-    .get_fw_dev_path = usb_get_fw_dev_path,
-    .props      = (Property[]) {
-        DEFINE_PROP_STRING("port", USBDevice, port_path),
-        DEFINE_PROP_END_OF_LIST()
-    },
+static Property usb_props[] = {
+    DEFINE_PROP_STRING("port", USBDevice, port_path),
+    DEFINE_PROP_BIT("full-path", USBDevice, flags,
+                    USB_DEV_FLAG_FULL_PATH, true),
+    DEFINE_PROP_END_OF_LIST()
 };
+
+static void usb_bus_class_init(ObjectClass *klass, void *data)
+{
+    BusClass *k = BUS_CLASS(klass);
+
+    k->print_dev = usb_bus_dev_print;
+    k->get_dev_path = usb_get_dev_path;
+    k->get_fw_dev_path = usb_get_fw_dev_path;
+}
+
+static const TypeInfo usb_bus_info = {
+    .name = TYPE_USB_BUS,
+    .parent = TYPE_BUS,
+    .instance_size = sizeof(USBBus),
+    .class_init = usb_bus_class_init,
+};
+
 static int next_usb_bus = 0;
 static QTAILQ_HEAD(, USBBus) busses = QTAILQ_HEAD_INITIALIZER(busses);
+
+static int usb_device_post_load(void *opaque, int version_id)
+{
+    USBDevice *dev = opaque;
+
+    if (dev->state == USB_STATE_NOTATTACHED) {
+        dev->attached = 0;
+    } else {
+        dev->attached = 1;
+    }
+    return 0;
+}
 
 const VMStateDescription vmstate_usb_device = {
     .name = "USBDevice",
     .version_id = 1,
     .minimum_version_id = 1,
+    .post_load = usb_device_post_load,
     .fields = (VMStateField []) {
         VMSTATE_UINT8(addr, USBDevice),
         VMSTATE_INT32(state, USBDevice),
@@ -43,7 +68,7 @@ const VMStateDescription vmstate_usb_device = {
 
 void usb_bus_new(USBBus *bus, USBBusOps *ops, DeviceState *host)
 {
-    qbus_create_inplace(&bus->qbus, &usb_bus_info, host, NULL);
+    qbus_create_inplace(&bus->qbus, TYPE_USB_BUS, host, NULL);
     bus->ops = ops;
     bus->busnr = next_usb_bus++;
     bus->qbus.allow_hotplug = 1; /* Yes, we can */
@@ -460,7 +485,19 @@ static void usb_bus_dev_print(Monitor *mon, DeviceState *qdev, int indent)
 static char *usb_get_dev_path(DeviceState *qdev)
 {
     USBDevice *dev = USB_DEVICE(qdev);
-    return g_strdup(dev->port->path);
+    DeviceState *hcd = qdev->parent_bus->parent;
+    char *id = NULL;
+
+    if (dev->flags & (1 << USB_DEV_FLAG_FULL_PATH)) {
+        id = qdev_get_dev_path(hcd);
+    }
+    if (id) {
+        char *ret = g_strdup_printf("%s/%s", id, dev->port->path);
+        g_free(id);
+        return ret;
+    } else {
+        return g_strdup(dev->port->path);
+    }
 }
 
 static char *usb_get_fw_dev_path(DeviceState *qdev)
@@ -561,10 +598,11 @@ USBDevice *usbdevice_create(const char *cmdline)
 static void usb_device_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *k = DEVICE_CLASS(klass);
-    k->bus_info = &usb_bus_info;
+    k->bus_type = TYPE_USB_BUS;
     k->init     = usb_qdev_init;
     k->unplug   = qdev_simple_unplug_cb;
     k->exit     = usb_qdev_exit;
+    k->props    = usb_props;
 }
 
 static TypeInfo usb_device_type_info = {
@@ -578,6 +616,7 @@ static TypeInfo usb_device_type_info = {
 
 static void usb_register_types(void)
 {
+    type_register_static(&usb_bus_info);
     type_register_static(&usb_device_type_info);
 }
 

@@ -222,8 +222,8 @@ extern unsigned long reserved_va;
 #else /* !CONFIG_USER_ONLY */
 /* NOTE: we use double casts if pointers and target_ulong have
    different sizes */
-#define saddr(x) (uint8_t *)(long)(x)
-#define laddr(x) (uint8_t *)(long)(x)
+#define saddr(x) (uint8_t *)(intptr_t)(x)
+#define laddr(x) (uint8_t *)(intptr_t)(x)
 #endif
 
 #define ldub_raw(p) ldub_p(laddr((p)))
@@ -291,6 +291,15 @@ extern unsigned long reserved_va;
 #define stfl_kernel(p, v) stfl_raw(p, v)
 #define stfq_kernel(p, vt) stfq_raw(p, v)
 
+#ifdef CONFIG_TCG_PASS_AREG0
+#define cpu_ldub_data(env, addr) ldub_raw(addr)
+#define cpu_lduw_data(env, addr) lduw_raw(addr)
+#define cpu_ldl_data(env, addr) ldl_raw(addr)
+
+#define cpu_stb_data(env, addr, data) stb_raw(addr, data)
+#define cpu_stw_data(env, addr, data) stw_raw(addr, data)
+#define cpu_stl_data(env, addr, data) stl_raw(addr, data)
+#endif
 #endif /* defined(CONFIG_USER_ONLY) */
 
 /* page related stuff */
@@ -299,10 +308,10 @@ extern unsigned long reserved_va;
 #define TARGET_PAGE_MASK ~(TARGET_PAGE_SIZE - 1)
 #define TARGET_PAGE_ALIGN(addr) (((addr) + TARGET_PAGE_SIZE - 1) & TARGET_PAGE_MASK)
 
-/* ??? These should be the larger of unsigned long and target_ulong.  */
-extern unsigned long qemu_real_host_page_size;
-extern unsigned long qemu_host_page_size;
-extern unsigned long qemu_host_page_mask;
+/* ??? These should be the larger of uintptr_t and target_ulong.  */
+extern uintptr_t qemu_real_host_page_size;
+extern uintptr_t qemu_host_page_size;
+extern uintptr_t qemu_host_page_mask;
 
 #define HOST_PAGE_ALIGN(addr) (((addr) + qemu_host_page_size - 1) & qemu_host_page_mask)
 
@@ -443,33 +452,8 @@ void cpu_watchpoint_remove_all(CPUArchState *env, int mask);
 #define SSTEP_NOTIMER 0x4  /* Do not Timers while single stepping */
 
 void cpu_single_step(CPUArchState *env, int enabled);
-void cpu_state_reset(CPUArchState *s);
 int cpu_is_stopped(CPUArchState *env);
 void run_on_cpu(CPUArchState *env, void (*func)(void *data), void *data);
-
-#define CPU_LOG_TB_OUT_ASM (1 << 0)
-#define CPU_LOG_TB_IN_ASM  (1 << 1)
-#define CPU_LOG_TB_OP      (1 << 2)
-#define CPU_LOG_TB_OP_OPT  (1 << 3)
-#define CPU_LOG_INT        (1 << 4)
-#define CPU_LOG_EXEC       (1 << 5)
-#define CPU_LOG_PCALL      (1 << 6)
-#define CPU_LOG_IOPORT     (1 << 7)
-#define CPU_LOG_TB_CPU     (1 << 8)
-#define CPU_LOG_RESET      (1 << 9)
-
-/* define log items */
-typedef struct CPULogItem {
-    int mask;
-    const char *name;
-    const char *help;
-} CPULogItem;
-
-extern const CPULogItem cpu_log_items[];
-
-void cpu_set_log(int log_flags);
-void cpu_set_log_filename(const char *filename);
-int cpu_str_to_log_mask(const char *str);
 
 #if !defined(CONFIG_USER_ONLY)
 
@@ -517,8 +501,6 @@ extern int mem_prealloc;
 #define TLB_NOTDIRTY    (1 << 4)
 /* Set if TLB entry is an IO callback.  */
 #define TLB_MMIO        (1 << 5)
-
-void cpu_tlb_update_dirty(CPUArchState *env);
 
 void dump_exec_info(FILE *f, fprintf_function cpu_fprintf);
 #endif /* !CONFIG_USER_ONLY */

@@ -34,14 +34,12 @@
 #include <sys/mman.h>
 #include <sys/signal.h>
 
-#include <xs.h>
-#include <xenctrl.h>
-#include <xen/grant_table.h>
-
 #include "hw.h"
 #include "qemu-char.h"
 #include "qemu-log.h"
 #include "xen_backend.h"
+
+#include <xen/grant_table.h>
 
 /* ------------------------------------------------------------- */
 
@@ -592,7 +590,7 @@ static void xenstore_update_be(char *watch, char *type, int dom,
                                struct XenDevOps *ops)
 {
     struct XenDevice *xendev;
-    char path[XEN_BUFSIZE], *dom0;
+    char path[XEN_BUFSIZE], *dom0, *bepath;
     unsigned int len, dev;
 
     dom0 = xs_get_domain_path(xenstore, 0);
@@ -611,15 +609,16 @@ static void xenstore_update_be(char *watch, char *type, int dom,
         return;
     }
 
-    if (0) {
-        /* FIXME: detect devices being deleted from xenstore ... */
-        xen_be_del_xendev(dom, dev);
-    }
-
     xendev = xen_be_get_xendev(type, dom, dev, ops);
     if (xendev != NULL) {
-        xen_be_backend_changed(xendev, path);
-        xen_be_check_state(xendev);
+        bepath = xs_read(xenstore, 0, xendev->be, &len);
+        if (bepath == NULL) {
+            xen_be_del_xendev(dom, dev);
+        } else {
+            free(bepath);
+            xen_be_backend_changed(xendev, path);
+            xen_be_check_state(xendev);
+        }
     }
 }
 

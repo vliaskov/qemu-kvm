@@ -292,8 +292,10 @@ static int handle_diag(CPUS390XState *env, struct kvm_run *run, int ipb_code)
     return r;
 }
 
-static int s390_cpu_restart(CPUS390XState *env)
+static int s390_cpu_restart(S390CPU *cpu)
 {
+    CPUS390XState *env = &cpu->env;
+
     kvm_s390_interrupt(env, KVM_S390_RESTART, 0);
     s390_add_running_cpu(env);
     qemu_cpu_kick(env);
@@ -312,6 +314,7 @@ static int s390_cpu_initial_reset(CPUS390XState *env)
 {
     int i;
 
+    s390_del_running_cpu(env);
     if (kvm_vcpu_ioctl(env, KVM_S390_INITIAL_RESET, NULL) < 0) {
         perror("cannot init reset vcpu");
     }
@@ -333,6 +336,7 @@ static int handle_sigp(CPUS390XState *env, struct kvm_run *run, uint8_t ipa1)
     uint16_t cpu_addr;
     uint8_t t;
     int r = -1;
+    S390CPU *target_cpu;
     CPUS390XState *target_env;
 
     cpu_synchronize_state(env);
@@ -353,14 +357,15 @@ static int handle_sigp(CPUS390XState *env, struct kvm_run *run, uint8_t ipa1)
     parameter = env->regs[t] & 0x7ffffe00;
     cpu_addr = env->regs[ipa1 & 0x0f];
 
-    target_env = s390_cpu_addr2state(cpu_addr);
-    if (!target_env) {
+    target_cpu = s390_cpu_addr2state(cpu_addr);
+    if (target_cpu == NULL) {
         goto out;
     }
+    target_env = &target_cpu->env;
 
     switch (order_code) {
         case SIGP_RESTART:
-            r = s390_cpu_restart(target_env);
+            r = s390_cpu_restart(target_cpu);
             break;
         case SIGP_STORE_STATUS_ADDR:
             r = s390_store_status(target_env, parameter);
@@ -407,6 +412,12 @@ static int handle_instruction(CPUS390XState *env, struct kvm_run *run)
     return 0;
 }
 
+static bool is_special_wait_psw(CPUS390XState *env)
+{
+    /* signal quiesce */
+    return env->kvm_run->psw_addr == 0xfffUL;
+}
+
 static int handle_intercept(CPUS390XState *env)
 {
     struct kvm_run *run = env->kvm_run;
@@ -420,6 +431,12 @@ static int handle_intercept(CPUS390XState *env)
             r = handle_instruction(env, run);
             break;
         case ICPT_WAITPSW:
+            if (s390_del_running_cpu(env) == 0 &&
+                is_special_wait_psw(env)) {
+                qemu_system_shutdown_request();
+            }
+            r = EXCP_HALTED;
+            break;
         case ICPT_CPU_STOP:
             if (s390_del_running_cpu(env) == 0) {
                 qemu_system_shutdown_request();
@@ -452,8 +469,7 @@ int kvm_arch_handle_exit(CPUS390XState *env, struct kvm_run *run)
             ret = handle_intercept(env);
             break;
         case KVM_EXIT_S390_RESET:
-            fprintf(stderr, "RESET not implemented\n");
-            exit(1);
+            qemu_system_reset_request();
             break;
         default:
             fprintf(stderr, "Unknown KVM exit: %d\n", run->exit_reason);

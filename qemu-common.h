@@ -61,6 +61,9 @@ typedef struct Monitor Monitor;
 #if !defined(ENOTSUP)
 #define ENOTSUP 4096
 #endif
+#if !defined(ECANCELED)
+#define ECANCELED 4097
+#endif
 #ifndef TIME_MAX
 #define TIME_MAX LONG_MAX
 #endif
@@ -236,6 +239,7 @@ typedef struct VLANState VLANState;
 typedef struct VLANClientState VLANClientState;
 typedef struct i2c_bus i2c_bus;
 typedef struct ISABus ISABus;
+typedef struct ISADevice ISADevice;
 typedef struct SMBusDevice SMBusDevice;
 typedef struct PCIHostState PCIHostState;
 typedef struct PCIExpressHost PCIExpressHost;
@@ -248,6 +252,7 @@ typedef struct PCIEAERLog PCIEAERLog;
 typedef struct PCIEAERErr PCIEAERErr;
 typedef struct PCIEPort PCIEPort;
 typedef struct PCIESlot PCIESlot;
+typedef struct MSIMessage MSIMessage;
 typedef struct SerialState SerialState;
 typedef struct IRQState *qemu_irq;
 typedef struct PCMCIACardState PCMCIACardState;
@@ -269,6 +274,13 @@ typedef enum LostTickPolicy {
     LOST_TICK_SLEW,
     LOST_TICK_MAX
 } LostTickPolicy;
+
+typedef struct PCIHostDeviceAddress {
+    unsigned int domain;
+    unsigned int bus;
+    unsigned int slot;
+    unsigned int function;
+} PCIHostDeviceAddress;
 
 void tcg_exec_init(unsigned long tb_size);
 bool tcg_enabled(void);

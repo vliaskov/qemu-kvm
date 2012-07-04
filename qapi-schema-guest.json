@@ -18,7 +18,7 @@
 # lexer/tokenizer/parser state should be flushed/reset in
 # preparation for reliably receiving the subsequent response. As
 # an optimization, clients may opt to ignore all data until a
-# sentinel value is receiving to avoid unecessary processing of
+# sentinel value is receiving to avoid unnecessary processing of
 # stale data.
 #
 # Similarly, clients should also precede this *request*
@@ -126,16 +126,19 @@
 # @guest-shutdown:
 #
 # Initiate guest-activated shutdown. Note: this is an asynchronous
-# shutdown request, with no guaruntee of successful shutdown. Errors
-# will be logged to guest's syslog.
+# shutdown request, with no guarantee of successful shutdown.
 #
 # @mode: #optional "halt", "powerdown" (default), or "reboot"
 #
-# Returns: Nothing on success
+# This command does NOT return a response on success. Success condition
+# is indicated by the VM exiting with a zero exit status or, when
+# running with --no-shutdown, by issuing the query-status QMP command
+# to confirm the VM status is "shutdown".
 #
 # Since: 0.15.0
 ##
-{ 'command': 'guest-shutdown', 'data': { '*mode': 'str' } }
+{ 'command': 'guest-shutdown', 'data': { '*mode': 'str' },
+  'success-response': 'no' }
 
 ##
 # @guest-file-open:
@@ -296,14 +299,10 @@
 #
 # @frozen: all non-network guest filesystems frozen
 #
-# @error: failure to thaw 1 or more
-#         previously frozen filesystems, or failure to open a previously
-#         cached filesytem (filesystem unmounted/directory changes, etc).
-#
 # Since: 0.15.0
 ##
 { 'enum': 'GuestFsfreezeStatus',
-  'data': [ 'thawed', 'frozen', 'error' ] }
+  'data': [ 'thawed', 'frozen' ] }
 
 ##
 # @guest-fsfreeze-status:
@@ -311,6 +310,9 @@
 # Get guest fsfreeze state. error state indicates
 #
 # Returns: GuestFsfreezeStatus ("thawed", "frozen", etc., as defined below)
+#
+# Note: This may fail to properly report the current state as a result of
+# some other guest processes having issued an fs freeze/thaw.
 #
 # Since: 0.15.0
 ##
@@ -320,9 +322,10 @@
 ##
 # @guest-fsfreeze-freeze:
 #
-# Sync and freeze all non-network guest filesystems
+# Sync and freeze all freezable, local guest filesystems
 #
-# Returns: Number of file systems frozen on success
+# Returns: Number of file systems currently frozen. On error, all filesystems
+# will be thawed.
 #
 # Since: 0.15.0
 ##
@@ -332,15 +335,40 @@
 ##
 # @guest-fsfreeze-thaw:
 #
-# Unfreeze frozen guest fileystems
+# Unfreeze all frozen guest filesystems
 #
-# Returns: Number of file systems thawed
-#          If error, -1 (unknown error) or -errno
+# Returns: Number of file systems thawed by this call
+#
+# Note: if return value does not match the previous call to
+#       guest-fsfreeze-freeze, this likely means some freezable
+#       filesystems were unfrozen before this call, and that the
+#       filesystem state may have changed before issuing this
+#       command.
 #
 # Since: 0.15.0
 ##
 { 'command': 'guest-fsfreeze-thaw',
   'returns': 'int' }
+
+##
+# @guest-fstrim:
+#
+# Discard (or "trim") blocks which are not in use by the filesystem.
+#
+# @minimum:
+#       Minimum contiguous free range to discard, in bytes. Free ranges
+#       smaller than this may be ignored (this is a hint and the guest
+#       may not respect it).  By increasing this value, the fstrim
+#       operation will complete more quickly for filesystems with badly
+#       fragmented free space, although not all blocks will be discarded.
+#       The default value is zero, meaning "discard every free block".
+#
+# Returns: Nothing.
+#
+# Since: 1.2
+##
+{ 'command': 'guest-fstrim',
+  'data': { '*minimum': 'int' } }
 
 ##
 # @guest-suspend-disk
@@ -354,17 +382,21 @@
 # For the best results it's strongly recommended to have the pm-utils
 # package installed in the guest.
 #
-# Returns: nothing on success
+# This command does NOT return a response on success. There is a high chance
+# the command succeeded if the VM exits with a zero exit status or, when
+# running with --no-shutdown, by issuing the query-status QMP command to
+# to confirm the VM status is "shutdown". However, the VM could also exit
+# (or set its status to "shutdown") due to other reasons.
+#
+# The following errors may be returned:
 #          If suspend to disk is not supported, Unsupported
 #
-# Notes: o This is an asynchronous request. There's no guarantee a response
-#          will be sent
-#        o It's strongly recommended to issue the guest-sync command before
-#          sending commands when the guest resumes
+# Notes: It's strongly recommended to issue the guest-sync command before
+#        sending commands when the guest resumes
 #
 # Since: 1.1
 ##
-{ 'command': 'guest-suspend-disk' }
+{ 'command': 'guest-suspend-disk', 'success-response': 'no' }
 
 ##
 # @guest-suspend-ram
@@ -382,17 +414,21 @@
 # command.  Thus, it's *required* to query QEMU for the presence of the
 # 'system_wakeup' command before issuing guest-suspend-ram.
 #
-# Returns: nothing on success
+# This command does NOT return a response on success. There are two options
+# to check for success:
+#   1. Wait for the SUSPEND QMP event from QEMU
+#   2. Issue the query-status QMP command to confirm the VM status is
+#      "suspended"
+#
+# The following errors may be returned:
 #          If suspend to ram is not supported, Unsupported
 #
-# Notes: o This is an asynchronous request. There's no guarantee a response
-#          will be sent
-#        o It's strongly recommended to issue the guest-sync command before
-#          sending commands when the guest resumes
+# Notes: It's strongly recommended to issue the guest-sync command before
+#        sending commands when the guest resumes
 #
 # Since: 1.1
 ##
-{ 'command': 'guest-suspend-ram' }
+{ 'command': 'guest-suspend-ram', 'success-response': 'no' }
 
 ##
 # @guest-suspend-hybrid
@@ -405,17 +441,21 @@
 # command.  Thus, it's *required* to query QEMU for the presence of the
 # 'system_wakeup' command before issuing guest-suspend-hybrid.
 #
-# Returns: nothing on success
+# This command does NOT return a response on success. There are two options
+# to check for success:
+#   1. Wait for the SUSPEND QMP event from QEMU
+#   2. Issue the query-status QMP command to confirm the VM status is
+#      "suspended"
+#
+# The following errors may be returned:
 #          If hybrid suspend is not supported, Unsupported
 #
-# Notes: o This is an asynchronous request. There's no guarantee a response
-#          will be sent
-#        o It's strongly recommended to issue the guest-sync command before
-#          sending commands when the guest resumes
+# Notes: It's strongly recommended to issue the guest-sync command before
+#        sending commands when the guest resumes
 #
 # Since: 1.1
 ##
-{ 'command': 'guest-suspend-hybrid' }
+{ 'command': 'guest-suspend-hybrid', 'success-response': 'no' }
 
 ##
 # @GuestIpAddressType:

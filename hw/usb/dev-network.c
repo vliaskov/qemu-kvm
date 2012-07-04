@@ -1324,6 +1324,7 @@ static int usb_net_initfn(USBDevice *dev)
 {
     USBNetState *s = DO_UPCAST(USBNetState, dev, dev);
 
+    usb_desc_create_serial(dev);
     usb_desc_init(dev);
 
     s->rndis_state = RNDIS_UNINITIALIZED;
@@ -1355,6 +1356,7 @@ static int usb_net_initfn(USBDevice *dev)
 
 static USBDevice *usb_net_init(USBBus *bus, const char *cmdline)
 {
+    Error *local_err = NULL;
     USBDevice *dev;
     QemuOpts *opts;
     int idx;
@@ -1366,8 +1368,10 @@ static USBDevice *usb_net_init(USBBus *bus, const char *cmdline)
     qemu_opt_set(opts, "type", "nic");
     qemu_opt_set(opts, "model", "usb");
 
-    idx = net_client_init(NULL, opts, 0);
-    if (idx == -1) {
+    idx = net_client_init(opts, 0, &local_err);
+    if (error_is_set(&local_err)) {
+        qerror_report_err(local_err);
+        error_free(local_err);
         return NULL;
     }
 
