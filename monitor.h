@@ -86,4 +86,7 @@ int qmp_qom_set(Monitor *mon, const QDict *qdict, QObject **ret);
 
 int qmp_qom_get(Monitor *mon, const QDict *qdict, QObject **ret);
 
+int do_dimm_add(Monitor *mon, const QDict *qdict, QObject **ret_data);
+int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
+
 #endif /* !MONITOR_H */

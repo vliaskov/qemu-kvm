@@ -67,6 +67,7 @@
 #include "qmp-commands.h"
 #include "hmp.h"
 #include "qemu-thread.h"
+#include "hw/dimm.h"
 
 /* for pic/irq_info */
 #if defined(TARGET_SPARC)
@@ -4812,4 +4813,14 @@ int monitor_read_block_device_key(Monitor *mon, const char *device,
     }
 
     return monitor_read_bdrv_key_start(mon, bs, completion_cb, opaque);
+}
+
+int do_dimm_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do(mon, qdict, true);
+}
+
+int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do(mon, qdict, false);
 }

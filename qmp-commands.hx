@@ -2209,3 +2209,42 @@ EQMP
         .args_type  = "implements:s?,abstract:b?",
         .mhandler.cmd_new = qmp_marshal_input_qom_list_types,
     },
+    {
+        .name       = "dimm-add",
+        .args_type  = "id:s",
+        .mhandler.cmd_new = do_dimm_add,
+    },
+SQMP
+dimm-add
+-------------
+
+Hot-add memory DIMM
+
+Will hotplug memory DIMMs with given id.
+
+Example:
+
+-> { "execute": "dimm-add", "arguments": { "id": "dimm0" } }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "dimm-del",
+        .args_type  = "id:s",
+        .mhandler.cmd_new = do_dimm_del,
+    },
+SQMP
+dimm-del
+-------------
+
+Hot-remove memory DIMM
+
+Will hot-unplug memory DIMMs with given id.
+
+Example:
+
+-> { "execute": "dimm-del", "arguments": { "id": "dimm0" } }
+<- { "return": {} }
+
+EQMP

@@ -618,6 +618,38 @@ Add device.
 ETEXI
 
     {
+        .name       = "dimm_del",
+        .args_type  = "id:s",
+        .params     = "id",
+        .help       = "hot-remove memory (dimm device)",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_dimm_del,
+    },
+
+STEXI
+@item dimm_del @var{config}
+@findex dimm_del
+
+Hot-remove dimm.
+ETEXI
+
+    {
+        .name       = "dimm_add",
+        .args_type  = "id:s",
+        .params     = "id",
+        .help       = "hot-add memory (dimm device)",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_dimm_add,
+    },
+
+STEXI
+@item dimm_add @var{config}
+@findex dimm_add
+
+Hot-add dimm.
+ETEXI
+
+    {
         .name       = "device_del",
         .args_type  = "id:s",
         .params     = "device",
