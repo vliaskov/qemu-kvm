@@ -43,6 +43,7 @@
 #include "hw/smbios.h"
 #include "exec-memory.h"
 #include "hw/pcspk.h"
+#include "hw/dimm.h"
 
 #ifdef TARGET_SPARC
 int graphic_width = 1024;
@@ -452,9 +453,25 @@ int ram_load(QEMUFile *f, void *opaque, int version_id)
                     }
 
                     if (!block) {
-                        fprintf(stderr, "Unknown ramblock \"%s\", cannot "
-                                "accept migration\n", id);
-                        return -EINVAL;
+                        /* this can happen if a dimm was hot-added at source host */
+                        DimmState *slot = dimm_find_from_name(id);
+                        if (slot) {
+                            dimm_activate(slot);
+                            /* rescan ram_list, verify ramblock is there now */
+                            QLIST_FOREACH(block, &ram_list.blocks, next) {
+                                if (!strncmp(id, block->idstr, sizeof(id))) {
+                                    if (block->length != length)
+                                        return -EINVAL;
+                                    break;
+                                }
+                            }
+                            assert(block);
+                        }
+                        else {
+                            fprintf(stderr, "Unknown ramblock \"%s\", cannot "
+                                    "accept migration\n", id);
+                            return -EINVAL;
+                        }
                     }
 
                     total_ram_bytes -= length;
