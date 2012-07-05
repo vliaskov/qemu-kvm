@@ -60,6 +60,6 @@ void dimm_activate(DimmState *slot);
 void dimm_deactivate(DimmState *slot);
 void dimm_scan_populated(void);
 void dimm_notify(uint32_t idx, uint32_t event);
-
+int dimm_set_populated(DimmState *s);
 
 #endif

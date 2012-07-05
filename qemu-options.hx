@@ -2752,3 +2752,13 @@ DEF("dimm", HAS_ARG, QEMU_OPTION_dimm,
         "-dimm id=dimmid,size=sz,node=nd,populated=on|off\n"
         "specify memory dimm device with name dimmid, size sz on node nd",
         QEMU_ARCH_ALL)
+
+DEF("dimms", HAS_ARG, QEMU_OPTION_dimms,
+        "-dimms pfx=id,size=sz,node=nd\n"
+        "specify pool of num memory dimm devices of size sz each on node nd",
+        QEMU_ARCH_ALL)
+
+DEF("dimmspop", HAS_ARG, QEMU_OPTION_dimmspop,
+        "-dimmspop pfx=id,num=n\n"
+        "populate n dimms of pool id (dimms with ids id0,...,idn-1) at system startup",
+        QEMU_ARCH_ALL)

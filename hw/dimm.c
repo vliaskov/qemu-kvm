@@ -188,6 +188,15 @@ void dimm_calc_offsets(dimm_calcoffset_fn calcfn)
     }
 }
 
+int dimm_set_populated(DimmState *s)
+{
+    if (s) {
+        s->populated = true;
+        return 0;
+    }    
+    else return -1;
+}
+
 /* used to populate and activate dimms at boot time */
 void dimm_scan_populated(void)
 {

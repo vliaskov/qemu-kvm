@@ -538,6 +538,65 @@ static void configure_dimm(QemuOpts *opts)
     nb_hp_dimms++;
 }
 
+static void configure_dimms(QemuOpts *opts)
+{
+    const char *value, *pfx, *id;
+    uint64_t size, node;
+    int num, dimm;
+    char buf[32];
+
+    id = qemu_opts_id(opts);
+    value = qemu_opt_get(opts, "pfx");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid prefix for dimm pool '%s'\n", id);
+        exit(1);
+    }
+    pfx = value;
+
+    size = qemu_opt_get_size(opts, "size", DEFAULT_DIMMSIZE);
+    num = qemu_opt_get_number(opts, "num", 1);
+    node = qemu_opt_get_number(opts, "node", 0);
+
+    for (dimm = 0; dimm < num; dimm++) {
+        if (nb_hp_dimms == MAX_DIMMS) {
+            fprintf(stderr, "qemu: maximum number of DIMMs (%d) exceeded\n",
+                    MAX_DIMMS);
+            exit(1);
+        }
+        sprintf(buf, "%s%d", pfx, dimm);
+        dimm_create(g_strdup(buf), size, node, nb_hp_dimms, false);
+        nb_hp_dimms++;
+    }
+}
+
+/* populate dimms at startup */ 
+static void configure_dimmspop(QemuOpts *opts)
+{
+    const char *value, *pfx, *id;
+    int num, dimm;
+    char buf[32];
+
+    id = qemu_opts_id(opts);
+    value = qemu_opt_get(opts, "pfx");
+    if (!value) {
+        fprintf(stderr, "qemu: invalid prefix for dimm pool '%s'\n", id);
+        exit(1);
+    }
+    pfx = value;
+    value = qemu_opt_get(opts, "num");
+    if (!value) {
+        fprintf(stderr, "qemu: number not defined for dimm pool '%s'\n", pfx);
+        exit(1);
+    }
+    else num = atoi(value);
+    for (dimm = 0; dimm < num; dimm++) {
+        sprintf(buf, "%s%d", pfx, dimm);
+        if (dimm_set_populated(dimm_find_from_name(buf)) < 0) {
+            fprintf(stderr, "qemu: dimm %s not defined for dimm pool '%s'\n",
+                    buf, pfx);
+        }
+    }
+}
 static void configure_rtc(QemuOpts *opts)
 {
     const char *value;
@@ -2293,7 +2352,9 @@ int main(int argc, char **argv, char **envp)
     int cyls, heads, secs, translation;
     QemuOpts *hda_opts = NULL, *opts, *machine_opts;
     QemuOpts *dimm_opts[MAX_DIMMS];
-    int nb_dimm_opts = 0;
+    QemuOpts *dimms_opts[MAX_DIMMS];
+    QemuOpts *dimmspop_opts[MAX_DIMMS];
+    int nb_dimm_opts = 0, nb_dimms_opts = 0, nb_dimmspop_opts = 0;
     QemuOptsList *olist;
     int optind;
     const char *optarg;
@@ -3233,6 +3294,22 @@ int main(int argc, char **argv, char **envp)
                 }
                 nb_dimm_opts++;
                 break;
+            case QEMU_OPTION_dimms:
+                dimms_opts[nb_dimms_opts] =
+                    qemu_opts_parse(qemu_find_opts("dimms"), optarg, 0);
+                if (!dimms_opts[nb_dimms_opts]) {
+                    exit(1);
+                }
+                nb_dimms_opts++;
+                break;
+            case QEMU_OPTION_dimmspop:
+                dimmspop_opts[nb_dimmspop_opts] =
+                    qemu_opts_parse(qemu_find_opts("dimmspop"), optarg, 0);
+                if (!dimmspop_opts[nb_dimmspop_opts]) {
+                    exit(1);
+                }
+                nb_dimmspop_opts++;
+                break;
             default:
                 os_parse_cmd_args(popt->index, optarg);
             }
@@ -3552,6 +3629,13 @@ int main(int argc, char **argv, char **envp)
 
     for (i = 0; i < nb_dimm_opts; i++)
         configure_dimm(dimm_opts[i]);
+
+    for (i = 0; i < nb_dimms_opts; i++)
+        configure_dimms(dimms_opts[i]);
+
+    for (i = 0; i < nb_dimmspop_opts; i++)
+        configure_dimmspop(dimmspop_opts[i]);
+
     qdev_machine_init();
 
     machine->init(ram_size, boot_devices,
