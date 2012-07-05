@@ -1000,3 +1000,20 @@ void hmp_netdev_del(Monitor *mon, const QDict *qdict)
     qmp_netdev_del(id, &err);
     hmp_handle_error(mon, &err);
 }
+
+void hmp_info_memhp(Monitor *mon)
+{
+    MemHpInfoList *info;
+    MemHpInfoList *item;
+    MemHpInfo *dimm;
+
+    info = qmp_query_memhp(NULL);
+    for (item = info; item; item = item->next) {
+        dimm = item->value;
+        monitor_printf(mon, "Dimm: %s %s %s\n", dimm->Dimm,
+                dimm->request, dimm->result);
+        dimm->Dimm = NULL;
+    }
+
+    qapi_free_MemHpInfoList(info);
+}

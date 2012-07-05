@@ -37,6 +37,12 @@ typedef struct DimmState {
     QTAILQ_ENTRY (DimmState) nextdimm;
 } DimmState;
 
+struct dimm_hp_result {
+    DimmState *s;
+    dimm_hp_result_code ret;
+    QTAILQ_ENTRY (dimm_hp_result) next;
+};
+
 typedef int (*dimm_hotplug_fn)(DeviceState *qdev, SysBusDevice *dev, int add);
 typedef target_phys_addr_t (*dimm_calcoffset_fn)(uint64_t size);
 

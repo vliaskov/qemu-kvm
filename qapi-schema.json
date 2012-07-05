@@ -1862,3 +1862,29 @@
 # Since: 0.14.0
 ##
 { 'command': 'netdev_del', 'data': {'id': 'str'} }
+
+##
+# @MemHpInfo:
+#
+# Information about status of a memory hotplug command
+#
+# @Dimm: the Dimm associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 1.1.3
+#
+##
+{ 'type': 'MemHpInfo',
+  'data': {'Dimm': 'str', 'request': 'str', 'result': 'str'} }
+
+##
+# @query-memhp:
+#
+# Returns a list of information about pending hotplug commands
+#
+# Returns: a list of @MemhpInfo
+#
+# Since: 1.1.3
+##
+{ 'command': 'query-memhp', 'returns': ['MemHpInfo'] }
