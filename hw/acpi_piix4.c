@@ -28,6 +28,8 @@
 #include "range.h"
 #include "ioport.h"
 #include "fw_cfg.h"
+#include "sysbus.h"
+#include "dimm.h"
 
 //#define DEBUG
 
@@ -45,9 +47,15 @@
 #define PCI_DOWN_BASE 0xae04
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
+#define MEM_BASE 0xaf80
+#define MEM_EJ_BASE 0xafa0
 
+#define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
 
+struct gpe_regs {
+    uint8_t mems_sts[DIMM_BITMAP_BYTES];
+};
 struct pci_status {
     uint32_t up; /* deprecated, maintained for migration compatibility */
     uint32_t down;
@@ -69,6 +77,7 @@ typedef struct PIIX4PMState {
     Notifier machine_ready;
 
     /* for pci hotplug */
+    struct gpe_regs gperegs;
     struct pci_status pci0_status;
     uint32_t pci0_hotplug_enable;
     uint32_t pci0_slot_device_present;
@@ -93,8 +102,8 @@ static void pm_update_sci(PIIX4PMState *s)
                    ACPI_BITMASK_POWER_BUTTON_ENABLE |
                    ACPI_BITMASK_GLOBAL_LOCK_ENABLE |
                    ACPI_BITMASK_TIMER_ENABLE)) != 0) ||
-        (((s->ar.gpe.sts[0] & s->ar.gpe.en[0])
-          & PIIX4_PCI_HOTPLUG_STATUS) != 0);
+        (((s->ar.gpe.sts[0] & s->ar.gpe.en[0]) &
+          (PIIX4_PCI_HOTPLUG_STATUS | PIIX4_MEM_HOTPLUG_STATUS)) != 0);
 
     qemu_set_irq(s->irq, sci_level);
     /* schedule a timer interruption if needed */
@@ -499,7 +508,16 @@ type_init(piix4_pm_register_types)
 static uint32_t gpe_readb(void *opaque, uint32_t addr)
 {
     PIIX4PMState *s = opaque;
-    uint32_t val = acpi_gpe_ioport_readb(&s->ar, addr);
+    uint32_t val = 0;
+    struct gpe_regs *g = &s->gperegs;
+
+    switch (addr) {
+        case MEM_BASE ... MEM_BASE+DIMM_BITMAP_BYTES:
+            val = g->mems_sts[addr - MEM_BASE];
+            break;
+        default:
+            val = acpi_gpe_ioport_readb(&s->ar, addr);
+    }
 
     PIIX4_DPRINTF("gpe read %x == %x\n", addr, val);
     return val;
@@ -509,7 +527,13 @@ static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
 
-    acpi_gpe_ioport_writeb(&s->ar, addr, val);
+    switch (addr) {
+        case MEM_EJ_BASE:
+            dimm_notify(val, DIMM_REMOVE_SUCCESS);
+            break;
+        default:
+            acpi_gpe_ioport_writeb(&s->ar, addr, val);
+    }
     pm_update_sci(s);
 
     PIIX4_DPRINTF("gpe write %x <== %d\n", addr, val);
@@ -560,9 +584,11 @@ static uint32_t pcirmv_read(void *opaque, uint32_t addr)
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
                                 PCIHotplugState state);
+static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int add);
 
 static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 {
+    int i = 0;
 
     register_ioport_write(GPE_BASE, GPE_LEN, 1, gpe_writeb, s);
     register_ioport_read(GPE_BASE, GPE_LEN, 1,  gpe_readb, s);
@@ -576,7 +602,15 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_read(PCI_RMV_BASE, 4, 4,  pcirmv_read, s);
 
+    register_ioport_read(MEM_BASE, DIMM_BITMAP_BYTES, 1,  gpe_readb, s);
+    register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
+
+    for(i = 0; i < DIMM_BITMAP_BYTES; i++) {
+        s->gperegs.mems_sts[i] = 0;
+    }
+
     pci_bus_hotplug(bus, piix4_device_hotplug, &s->dev.qdev);
+    dimm_register_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
 }
 
 static void enable_device(PIIX4PMState *s, int slot)
@@ -589,6 +623,37 @@ static void disable_device(PIIX4PMState *s, int slot)
 {
     s->ar.gpe.sts[0] |= PIIX4_PCI_HOTPLUG_STATUS;
     s->pci0_status.down |= (1U << slot);
+}
+
+static void enable_mem_device(PIIX4PMState *s, int memdevice)
+{
+    struct gpe_regs *g = &s->gperegs;
+    s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
+    g->mems_sts[memdevice/8] |= (1 << (memdevice%8));
+}
+
+static void disable_mem_device(PIIX4PMState *s, int memdevice)
+{
+    struct gpe_regs *g = &s->gperegs;
+    s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
+    g->mems_sts[memdevice/8] &= ~(1 << (memdevice%8));
+}
+
+static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
+        add)
+{
+    PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
+    PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
+    DimmState *slot = DIMM(dev);
+
+    if (add) {
+        enable_mem_device(s, slot->idx);
+    }
+    else {
+        disable_mem_device(s, slot->idx);
+    }
+    pm_update_sci(s);
+    return 0;
 }
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
