@@ -648,6 +648,37 @@ STEXI
 
 Hot-add dimm.
 ETEXI
+    {
+        .name       = "mem_increase",
+        .args_type  = "pfx:s,num:s",
+        .params     = "pfx num",
+        .help       = "hot-plug num dimms of memory pool pfx",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_dimm_add_range,
+    },
+
+STEXI
+@item mem_increase @var{config}
+@findex mem_increase
+
+Hotplug dimms.
+ETEXI
+
+    {
+        .name       = "mem_decrease",
+        .args_type  = "pfx:s,num:s",
+        .params     = "pfx num",
+        .help       = "hot-unplug num dimms of memory pool pfx",
+        .user_print = monitor_user_noop,
+        .mhandler.cmd_new = do_dimm_del_range,
+    },
+
+STEXI
+@item mem_decrease @var{config}
+@findex mem_decrease
+
+Hot-unplug dimms.
+ETEXI
 
     {
         .name       = "device_del",

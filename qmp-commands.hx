@@ -2306,3 +2306,43 @@ Example:
    }
 
 EQMP
+
+    {
+        .name       = "mem-increase",
+        .args_type  = "pfx:s,num:s",
+        .mhandler.cmd_new = do_dimm_add_range,
+    },
+SQMP
+mem-increase
+-------------
+
+Hotplug memory DIMMs from memory pool
+
+Will hotplug num memory DIMMs from pool with name pfx.
+
+Example:
+
+-> { "execute": "mem-increase", "arguments": { "pfx" : "pool", "num": "10" } }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "mem-decrease",
+        .args_type  = "pfx:s,num:s",
+        .mhandler.cmd_new = do_dimm_del_range,
+    },
+SQMP
+mem-decrease
+-------------
+
+Hot-unplug memory DIMMs from memory pool
+
+Will hot-unplug num memory DIMMs from pool with name pfx.
+
+Example:
+
+-> { "execute": "mem-decrease", "arguments": { "pfx" : "pool", "num": "10" } }
+<- { "return": {} }
+
+EQMP

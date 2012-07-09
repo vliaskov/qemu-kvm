@@ -4838,3 +4838,13 @@ int do_dimm_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
     return dimm_do(mon, qdict, false);
 }
+
+int do_dimm_add_range(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do_range(mon, qdict, true);
+}
+
+int do_dimm_del_range(Monitor *mon, const QDict *qdict, QObject **ret_data)
+{
+    return dimm_do_range(mon, qdict, false);
+}

@@ -166,6 +166,110 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
     return 0;
 }
 
+/* Find for dimm_do_range operation
+    DIMM_MIN_UNPOPULATED: used for finding next DIMM to hotplug
+    DIMM_MAX_POPULATED: used for finding next DIMM for hot-unplug
+ */
+
+DimmState *dimm_find_next(char *pfx, uint32_t mode)
+{
+    DeviceState *dev;
+    DimmState *slot, *ret;
+    const char *type;
+    uint32_t idx;
+
+    Error *err = NULL;
+    BusChild *kid;
+    BusState *bus = sysbus_get_default();
+    ret = NULL;
+
+    if (mode == DIMM_MIN_UNPOPULATED)
+        idx =  MAX_DIMMS;
+    else if (mode == DIMM_MAX_POPULATED)
+        idx = 0;
+    else
+        return false;
+
+    QTAILQ_FOREACH(kid, &bus->children, sibling) {
+        dev = kid->child;
+        type = object_property_get_str(OBJECT(dev), "type", &err);
+        if (err) {
+            error_free(err);
+            fprintf(stderr, "error getting device type\n");
+            exit(1);
+        }
+
+        if (!strcmp(type, "dimm")) {
+            slot = DIMM(dev);
+            if (strstr(dev->id, pfx) && strcmp(dev->id, pfx)) {
+                if (mode == DIMM_MIN_UNPOPULATED &&
+                        (slot->populated == false) &&
+                        (slot->pending == false) &&
+                        (idx > slot->idx)) {
+                    idx = slot->idx;
+                    ret = slot;
+                }
+                else if (mode == DIMM_MAX_POPULATED &&
+                        (slot->populated == true) &&
+                        (slot->pending == false) &&
+                        (idx <= slot->idx)) {
+                    idx = slot->idx;
+                    ret = slot;
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+int dimm_do_range(Monitor *mon, const QDict *qdict, bool add)
+{
+    DimmState *slot = NULL;
+    uint32_t mode;
+    uint32_t idx;
+    int num, ndimms;
+
+    char *pfx = (char*) qdict_get_try_str(qdict, "pfx");
+    if (!pfx) {
+        fprintf(stderr, "ERROR %s invalid pfx\n",__FUNCTION__);
+        return 1;
+    }
+
+    char *value = (char*) qdict_get_try_str(qdict, "num");
+    if (!value) {
+        fprintf(stderr, "ERROR %s invalid pfx\n",__FUNCTION__);
+        return 1;
+    }
+    num = atoi(value);
+
+    if (add)
+        mode = DIMM_MIN_UNPOPULATED;
+    else
+        mode = DIMM_MAX_POPULATED;
+
+    ndimms = 0;
+    while (ndimms < num) {
+        slot = dimm_find_next(pfx, mode);
+        if (slot == NULL) {
+            fprintf(stderr, "%s no further slot found for pool %s\n",
+                    __FUNCTION__, pfx);
+            fprintf(stderr, "%s operated on %d / %d requested dimms\n",
+                    __FUNCTION__, ndimms, num);
+            return 1;
+        }
+
+        if (add) {
+            dimm_activate(slot);
+        }
+        else {
+            dimm_deactivate(slot);
+        }
+        ndimms++;
+        idx++;
+    }
+
+    return 0;
+}
 DimmState *dimm_find_from_idx(uint32_t idx)
 {
     DimmState *slot;

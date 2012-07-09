@@ -11,6 +11,11 @@
 #define DIMM_BITMAP_BYTES (MAX_DIMMS + 7) / 8
 #define DEFAULT_DIMMSIZE 1024*1024*1024
 
+enum {
+    DIMM_MIN_UNPOPULATED= 0,
+    DIMM_MAX_POPULATED = 1
+};
+
 typedef enum {
     DIMM_REMOVE_SUCCESS = 0,
     DIMM_REMOVE_FAIL = 1,
@@ -61,5 +66,7 @@ void dimm_deactivate(DimmState *slot);
 void dimm_scan_populated(void);
 void dimm_notify(uint32_t idx, uint32_t event);
 int dimm_set_populated(DimmState *s);
+DimmState *dimm_find_next(char *pfx, uint32_t mode);
+int dimm_do_range(Monitor *mon, const QDict *qdict, bool add);
 
 #endif
