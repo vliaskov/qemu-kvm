@@ -28,6 +28,7 @@ static dimm_hotplug_fn dimm_hotplug;
 static dimm_hotplug_fn dimm_revert;
 static QTAILQ_HEAD(Dimmlist, DimmState)  dimmlist;
 static QTAILQ_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
+extern ram_addr_t ram_size;
 
 static Property dimm_properties[] = {
     DEFINE_PROP_END_OF_LIST()
@@ -283,6 +284,20 @@ MemHpInfoList *qmp_query_memhp(Error **errp)
 
     return head;
 }
+
+int64_t qmp_query_memtotal(Error **errp)
+{
+    DimmState *slot;
+    uint64_t info = ram_size;
+
+    QTAILQ_FOREACH(slot, &dimmlist, nextdimm) {
+        if (slot->populated) {
+            info += slot->size;
+        }
+    }
+    return (int64_t)info;
+}
+
 static int dimm_init(SysBusDevice *s)
 {
     DimmState *slot;

@@ -1017,3 +1017,10 @@ void hmp_info_memhp(Monitor *mon)
 
     qapi_free_MemHpInfoList(info);
 }
+
+void hmp_info_memtotal(Monitor *mon)
+{
+    uint64_t ram_total;
+    ram_total = (uint64_t)qmp_query_memtotal(NULL);
+    monitor_printf(mon, "MemTotal: %lu \n", ram_total);
+}

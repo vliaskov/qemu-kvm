@@ -2739,6 +2739,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = hmp_info_memhp,
     },
     {
+        .name       = "memtotal",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show total memory size",
+        .mhandler.info = hmp_info_memtotal,
+    },
+    {
         .name       = NULL,
     },
 };

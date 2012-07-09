@@ -1461,6 +1461,8 @@ show qdev device model list
 show roms
 @item info memhp
 show memhp
+@item info memtotal
+show memtotal
 @end table
 ETEXI
 
