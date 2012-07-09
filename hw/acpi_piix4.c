@@ -91,6 +91,7 @@ typedef struct PIIX4PMState {
 } PIIX4PMState;
 
 static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s);
+static void piix4_dimm_state_sync(PIIX4PMState *s);
 
 #define ACPI_ENABLE 0xf1
 #define ACPI_DISABLE 0xf0
@@ -369,6 +370,7 @@ static void piix4_reset(void *opaque)
         /* Mark SMM as already inited (until KVM supports SMM). */
         pci_conf[0x5B] = 0x02;
     }
+    piix4_dimm_state_sync(s);
     piix4_update_hotplug(s);
 }
 
@@ -669,6 +671,29 @@ static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int
     }
     pm_update_sci(s);
     return 0;
+}
+
+void piix4_dimm_state_sync(PIIX4PMState *s)
+{
+    struct gpe_regs *g = &s->gperegs;
+    DimmState *slot = NULL;
+    uint32_t i, temp = 1;
+
+    for(i = 0; i < MAX_DIMMS; i++) {
+        slot = dimm_find_from_idx(i);
+        if (!slot)
+            break;
+        if (i % 8 == 0) {
+            temp = 1;
+            g->mems_sts[i / 8] = 0;
+        }
+        else
+            temp = temp << 1;
+        if (slot->populated) {
+            g->mems_sts[i / 8] |= temp;
+        }
+        slot->pending = false;
+    }
 }
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
