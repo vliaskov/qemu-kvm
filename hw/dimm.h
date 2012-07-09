@@ -54,7 +54,7 @@ void dimm_depopulate(DimmState *s);
 int dimm_do(Monitor *mon, const QDict *qdict, bool add);
 DimmState *dimm_find_from_idx(uint32_t idx);
 DimmState *dimm_find_from_name(char *id);
-void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
+void dimm_register_hotplug(dimm_hotplug_fn hotplug, dimm_hotplug_fn revert, DeviceState *qdev);
 void dimm_calc_offsets(dimm_calcoffset_fn calcfn);
 void dimm_activate(DimmState *slot);
 void dimm_deactivate(DimmState *slot);

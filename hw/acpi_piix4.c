@@ -599,6 +599,7 @@ static uint32_t pcirmv_read(void *opaque, uint32_t addr)
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
                                 PCIHotplugState state);
 static int piix4_dimm_hotplug(DeviceState *qdev, SysBusDevice *dev, int add);
+static int piix4_dimm_revert(DeviceState *qdev, SysBusDevice *dev, int add);
 
 static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 {
@@ -627,7 +628,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     }
 
     pci_bus_hotplug(bus, piix4_device_hotplug, &s->dev.qdev);
-    dimm_register_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
+    dimm_register_hotplug(piix4_dimm_hotplug, piix4_dimm_revert, &s->dev.qdev);
 }
 
 static void enable_device(PIIX4PMState *s, int slot)
@@ -694,6 +695,23 @@ void piix4_dimm_state_sync(PIIX4PMState *s)
         }
         slot->pending = false;
     }
+}
+
+static int piix4_dimm_revert(DeviceState *qdev, SysBusDevice *dev, int add)
+{
+    PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
+    PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
+    struct gpe_regs *g = &s->gperegs;
+    DimmState *slot = DIMM(dev);
+    int idx = slot->idx;
+
+    if (add) {
+        g->mems_sts[idx/8] &= ~(1 << (idx%8));
+    }
+    else {
+        g->mems_sts[idx/8] |= (1 << (idx%8));
+    }
+    return 0;
 }
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,

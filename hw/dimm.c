@@ -25,6 +25,7 @@
 
 static DeviceState *dimm_hotplug_qdev;
 static dimm_hotplug_fn dimm_hotplug;
+static dimm_hotplug_fn dimm_revert;
 static QTAILQ_HEAD(Dimmlist, DimmState)  dimmlist;
 static QTAILQ_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
 
@@ -77,10 +78,12 @@ DimmState *dimm_create(char *id, uint64_t size, uint64_t node, uint32_t
     return mdev;
 }
 
-void dimm_register_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev)
+void dimm_register_hotplug(dimm_hotplug_fn hotplug, dimm_hotplug_fn revert,
+        DeviceState *qdev)
 {
     dimm_hotplug_qdev = qdev;
     dimm_hotplug = hotplug;
+    dimm_revert = revert;
     dimm_scan_populated();
 }
 
@@ -211,10 +214,20 @@ void dimm_notify(uint32_t idx, uint32_t event)
             s->pending = false;
             break;
         case DIMM_REMOVE_FAIL:
+            QTAILQ_INSERT_TAIL(&dimm_hp_result_queue, result, next);
+            s->pending = false;
+            if (dimm_revert)
+                dimm_revert(dimm_hotplug_qdev, (SysBusDevice*)s, 0);
+            break;
         case DIMM_ADD_SUCCESS:
+            QTAILQ_INSERT_TAIL(&dimm_hp_result_queue, result, next);
+            s->pending = false;
+            break;
         case DIMM_ADD_FAIL:
             QTAILQ_INSERT_TAIL(&dimm_hp_result_queue, result, next);
             s->pending = false;
+            if (dimm_revert)
+                dimm_revert(dimm_hotplug_qdev, (SysBusDevice*)s, 1);
             break;
         default:
             g_free(result);
@@ -288,6 +301,7 @@ static void dimm_class_init(ObjectClass *klass, void *data)
     dc->props = dimm_properties;
     sc->init = dimm_init;
     dimm_hotplug = NULL;
+    dimm_revert = NULL;
     QTAILQ_INIT(&dimmlist);
     QTAILQ_INIT(&dimm_hp_result_queue);
 }
