@@ -35,6 +35,7 @@ typedef struct DimmState {
     MemoryRegion *mr; /* MemoryRegion for this slot. !NULL only if populated */
     bool populated; /* 1 means device has been hotplugged. Default is 0. */
     QTAILQ_ENTRY (DimmState) nextdimm;
+    bool pending; /* true means a hot operation is pending for this dimm */
 } DimmState;
 
 struct dimm_hp_result {

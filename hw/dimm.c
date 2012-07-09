@@ -89,12 +89,14 @@ void dimm_activate(DimmState *slot)
     dimm_populate(slot);
     if (dimm_hotplug)
         dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 1);
+    slot->pending = true;
 }
 
 void dimm_deactivate(DimmState *slot)
 {
     if (dimm_hotplug)
         dimm_hotplug(dimm_hotplug_qdev, (SysBusDevice*)slot, 0);
+    slot->pending = true;
 }
 
 DimmState *dimm_find_from_name(char *id)
@@ -138,6 +140,10 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
                     __FUNCTION__, id);
             return 1;
         }
+        if (slot->pending) {
+            fprintf(stderr, "warning: %s slot %s hot-operation pending\n",
+                    __FUNCTION__, id);
+        }
         dimm_activate(slot);
     }
     else {
@@ -145,6 +151,10 @@ int dimm_do(Monitor *mon, const QDict *qdict, bool add)
             fprintf(stderr, "ERROR %s slot %s is not populated\n",
                     __FUNCTION__, id);
             return 1;
+        }
+        if (slot->pending) {
+            fprintf(stderr, "warning: %s slot %s hot-operation pending\n",
+                    __FUNCTION__, id);
         }
         dimm_deactivate(slot);
     }
@@ -198,6 +208,13 @@ void dimm_notify(uint32_t idx, uint32_t event)
         case DIMM_REMOVE_SUCCESS:
             dimm_depopulate(s);
             QTAILQ_INSERT_TAIL(&dimm_hp_result_queue, result, next);
+            s->pending = false;
+            break;
+        case DIMM_REMOVE_FAIL:
+        case DIMM_ADD_SUCCESS:
+        case DIMM_ADD_FAIL:
+            QTAILQ_INSERT_TAIL(&dimm_hp_result_queue, result, next);
+            s->pending = false;
             break;
         default:
             g_free(result);
@@ -259,6 +276,7 @@ static int dimm_init(SysBusDevice *s)
     slot = DIMM(s);
     slot->mr = NULL;
     slot->populated = false;
+    slot->pending = false;
     return 0;
 }
 
