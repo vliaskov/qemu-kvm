@@ -176,6 +176,7 @@ DisplayType display_type = DT_DEFAULT;
 int display_remote = 0;
 const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
+ram_addr_t ram_hp_offset;
 const char *mem_path = NULL;
 #ifdef MAP_POPULATE
 int mem_prealloc = 0; /* force preallocation of physical target memory */

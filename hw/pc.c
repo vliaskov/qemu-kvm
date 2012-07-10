@@ -48,6 +48,7 @@
 #include "memory.h"
 #include "exec-memory.h"
 #include "arch_init.h"
+#include "dimm.h"
 
 /* output Bochs bios info messages */
 //#define DEBUG_BIOS
@@ -89,6 +90,9 @@ struct e820_table {
 static struct e820_table e820_table;
 struct hpet_fw_config hpet_cfg = {.count = UINT8_MAX};
 
+ram_addr_t below_4g_hp_mem_size = 0;
+ram_addr_t above_4g_hp_mem_size = 0;
+extern target_phys_addr_t ram_hp_offset;
 void gsi_handler(void *opaque, int n, int level)
 {
     GSIState *s = opaque;
@@ -1181,4 +1185,41 @@ void pc_pci_device_init(PCIBus *pci_bus)
     for (bus = 0; bus <= max_bus; bus++) {
         pci_create_simple(pci_bus, -1, "lsi53c895a");
     }
+}
+
+
+/* Function to configure memory offsets of hotpluggable dimms */
+
+target_phys_addr_t pc_set_hp_memory_offset(uint64_t size)
+{
+    target_phys_addr_t ret;
+
+    /* on first call, initialize ram_hp_offset */
+    if (!ram_hp_offset) {
+        if (ram_size >= PCI_HOLE_START ) {
+            ram_hp_offset = 0x100000000LL + (ram_size - PCI_HOLE_START);
+        } else {
+            ram_hp_offset = ram_size;
+        }
+    }
+
+    if (ram_hp_offset >= 0x100000000LL) {
+        ret = ram_hp_offset;
+        above_4g_hp_mem_size += size;
+        ram_hp_offset += size;
+    }
+    /* if dimm fits before pci hole, append it normally */
+    else if (ram_hp_offset + size <= PCI_HOLE_START) {
+        ret = ram_hp_offset;
+        below_4g_hp_mem_size += size;
+        ram_hp_offset += size;
+    }
+    /* otherwise place it above 4GB */
+    else {
+        ret = 0x100000000LL;
+        above_4g_hp_mem_size += size;
+        ram_hp_offset = 0x100000000LL + size;
+    }
+
+    return ret;
 }

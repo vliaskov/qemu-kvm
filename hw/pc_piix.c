@@ -43,6 +43,7 @@
 #include "xen.h"
 #include "memory.h"
 #include "exec-memory.h"
+#include "dimm.h"
 #ifdef CONFIG_XEN
 #  include <xen/hvm/hvm_info_table.h>
 #endif
@@ -155,9 +156,9 @@ static void pc_init1(MemoryRegion *system_memory,
         kvmclock_create();
     }
 
-    if (ram_size >= 0xe0000000 ) {
-        above_4g_mem_size = ram_size - 0xe0000000;
-        below_4g_mem_size = 0xe0000000;
+    if (ram_size >= PCI_HOLE_START ) {
+        above_4g_mem_size = ram_size - PCI_HOLE_START;
+        below_4g_mem_size = PCI_HOLE_START;
     } else {
         above_4g_mem_size = 0;
         below_4g_mem_size = ram_size;
@@ -171,6 +172,9 @@ static void pc_init1(MemoryRegion *system_memory,
         pci_memory = NULL;
         rom_memory = system_memory;
     }
+
+    /* adjust memory map for hotplug dimms */
+    dimm_calc_offsets(pc_set_hp_memory_offset);
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
@@ -192,9 +196,11 @@ static void pc_init1(MemoryRegion *system_memory,
     if (pci_enabled) {
         pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, &isa_bus, gsi,
                               system_memory, system_io, ram_size,
-                              below_4g_mem_size,
-                              0x100000000ULL - below_4g_mem_size,
-                              0x100000000ULL + above_4g_mem_size,
+                              below_4g_mem_size + below_4g_hp_mem_size,
+                              0x100000000ULL - below_4g_mem_size
+                                - below_4g_hp_mem_size,
+                              0x100000000ULL + above_4g_mem_size
+                                + above_4g_hp_mem_size,
                               (sizeof(target_phys_addr_t) == 4
                                ? 0
                                : ((uint64_t)1 << 62)),
