@@ -626,6 +626,30 @@ QemuOptsList qemu_boot_opts = {
     },
 };
 
+static QemuOptsList qemu_dimm_opts = {
+    .name = "dimm",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_dimm_opts.head),
+    .desc = {
+        {
+            .name = "id",
+            .type = QEMU_OPT_STRING,
+            .help = "id of this dimm device",
+        },{
+            .name = "size",
+            .type = QEMU_OPT_SIZE,
+            .help = "memory size for this dimm",
+        },{
+            .name = "populated",
+            .type = QEMU_OPT_BOOL,
+            .help = "populated for this dimm",
+        },{
+            .name = "node",
+            .type = QEMU_OPT_NUMBER,
+            .help = "NUMA node number (i.e. proximity) for this dimm",
+        },
+        { /* end of list */ }
+    },
+};
 static QemuOptsList *vm_config_groups[32] = {
     &qemu_drive_opts,
     &qemu_chardev_opts,
@@ -641,6 +665,7 @@ static QemuOptsList *vm_config_groups[32] = {
     &qemu_machine_opts,
     &qemu_boot_opts,
     &qemu_iscsi_opts,
+    &qemu_dimm_opts,
     NULL,
 };
 
