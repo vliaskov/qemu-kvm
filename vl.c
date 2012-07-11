@@ -2335,7 +2335,7 @@ int main(int argc, char **argv, char **envp)
         node_cpumask[i] = 0;
     }
 
-    nb_numa_nodes = 0;
+    nb_numa_nodes = 1;
     nb_nics = 0;
 
     autostart= 1;
