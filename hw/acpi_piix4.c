@@ -52,6 +52,7 @@
 #define MEM_OST_REMOVE_FAIL 0xafa1
 #define MEM_OST_ADD_SUCCESS 0xafa2
 #define MEM_OST_ADD_FAIL 0xafa3
+#define MEM_PS3 0xafa4
 
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
@@ -545,6 +546,9 @@ static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
         case MEM_OST_ADD_FAIL:
             dimm_notify(val, DIMM_ADD_FAIL);
             break;
+        case MEM_PS3:
+            dimm_notify(val, DIMM_OSPM_POWEROFF);
+            break;
         default:
             acpi_gpe_ioport_writeb(&s->ar, addr, val);
     }
@@ -622,6 +626,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     register_ioport_write(MEM_OST_REMOVE_FAIL, 1, 1,  gpe_writeb, s);
     register_ioport_write(MEM_OST_ADD_SUCCESS, 1, 1,  gpe_writeb, s);
     register_ioport_write(MEM_OST_ADD_FAIL, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_PS3, 1, 1,  gpe_writeb, s);
 
     for(i = 0; i < DIMM_BITMAP_BYTES; i++) {
         s->gperegs.mems_sts[i] = 0;

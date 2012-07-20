@@ -343,6 +343,9 @@ void dimm_notify(uint32_t idx, uint32_t event)
             if (dimm_revert)
                 dimm_revert(dimm_hotplug_qdev, (SysBusDevice*)s, 1);
             break;
+        case DIMM_OSPM_POWEROFF:
+            if (dimm_revert)
+                dimm_revert(dimm_hotplug_qdev, (SysBusDevice*)s, 1);
         default:
             g_free(result);
             break;

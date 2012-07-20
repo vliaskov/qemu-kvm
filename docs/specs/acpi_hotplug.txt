@@ -44,3 +44,11 @@ insertion failed.
 
 Written by ACPI memory device _OST method to notify qemu of failed
 hot-add.  Write-only.
+
+Memory Dimm _PS3 power-off initiated by OSPM (IO port 0xafa4, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-add _PS3 initiated by OSPM. Byte value indicates Dimm slot which
+entered D3 state.
+
+Written by ACPI memory device _PS3 method to notify qemu of power-off state for
+the dimm.  Write-only.

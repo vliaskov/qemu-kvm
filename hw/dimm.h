@@ -20,7 +20,8 @@ typedef enum {
     DIMM_REMOVE_SUCCESS = 0,
     DIMM_REMOVE_FAIL = 1,
     DIMM_ADD_SUCCESS = 2,
-    DIMM_ADD_FAIL = 3
+    DIMM_ADD_FAIL = 3,
+    DIMM_OSPM_POWEROFF = 4
 } dimm_hp_result_code;
 
 #define TYPE_DIMM "dimm"
