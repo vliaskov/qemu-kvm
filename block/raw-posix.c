@@ -210,6 +210,8 @@ static int raw_open_common(BlockDriverState *bs, const char *filename,
     s->fd = -1;
     fd = qemu_open(filename, s->open_flags, 0644);
     if (fd < 0) {
+        fprintf(stderr, "%s called for device %s bs %p opaque %p\n", __FUNCTION__,
+                bs->filename, bs, bs->opaque);
         ret = -errno;
         if (ret == -EROFS)
             ret = -EACCES;
@@ -226,12 +228,17 @@ static int raw_open_common(BlockDriverState *bs, const char *filename,
         s->aligned_buf_size = 32 * MAX_BLOCKSIZE;
         s->aligned_buf = qemu_memalign(MAX_BLOCKSIZE, s->aligned_buf_size);
         if (s->aligned_buf == NULL) {
+        fprintf(stderr, "%s called for device %s bs %p opaque %p\n", __FUNCTION__,
+                bs->filename, bs, bs->opaque);
             goto out_close;
         }
+
     }
 
     /* We're falling back to POSIX AIO in some cases so init always */
     if (paio_init() < 0) {
+        fprintf(stderr, "%s called for device %s bs %p opaque %p\n", __FUNCTION__,
+                bs->filename, bs, bs->opaque);
         goto out_free_buf;
     }
 
@@ -245,6 +252,8 @@ static int raw_open_common(BlockDriverState *bs, const char *filename,
 
         s->aio_ctx = laio_init();
         if (!s->aio_ctx) {
+        fprintf(stderr, "%s called for device %s bs %p opaque %p\n", __FUNCTION__,
+                bs->filename, bs, bs->opaque);
             goto out_free_buf;
         }
         s->use_aio = 1;
@@ -275,6 +284,8 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
 {
     BDRVRawState *s = bs->opaque;
 
+    fprintf(stderr, "%s called for device %s bs %p opaque %p\n", __FUNCTION__, bs->filename, bs,
+            bs->opaque);
     s->type = FTYPE_FILE;
     return raw_open_common(bs, filename, flags, 0);
 }
@@ -317,7 +328,7 @@ static BlockDriverAIOCB *raw_aio_submit(BlockDriverState *bs,
         BlockDriverCompletionFunc *cb, void *opaque, int type)
 {
     BDRVRawState *s = bs->opaque;
-
+    //fprintf(stderr, "%s called for device %s\n", __FUNCTION__, bs->filename);
     if (fd_open(bs) < 0)
         return NULL;
 
@@ -371,6 +382,7 @@ static BlockDriverAIOCB *raw_aio_flush(BlockDriverState *bs,
 static void raw_close(BlockDriverState *bs)
 {
     BDRVRawState *s = bs->opaque;
+    fprintf(stderr, "%s called bs %p\n", __FUNCTION__, bs);
     if (s->fd >= 0) {
         close(s->fd);
         s->fd = -1;
@@ -973,6 +985,7 @@ out:
 
 static int floppy_is_inserted(BlockDriverState *bs)
 {
+    fprintf(stderr, "%s called\n", __FUNCTION__);
     return fd_open(bs) >= 0;
 }
 
@@ -1078,6 +1091,7 @@ static int cdrom_is_inserted(BlockDriverState *bs)
     BDRVRawState *s = bs->opaque;
     int ret;
 
+    fprintf(stderr, "%s called\n", __FUNCTION__);
     ret = ioctl(s->fd, CDROM_DRIVE_STATUS, CDSL_CURRENT);
     if (ret == CDS_DISC_OK)
         return 1;
@@ -1191,6 +1205,7 @@ static int cdrom_reopen(BlockDriverState *bs)
 
 static int cdrom_is_inserted(BlockDriverState *bs)
 {
+    fprintf(stderr, "%s called\n", __FUNCTION__);
     return raw_getlength(bs) > 0;
 }
 

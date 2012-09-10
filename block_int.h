@@ -257,6 +257,7 @@ struct BlockDriverState {
     CoQueue      throttled_reqs;
     QEMUTimer    *block_timer;
     bool         io_limits_enabled;
+    bool         io_supress;
 
     /* I/O stats (display with "info blockstats"). */
     uint64_t nr_bytes[BDRV_MAX_IOTYPE];

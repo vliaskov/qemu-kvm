@@ -166,9 +166,11 @@ static void bdrv_io_limits_intercept(BlockDriverState *bs,
 {
     int64_t wait_time = -1;
 
+    fprintf(stderr, "%s called\n", __FUNCTION__);
     if (!qemu_co_queue_empty(&bs->throttled_reqs)) {
         qemu_co_queue_wait(&bs->throttled_reqs);
     }
+
 
     /* In fact, we hope to keep each request's timing, in FIFO mode. The next
      * throttled requests will not be dequeued until the current request is
@@ -177,7 +179,9 @@ static void bdrv_io_limits_intercept(BlockDriverState *bs,
      * be still in throttled_reqs queue.
      */
 
-    while (bdrv_exceed_io_limits(bs, nb_sectors, is_write, &wait_time)) {
+    //while (bdrv_exceed_io_limits(bs, nb_sectors, is_write, &wait_time)) {
+    while (bs->io_supress) {
+        //fprintf(stderr, "%s supress called\n", __FUNCTION__);
         qemu_mod_timer(bs->block_timer,
                        wait_time + qemu_get_clock_ns(vm_clock));
         qemu_co_queue_wait_insert_head(&bs->throttled_reqs);
@@ -548,6 +552,8 @@ static int bdrv_open_common(BlockDriverState *bs, const char *filename,
 
     assert(drv != NULL);
 
+    fprintf(stderr, " %s %p drv %p openfile %s\n",
+                __FUNCTION__, bs, drv, filename);
     trace_bdrv_open_common(bs, filename, flags, drv->format_name);
 
     bs->file = NULL;
@@ -567,10 +573,11 @@ static int bdrv_open_common(BlockDriverState *bs, const char *filename,
     }
 
     bs->drv = drv;
+    //if (!bs->opaque)
     bs->opaque = g_malloc0(drv->instance_size);
 
     bs->enable_write_cache = !!(flags & BDRV_O_CACHE_WB);
-
+    
     /*
      * Clear flags that are internal to the block layer before opening the
      * image.
@@ -588,8 +595,12 @@ static int bdrv_open_common(BlockDriverState *bs, const char *filename,
 
     /* Open the image, either directly or using a protocol */
     if (drv->bdrv_file_open) {
+        fprintf(stderr, " %s driver_bdrv_file_open %p drv %p openfile %s\n",
+                __FUNCTION__, bs, drv, filename);
         ret = drv->bdrv_file_open(bs, filename, open_flags);
     } else {
+        fprintf(stderr, " %s next bdrv_file_open %p drv %p openfile %s\n",
+                __FUNCTION__, bs, drv, filename);
         ret = bdrv_file_open(&bs->file, filename, open_flags);
         if (ret >= 0) {
             ret = drv->bdrv_open(bs, open_flags);
@@ -632,17 +643,22 @@ int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags)
     BlockDriver *drv;
     int ret;
 
+
+
     drv = bdrv_find_protocol(filename);
     if (!drv) {
+        fprintf(stderr, "%s nodriver \n", __FUNCTION__);
         return -ENOENT;
     }
 
     bs = bdrv_new("");
     ret = bdrv_open_common(bs, filename, flags, drv);
     if (ret < 0) {
+        fprintf(stderr, "%s openerror called bs %p\n", __FUNCTION__, bs);
         bdrv_delete(bs);
         return ret;
     }
+    fprintf(stderr, "%s called bs %p\n", __FUNCTION__, bs);
     bs->growable = 1;
     *pbs = bs;
     return 0;
@@ -657,6 +673,7 @@ int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
     int ret;
     char tmp_filename[PATH_MAX];
 
+    fprintf(stderr, "%s called bs %p\n", __FUNCTION__, bs);
     if (flags & BDRV_O_SNAPSHOT) {
         BlockDriverState *bs1;
         int64_t total_size;
@@ -753,6 +770,7 @@ int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
 
         ret = bdrv_open(bs->backing_hd, backing_filename, back_flags, back_drv);
         if (ret < 0) {
+            fprintf(stderr, "%s will CLOSE! called bs %p\n", __FUNCTION__, bs);
             bdrv_close(bs);
             return ret;
         }
@@ -782,9 +800,45 @@ unlink_and_fail:
     return ret;
 }
 
+void bdrv_close_supress(BlockDriverState *bs)
+{
+    if (bs->drv) {
+        
+        fprintf(stderr, " %s %p drv %p closefile %s backing_hd %p\n",
+                __FUNCTION__, bs, bs->drv, bs->filename, bs->backing_hd);
+        /*
+        if (bs == bs_snapshots) {
+            bs_snapshots = NULL;
+        }
+        if (bs->backing_hd) {
+            bdrv_delete(bs->backing_hd);
+            bs->backing_hd = NULL;
+        }
+        bs->drv->bdrv_close(bs);
+        g_free(bs->opaque);
+#ifdef _WIN32
+        if (bs->is_temporary) {
+            unlink(bs->filename);
+        }
+#endif
+        bs->opaque = NULL;
+        bs->drv = NULL;*/
+
+        if (bs->file != NULL) {
+            fprintf(stderr, "%s close dev with file %s\n", __FUNCTION__, bs->filename);
+            bdrv_close(bs->file);
+        }
+
+        //bdrv_dev_change_media_cb(bs, false);
+    }
+
+}
+
 void bdrv_close(BlockDriverState *bs)
 {
     if (bs->drv) {
+        fprintf(stderr, " %s %p drv %p closefile %s backing_hd %p\n",
+                __FUNCTION__, bs, bs->drv, bs->filename, bs->backing_hd);
         if (bs == bs_snapshots) {
             bs_snapshots = NULL;
         }
@@ -803,6 +857,7 @@ void bdrv_close(BlockDriverState *bs)
         bs->drv = NULL;
 
         if (bs->file != NULL) {
+            fprintf(stderr, "%s close dev with file %s\n", __FUNCTION__, bs->filename);
             bdrv_close(bs->file);
         }
 
@@ -1096,20 +1151,24 @@ static int bdrv_check_byte_request(BlockDriverState *bs, int64_t offset,
 {
     int64_t len;
 
-    if (!bdrv_is_inserted(bs))
+    if (!bdrv_is_inserted(bs)) {
+        fprintf(stderr, "%s EIO not inserted for %s\n", __FUNCTION__, bs->filename);
         return -ENOMEDIUM;
-
+    }
     if (bs->growable)
         return 0;
 
     len = bdrv_getlength(bs);
 
-    if (offset < 0)
+    if (offset < 0) {
+        fprintf(stderr, "%s EIO offset %ld for %s\n", __FUNCTION__, offset, bs->filename);
         return -EIO;
+    }
 
-    if ((offset > len) || (len - offset < size))
+    if ((offset > len) || (len - offset < size)) {
+        fprintf(stderr, "%s EIO invalid length %ld for %s\n", __FUNCTION__, len, bs->filename);
         return -EIO;
-
+    }
     return 0;
 }
 
@@ -1351,14 +1410,17 @@ static int coroutine_fn bdrv_co_do_readv(BlockDriverState *bs,
 {
     BlockDriver *drv = bs->drv;
 
+    //if (!strcmp(bs->filename,"/dev/md0")) fprintf(stderr, "%s called for %s\n", __FUNCTION__, bs->filename);
     if (!drv) {
         return -ENOMEDIUM;
     }
-    if (bdrv_check_request(bs, sector_num, nb_sectors)) {
+    if (!bs->io_supress && bdrv_check_request(bs, sector_num, nb_sectors)) {
         return -EIO;
     }
 
+    //while (bs->io_supress) qemu_coroutine_yield();
     /* throttling disk read I/O */
+
     if (bs->io_limits_enabled) {
         bdrv_io_limits_intercept(bs, false, nb_sectors);
     }
@@ -1383,15 +1445,21 @@ static int coroutine_fn bdrv_co_do_writev(BlockDriverState *bs,
     BlockDriver *drv = bs->drv;
     int ret;
 
+    if (strcmp(bs->filename,"/opt/extra/vliaskov/utils/wheezy-qemu-acpikernel.img")) fprintf(stderr, "%s %p called for %s\n", __FUNCTION__, bs, bs->filename);
     if (!bs->drv) {
+        fprintf(stderr, "%s nomedium for %s\n", __FUNCTION__, bs->filename);
         return -ENOMEDIUM;
     }
     if (bs->read_only) {
+        fprintf(stderr, "%s readonly for %s\n", __FUNCTION__, bs->filename);
         return -EACCES;
     }
-    if (bdrv_check_request(bs, sector_num, nb_sectors)) {
+    if (!bs->io_supress && bdrv_check_request(bs, sector_num, nb_sectors)) {
+        fprintf(stderr, "%s EIO for %s\n", __FUNCTION__, bs->filename);
         return -EIO;
     }
+
+    //while (bs->io_supress) qemu_coroutine_yield();
 
     /* throttling disk write I/O */
     if (bs->io_limits_enabled) {
@@ -2775,7 +2843,7 @@ static bool bdrv_exceed_io_limits(BlockDriverState *bs, int nb_sectors,
         if (bs->slice_end < now + max_wait) {
             bs->slice_end = now + max_wait;
         }
-
+        fprintf(stderr, "exceeded limit for %s\n", bs->filename);
         return true;
     }
 
@@ -2868,6 +2936,7 @@ static BlockDriverAIOCB *bdrv_aio_writev_em(BlockDriverState *bs,
         int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
         BlockDriverCompletionFunc *cb, void *opaque)
 {
+    fprintf(stderr, "%s \n", __FUNCTION__);
     return bdrv_aio_rw_vector(bs, sector_num, qiov, nb_sectors, cb, opaque, 1);
 }
 
@@ -3253,10 +3322,14 @@ int bdrv_is_inserted(BlockDriverState *bs)
 {
     BlockDriver *drv = bs->drv;
 
-    if (!drv)
+    if (!drv) {
+        //fprintf(stderr, "%s no driver\n", __FUNCTION__);
         return 0;
-    if (!drv->bdrv_is_inserted)
+    }    
+    if (!drv->bdrv_is_inserted) {
+        //fprintf(stderr, "%s insertion irrelevant\n", __FUNCTION__);
         return 1;
+    }    
     return drv->bdrv_is_inserted(bs);
 }
 

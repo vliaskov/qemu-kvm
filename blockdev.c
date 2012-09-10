@@ -745,12 +745,14 @@ int do_block_set_passwd(Monitor *mon, const QDict *qdict,
     return 0;
 }
 
+bool limits_enabled = false;
+BlockIOLimit limits;
 int do_detach_block(Monitor *mon, const QDict *qdict, const char *device)
 {
     BlockDriverState *bs;
-    int force = qdict_get_try_bool(qdict, "force", 0);
+    //int force = qdict_get_try_bool(qdict, "force", 0);
     const char *filename = qdict_get_str(qdict, "device");
-    Error *err = NULL;
+    //Error *err = NULL;
 
     bs = bdrv_find(filename);
     if (!bs) {
@@ -758,12 +760,39 @@ int do_detach_block(Monitor *mon, const QDict *qdict, const char *device)
         return -1;
     }
 
+    /* quiesce block driver; prevent further io */
+    qemu_aio_flush();
+    bdrv_flush(bs);
+    bs->io_supress = true;
+    bdrv_close_supress(bs);
+
+    /*
     eject_device(bs, force, &err);
     if (error_is_set(&err)) {
         qerror_report_err(err);
         error_free(err);
         return -1;
-    }
+    }*/
+
+    if (bs->io_limits_enabled) {
+        limits_enabled = true;
+        limits.bps[BLOCK_IO_LIMIT_TOTAL] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.bps[BLOCK_IO_LIMIT_READ] = bs->io_limits.bps[BLOCK_IO_LIMIT_READ];
+        limits.bps[BLOCK_IO_LIMIT_WRITE] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.iops[BLOCK_IO_LIMIT_TOTAL] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.iops[BLOCK_IO_LIMIT_READ] = bs->io_limits.bps[BLOCK_IO_LIMIT_READ];
+        limits.iops[BLOCK_IO_LIMIT_WRITE] = bs->io_limits.bps[BLOCK_IO_LIMIT_WRITE];
+    }    
+    fprintf(stderr, "%s limits_enabled = %s", __FUNCTION__, limits_enabled ? "true" :
+            "false");
+    bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL] = 1;
+    bs->io_limits.bps[BLOCK_IO_LIMIT_READ] = 1;
+    bs->io_limits.bps[BLOCK_IO_LIMIT_WRITE] = 1;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_TOTAL] = 1;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_READ] = 1;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_WRITE] = 1;
+    bs->io_limits = limits;
+    bdrv_io_limits_enable(bs);
 
     return 0;
 }
@@ -774,7 +803,7 @@ int do_reattach_block(Monitor *mon, const char *device,
     BlockDriverState *bs;
     BlockDriver *drv = NULL;
     int bdrv_flags;
-    Error *err = NULL;
+    //Error *err = NULL;
 
     bs = bdrv_find(device);
     if (!bs) {
@@ -789,18 +818,61 @@ int do_reattach_block(Monitor *mon, const char *device,
         }
     }
 
+    /*
     eject_device(bs, 0, &err);
     if (error_is_set(&err)) {
         qerror_report_err(err);
         error_free(err);
         return -1;
+    }*/
+
+    /*
+
+    if (bs->io_limits_enabled) { 
+        limits_enabled = true;
+        limits.bps[BLOCK_IO_LIMIT_TOTAL] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.bps[BLOCK_IO_LIMIT_READ] = bs->io_limits.bps[BLOCK_IO_LIMIT_READ];
+        limits.bps[BLOCK_IO_LIMIT_WRITE] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.iops[BLOCK_IO_LIMIT_TOTAL] = bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        limits.iops[BLOCK_IO_LIMIT_READ] = bs->io_limits.bps[BLOCK_IO_LIMIT_READ];
+        limits.iops[BLOCK_IO_LIMIT_WRITE] = bs->io_limits.bps[BLOCK_IO_LIMIT_WRITE];
     }
+    fprintf(stderr, "%s limits_enabled = %s", __FUNCTION__, limits_enabled ? "true" :
+            "false");*/
+    /* quiesce block driver; prevent further io */
+    /*qemu_aio_flush();
+    bdrv_flush(bs);
+    bdrv_close(bs);
+    */
+    /*
+    bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL] = 1;
+    bs->io_limits.bps[BLOCK_IO_LIMIT_READ] = 1;
+    bs->io_limits.bps[BLOCK_IO_LIMIT_WRITE] = 0;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_TOTAL] = 1;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_READ] = 1;
+    bs->io_limits.iops[BLOCK_IO_LIMIT_WRITE] = 0;
+    bs->io_limits = limits;
+    bdrv_io_limits_enable(bs);*/
+
+    //bdrv_close_supress(bs);
     bdrv_flags = bdrv_is_read_only(bs) ? 0 : BDRV_O_RDWR;
-    bdrv_flags |= bdrv_is_snapshot(bs) ? BDRV_O_SNAPSHOT : 0;
-    if (bdrv_open(bs, filename, bdrv_flags, drv) < 0) {
+    //if (bdrv_reopen(bs, filename, bdrv_flags, drv) < 0) 
+    pstrcpy(bs->filename, sizeof(bs->filename), filename);
+    if (bdrv_file_open(&bs->file, filename, bdrv_flags)) {
         qerror_report(QERR_OPEN_FILE_FAILED, filename);
         return -1;
     }
+    bs->io_supress = false;
+    bdrv_io_limits_disable(bs);
+    /*if (limits_enabled) {
+        bs->io_limits.bps[BLOCK_IO_LIMIT_TOTAL] = limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        bs->io_limits.bps[BLOCK_IO_LIMIT_READ] = limits.bps[BLOCK_IO_LIMIT_READ];
+        bs->io_limits.bps[BLOCK_IO_LIMIT_WRITE] = limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        bs->io_limits.iops[BLOCK_IO_LIMIT_TOTAL] = limits.bps[BLOCK_IO_LIMIT_TOTAL];
+        bs->io_limits.iops[BLOCK_IO_LIMIT_READ] = limits.bps[BLOCK_IO_LIMIT_READ];
+        bs->io_limits.iops[BLOCK_IO_LIMIT_WRITE] = limits.bps[BLOCK_IO_LIMIT_WRITE];
+        bdrv_io_limits_enable(bs);
+    }*/
     return monitor_read_bdrv_key_start(mon, bs, NULL, NULL);
 }
 
@@ -809,7 +881,7 @@ int do_change_block(Monitor *mon, const QDict *qdict, const char *device,
 {
     BlockDriverState *bs;
     BlockDriver *drv = NULL;
-    int force = qdict_get_try_bool(qdict, "force", 0);
+    int force = qdict_get_try_bool(qdict, "force", 1);
     int bdrv_flags;
     Error *err = NULL;
 
@@ -834,6 +906,7 @@ int do_change_block(Monitor *mon, const QDict *qdict, const char *device,
     bdrv_flags = bdrv_is_read_only(bs) ? 0 : BDRV_O_RDWR;
     bdrv_flags |= bdrv_is_snapshot(bs) ? BDRV_O_SNAPSHOT : 0;
     if (bdrv_open(bs, filename, bdrv_flags, drv) < 0) {
+
         qerror_report(QERR_OPEN_FILE_FAILED, filename);
         return -1;
     }

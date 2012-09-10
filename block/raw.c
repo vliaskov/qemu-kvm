@@ -53,6 +53,7 @@ static int coroutine_fn raw_co_discard(BlockDriverState *bs,
 
 static int raw_is_inserted(BlockDriverState *bs)
 {
+    //fprintf(stderr, "%s called\n", __FUNCTION__);
     return bdrv_is_inserted(bs->file);
 }
 
