@@ -32,10 +32,15 @@
 #include "bswap.h"
 #include "memory.h"
 #include "exec-memory.h"
+#include "event_notifier.h"
 
 /* This check must be after config-host.h is included */
 #ifdef CONFIG_EVENTFD
 #include <sys/eventfd.h>
+#endif
+
+#ifdef CONFIG_VALGRIND_H
+#include <valgrind/memcheck.h>
 #endif
 
 /* KVM uses PAGE_SIZE in its definition of COALESCED_MMIO_MAX */
@@ -83,10 +88,11 @@ struct KVMState
     int pit_state2;
     int xsave, xcrs;
     int many_ioeventfds;
+    int intx_set_mask;
     /* The man page (and posix) say ioctl numbers are signed int, but
      * they're not.  Linux, glibc and *BSD all treat ioctl numbers as
      * unsigned, and treating them as signed here can break things */
-    unsigned irqchip_inject_ioctl;
+    unsigned irq_set_ioctl;
 #ifdef KVM_CAP_IRQ_ROUTING
     struct kvm_irq_routing *irq_routes;
     int nr_allocated_irq_routes;
@@ -99,6 +105,10 @@ struct KVMState
 
 KVMState *kvm_state;
 bool kvm_kernel_irqchip;
+bool kvm_async_interrupts_allowed;
+bool kvm_irqfds_allowed;
+bool kvm_msi_via_irqfd_allowed;
+bool kvm_gsi_routing_allowed;
 
 static const KVMCapabilityInfo kvm_required_capabilites[] = {
     KVM_CAP_INFO(USER_MEMORY),
@@ -800,23 +810,29 @@ static void kvm_io_ioeventfd_del(MemoryRegionSection *section,
 
 static void kvm_eventfd_add(MemoryListener *listener,
                             MemoryRegionSection *section,
-                            bool match_data, uint64_t data, int fd)
+                            bool match_data, uint64_t data,
+                            EventNotifier *e)
 {
     if (section->address_space == get_system_memory()) {
-        kvm_mem_ioeventfd_add(section, match_data, data, fd);
+        kvm_mem_ioeventfd_add(section, match_data, data,
+			      event_notifier_get_fd(e));
     } else {
-        kvm_io_ioeventfd_add(section, match_data, data, fd);
+        kvm_io_ioeventfd_add(section, match_data, data,
+			     event_notifier_get_fd(e));
     }
 }
 
 static void kvm_eventfd_del(MemoryListener *listener,
                             MemoryRegionSection *section,
-                            bool match_data, uint64_t data, int fd)
+                            bool match_data, uint64_t data,
+                            EventNotifier *e)
 {
     if (section->address_space == get_system_memory()) {
-        kvm_mem_ioeventfd_del(section, match_data, data, fd);
+        kvm_mem_ioeventfd_del(section, match_data, data,
+			      event_notifier_get_fd(e));
     } else {
-        kvm_io_ioeventfd_del(section, match_data, data, fd);
+        kvm_io_ioeventfd_del(section, match_data, data,
+			     event_notifier_get_fd(e));
     }
 }
 
@@ -845,22 +861,22 @@ static void kvm_handle_interrupt(CPUArchState *env, int mask)
     }
 }
 
-int kvm_irqchip_set_irq(KVMState *s, int irq, int level)
+int kvm_set_irq(KVMState *s, int irq, int level)
 {
     struct kvm_irq_level event;
     int ret;
 
-    assert(kvm_irqchip_in_kernel());
+    assert(kvm_async_interrupts_enabled());
 
     event.level = level;
     event.irq = irq;
-    ret = kvm_vm_ioctl(s, s->irqchip_inject_ioctl, &event);
+    ret = kvm_vm_ioctl(s, s->irq_set_ioctl, &event);
     if (ret < 0) {
-        perror("kvm_set_irqchip_line");
+        perror("kvm_set_irq");
         abort();
     }
 
-    return (s->irqchip_inject_ioctl == KVM_IRQ_LINE) ? 1 : event.status;
+    return (s->irq_set_ioctl == KVM_IRQ_LINE) ? 1 : event.status;
 }
 
 #ifdef KVM_CAP_IRQ_ROUTING
@@ -946,6 +962,30 @@ static void kvm_add_routing_entry(KVMState *s,
     set_gsi(s, entry->gsi);
 
     kvm_irqchip_commit_routes(s);
+}
+
+static int kvm_update_routing_entry(KVMState *s,
+                                    struct kvm_irq_routing_entry *new_entry)
+{
+    struct kvm_irq_routing_entry *entry;
+    int n;
+
+    for (n = 0; n < s->irq_routes->nr; n++) {
+        entry = &s->irq_routes->entries[n];
+        if (entry->gsi != new_entry->gsi) {
+            continue;
+        }
+
+        entry->type = new_entry->type;
+        entry->flags = new_entry->flags;
+        entry->u = new_entry->u;
+
+        kvm_irqchip_commit_routes(s);
+
+        return 0;
+    }
+
+    return -ESRCH;
 }
 
 void kvm_irqchip_add_irq_route(KVMState *s, int irq, int irqchip, int pin)
@@ -1081,7 +1121,7 @@ int kvm_irqchip_send_msi(KVMState *s, MSIMessage msg)
 
     assert(route->kroute.type == KVM_IRQ_ROUTING_MSI);
 
-    return kvm_irqchip_set_irq(s, route->kroute.gsi, 1);
+    return kvm_set_irq(s, route->kroute.gsi, 1);
 }
 
 int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg)
@@ -1089,7 +1129,7 @@ int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg)
     struct kvm_irq_routing_entry kroute;
     int virq;
 
-    if (!kvm_irqchip_in_kernel()) {
+    if (!kvm_gsi_routing_enabled()) {
         return -ENOSYS;
     }
 
@@ -1110,6 +1150,24 @@ int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg)
     return virq;
 }
 
+int kvm_irqchip_update_msi_route(KVMState *s, int virq, MSIMessage msg)
+{
+    struct kvm_irq_routing_entry kroute;
+
+    if (!kvm_irqchip_in_kernel()) {
+        return -ENOSYS;
+    }
+
+    kroute.gsi = virq;
+    kroute.type = KVM_IRQ_ROUTING_MSI;
+    kroute.flags = 0;
+    kroute.u.msi.address_lo = (uint32_t)msg.address;
+    kroute.u.msi.address_hi = msg.address >> 32;
+    kroute.u.msi.data = msg.data;
+
+    return kvm_update_routing_entry(s, &kroute);
+}
+
 static int kvm_irqchip_assign_irqfd(KVMState *s, int fd, int virq, bool assign)
 {
     struct kvm_irqfd irqfd = {
@@ -1118,7 +1176,7 @@ static int kvm_irqchip_assign_irqfd(KVMState *s, int fd, int virq, bool assign)
         .flags = assign ? 0 : KVM_IRQFD_FLAG_DEASSIGN,
     };
 
-    if (!kvm_irqchip_in_kernel()) {
+    if (!kvm_irqfds_enabled()) {
         return -ENOSYS;
     }
 
@@ -1142,7 +1200,7 @@ int kvm_irqchip_send_msi(KVMState *s, MSIMessage msg)
 
 int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg)
 {
-    abort();
+    return -ENOSYS;
 }
 
 static int kvm_irqchip_assign_irqfd(KVMState *s, int fd, int virq, bool assign)
@@ -1151,14 +1209,14 @@ static int kvm_irqchip_assign_irqfd(KVMState *s, int fd, int virq, bool assign)
 }
 #endif /* !KVM_CAP_IRQ_ROUTING */
 
-int kvm_irqchip_add_irqfd(KVMState *s, int fd, int virq)
+int kvm_irqchip_add_irqfd_notifier(KVMState *s, EventNotifier *n, int virq)
 {
-    return kvm_irqchip_assign_irqfd(s, fd, virq, true);
+    return kvm_irqchip_assign_irqfd(s, event_notifier_get_fd(n), virq, true);
 }
 
-int kvm_irqchip_remove_irqfd(KVMState *s, int fd, int virq)
+int kvm_irqchip_remove_irqfd_notifier(KVMState *s, EventNotifier *n, int virq)
 {
-    return kvm_irqchip_assign_irqfd(s, fd, virq, false);
+    return kvm_irqchip_assign_irqfd(s, event_notifier_get_fd(n), virq, false);
 }
 
 static int kvm_irqchip_create(KVMState *s)
@@ -1179,15 +1237,35 @@ static int kvm_irqchip_create(KVMState *s)
         return ret;
     }
 
-    s->irqchip_inject_ioctl = KVM_IRQ_LINE;
-    if (kvm_check_extension(s, KVM_CAP_IRQ_INJECT_STATUS)) {
-        s->irqchip_inject_ioctl = KVM_IRQ_LINE_STATUS;
-    }
     kvm_kernel_irqchip = true;
+    /* If we have an in-kernel IRQ chip then we must have asynchronous
+     * interrupt delivery (though the reverse is not necessarily true)
+     */
+    kvm_async_interrupts_allowed = true;
 
     kvm_init_irq_routing(s);
 
     return 0;
+}
+
+static int kvm_max_vcpus(KVMState *s)
+{
+    int ret;
+
+    /* Find number of supported CPUs using the recommended
+     * procedure from the kernel API documentation to cope with
+     * older kernels that may be missing capabilities.
+     */
+    ret = kvm_check_extension(s, KVM_CAP_MAX_VCPUS);
+    if (ret) {
+        return ret;
+    }
+    ret = kvm_check_extension(s, KVM_CAP_NR_VCPUS);
+    if (ret) {
+        return ret;
+    }
+
+    return 4;
 }
 
 int kvm_init(void)
@@ -1199,6 +1277,7 @@ int kvm_init(void)
     const KVMCapabilityInfo *missing_cap;
     int ret;
     int i;
+    int max_vcpus;
 
     s = g_malloc0(sizeof(KVMState));
 
@@ -1236,6 +1315,14 @@ int kvm_init(void)
     if (ret > KVM_API_VERSION) {
         ret = -EINVAL;
         fprintf(stderr, "kvm version not supported\n");
+        goto err;
+    }
+
+    max_vcpus = kvm_max_vcpus(s);
+    if (smp_cpus > max_vcpus) {
+        ret = -EINVAL;
+        fprintf(stderr, "Number of SMP cpus requested (%d) exceeds max cpus "
+                "supported by KVM (%d)\n", smp_cpus, max_vcpus);
         goto err;
     }
 
@@ -1295,6 +1382,13 @@ int kvm_init(void)
 #ifdef KVM_CAP_IRQ_ROUTING
     s->direct_msi = (kvm_check_extension(s, KVM_CAP_SIGNAL_MSI) > 0);
 #endif
+
+    s->intx_set_mask = kvm_check_extension(s, KVM_CAP_PCI_2_3);
+
+    s->irq_set_ioctl = KVM_IRQ_LINE;
+    if (kvm_check_extension(s, KVM_CAP_IRQ_INJECT_STATUS)) {
+        s->irq_set_ioctl = KVM_IRQ_LINE_STATUS;
+    }
 
     ret = kvm_arch_init(s);
     if (ret < 0) {
@@ -1483,8 +1577,6 @@ int kvm_cpu_exec(CPUArchState *env)
         qemu_mutex_lock_iothread();
         kvm_arch_post_run(env, run);
 
-        kvm_flush_coalesced_mmio_buffer();
-
         if (run_ret < 0) {
             if (run_ret == -EINTR || run_ret == -EAGAIN) {
                 DPRINTF("io window exit\n");
@@ -1650,13 +1742,29 @@ int kvm_has_gsi_routing(void)
 #endif
 }
 
-int kvm_allows_irq0_override(void)
+int kvm_has_intx_set_mask(void)
 {
-    return !kvm_irqchip_in_kernel() || kvm_has_gsi_routing();
+    return kvm_state->intx_set_mask;
+}
+
+void *kvm_vmalloc(ram_addr_t size)
+{
+#ifdef TARGET_S390X
+    void *mem;
+
+    mem = kvm_arch_vmalloc(size);
+    if (mem) {
+        return mem;
+    }
+#endif
+    return qemu_vmalloc(size);
 }
 
 void kvm_setup_guest_memory(void *start, size_t size)
 {
+#ifdef CONFIG_VALGRIND_H
+    VALGRIND_MAKE_MEM_DEFINED(start, size);
+#endif
     if (!kvm_has_sync_mmu()) {
         int ret = qemu_madvise(start, size, QEMU_MADV_DONTFORK);
 

@@ -24,10 +24,12 @@
 #include "qemu-common.h"
 #include "console.h"
 #include "qemu-timer.h"
+#include "qmp-commands.h"
 
 //#define DEBUG_CONSOLE
 #define DEFAULT_BACKSCROLL 512
 #define MAX_CONSOLES 12
+#define CONSOLE_CURSOR_PERIOD 500
 
 #define QEMU_RGBA(r, g, b, a) (((a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 #define QEMU_RGB(r, g, b) QEMU_RGBA(r, g, b, 0xff)
@@ -139,6 +141,8 @@ struct TextConsole {
     TextCell *cells;
     int text_x[2], text_y[2], cursor_invalidate;
     int echo;
+    bool cursor_visible_phase;
+    QEMUTimer *cursor_timer;
 
     int update_x0;
     int update_y0;
@@ -173,7 +177,7 @@ void vga_hw_invalidate(void)
         active_console->hw_invalidate(active_console->hw);
 }
 
-void vga_hw_screen_dump(const char *filename)
+void qmp_screendump(const char *filename, Error **errp)
 {
     TextConsole *previous_active_console;
     bool cswitch;
@@ -187,9 +191,9 @@ void vga_hw_screen_dump(const char *filename)
         console_select(0);
     }
     if (consoles[0] && consoles[0]->hw_screen_dump) {
-        consoles[0]->hw_screen_dump(consoles[0]->hw, filename, cswitch);
+        consoles[0]->hw_screen_dump(consoles[0]->hw, filename, cswitch, errp);
     } else {
-        error_report("screen dump not implemented");
+        error_setg(errp, "device doesn't support screendump\n");
     }
 
     if (cswitch) {
@@ -615,7 +619,7 @@ static void console_show_cursor(TextConsole *s, int show)
             y += s->total_height;
         if (y < s->height) {
             c = &s->cells[y1 * s->width + x];
-            if (show) {
+            if (show && s->cursor_visible_phase) {
                 TextAttributes t_attrib = s->t_attrib_default;
                 t_attrib.invers = !(t_attrib.invers); /* invert fg and bg */
                 vga_putcharxy(s->ds, x, y, c->ch, &t_attrib);
@@ -847,6 +851,26 @@ static void console_clear_xy(TextConsole *s, int x, int y)
     update_xy(s, x, y);
 }
 
+/* set cursor, checking bounds */
+static void set_cursor(TextConsole *s, int x, int y)
+{
+    if (x < 0) {
+        x = 0;
+    }
+    if (y < 0) {
+        y = 0;
+    }
+    if (y >= s->height) {
+        y = s->height - 1;
+    }
+    if (x >= s->width) {
+        x = s->width - 1;
+    }
+
+    s->x = x;
+    s->y = y;
+}
+
 static void console_putchar(TextConsole *s, int ch)
 {
     TextCell *c;
@@ -918,7 +942,8 @@ static void console_putchar(TextConsole *s, int ch)
                     s->esc_params[s->nb_esc_params] * 10 + ch - '0';
             }
         } else {
-            s->nb_esc_params++;
+            if (s->nb_esc_params < MAX_ESC_PARAMS)
+                s->nb_esc_params++;
             if (ch == ';')
                 break;
 #ifdef DEBUG_CONSOLE
@@ -932,59 +957,37 @@ static void console_putchar(TextConsole *s, int ch)
                 if (s->esc_params[0] == 0) {
                     s->esc_params[0] = 1;
                 }
-                s->y -= s->esc_params[0];
-                if (s->y < 0) {
-                    s->y = 0;
-                }
+                set_cursor(s, s->x, s->y - s->esc_params[0]);
                 break;
             case 'B':
                 /* move cursor down */
                 if (s->esc_params[0] == 0) {
                     s->esc_params[0] = 1;
                 }
-                s->y += s->esc_params[0];
-                if (s->y >= s->height) {
-                    s->y = s->height - 1;
-                }
+                set_cursor(s, s->x, s->y + s->esc_params[0]);
                 break;
             case 'C':
                 /* move cursor right */
                 if (s->esc_params[0] == 0) {
                     s->esc_params[0] = 1;
                 }
-                s->x += s->esc_params[0];
-                if (s->x >= s->width) {
-                    s->x = s->width - 1;
-                }
+                set_cursor(s, s->x + s->esc_params[0], s->y);
                 break;
             case 'D':
                 /* move cursor left */
                 if (s->esc_params[0] == 0) {
                     s->esc_params[0] = 1;
                 }
-                s->x -= s->esc_params[0];
-                if (s->x < 0) {
-                    s->x = 0;
-                }
+                set_cursor(s, s->x - s->esc_params[0], s->y);
                 break;
             case 'G':
                 /* move cursor to column */
-                s->x = s->esc_params[0] - 1;
-                if (s->x < 0) {
-                    s->x = 0;
-                }
+                set_cursor(s, s->esc_params[0] - 1, s->y);
                 break;
             case 'f':
             case 'H':
                 /* move cursor to row, column */
-                s->x = s->esc_params[1] - 1;
-                if (s->x < 0) {
-                    s->x = 0;
-                }
-                s->y = s->esc_params[0] - 1;
-                if (s->y < 0) {
-                    s->y = 0;
-                }
+                set_cursor(s, s->esc_params[1] - 1, s->esc_params[0] - 1);
                 break;
             case 'J':
                 switch (s->esc_params[0]) {
@@ -1083,12 +1086,20 @@ void console_select(unsigned int index)
     s = consoles[index];
     if (s) {
         DisplayState *ds = s->ds;
+
+        if (active_console && active_console->cursor_timer) {
+            qemu_del_timer(active_console->cursor_timer);
+        }
         active_console = s;
         if (ds_get_bits_per_pixel(s->ds)) {
             ds->surface = qemu_resize_displaysurface(ds, s->g_width, s->g_height);
         } else {
             s->ds->surface->width = s->width;
             s->ds->surface->height = s->height;
+        }
+        if (s->cursor_timer) {
+            qemu_mod_timer(s->cursor_timer,
+                   qemu_get_clock_ms(rt_clock) + CONSOLE_CURSOR_PERIOD / 2);
         }
         dpy_resize(s->ds);
         vga_hw_invalidate();
@@ -1454,6 +1465,16 @@ static void text_console_set_echo(CharDriverState *chr, bool echo)
     s->echo = echo;
 }
 
+static void text_console_update_cursor(void *opaque)
+{
+    TextConsole *s = opaque;
+
+    s->cursor_visible_phase = !s->cursor_visible_phase;
+    vga_hw_invalidate();
+    qemu_mod_timer(s->cursor_timer,
+                   qemu_get_clock_ms(rt_clock) + CONSOLE_CURSOR_PERIOD / 2);
+}
+
 static void text_console_do_init(CharDriverState *chr, DisplayState *ds)
 {
     TextConsole *s;
@@ -1481,6 +1502,9 @@ static void text_console_do_init(CharDriverState *chr, DisplayState *ds)
         s->g_width = ds_get_width(s->ds);
         s->g_height = ds_get_height(s->ds);
     }
+
+    s->cursor_timer =
+        qemu_new_timer_ms(rt_clock, text_console_update_cursor, s);
 
     s->hw_invalidate = text_console_invalidate;
     s->hw_text_update = text_console_update;

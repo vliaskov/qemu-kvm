@@ -19,6 +19,7 @@
 #include "qemu-timer.h"
 #include "qmp-commands.h"
 #include "monitor.h"
+#include "console.h"
 
 static void hmp_handle_error(Monitor *mon, Error **errp)
 {
@@ -131,11 +132,26 @@ void hmp_info_mice(Monitor *mon)
 void hmp_info_migrate(Monitor *mon)
 {
     MigrationInfo *info;
+    MigrationCapabilityStatusList *caps, *cap;
 
     info = qmp_query_migrate(NULL);
+    caps = qmp_query_migrate_capabilities(NULL);
+
+    /* do not display parameters during setup */
+    if (info->has_status && caps) {
+        monitor_printf(mon, "capabilities: ");
+        for (cap = caps; cap; cap = cap->next) {
+            monitor_printf(mon, "%s: %s ",
+                           MigrationCapability_lookup[cap->value->capability],
+                           cap->value->state ? "on" : "off");
+        }
+        monitor_printf(mon, "\n");
+    }
 
     if (info->has_status) {
         monitor_printf(mon, "Migration status: %s\n", info->status);
+        monitor_printf(mon, "total time: %" PRIu64 " milliseconds\n",
+                       info->total_time);
     }
 
     if (info->has_ram) {
@@ -145,6 +161,12 @@ void hmp_info_migrate(Monitor *mon)
                        info->ram->remaining >> 10);
         monitor_printf(mon, "total ram: %" PRIu64 " kbytes\n",
                        info->ram->total >> 10);
+        monitor_printf(mon, "duplicate: %" PRIu64 " pages\n",
+                       info->ram->duplicate);
+        monitor_printf(mon, "normal: %" PRIu64 " pages\n",
+                       info->ram->normal);
+        monitor_printf(mon, "normal bytes: %" PRIu64 " kbytes\n",
+                       info->ram->normal_bytes >> 10);
     }
 
     if (info->has_disk) {
@@ -156,7 +178,46 @@ void hmp_info_migrate(Monitor *mon)
                        info->disk->total >> 10);
     }
 
+    if (info->has_xbzrle_cache) {
+        monitor_printf(mon, "cache size: %" PRIu64 " bytes\n",
+                       info->xbzrle_cache->cache_size);
+        monitor_printf(mon, "xbzrle transferred: %" PRIu64 " kbytes\n",
+                       info->xbzrle_cache->bytes >> 10);
+        monitor_printf(mon, "xbzrle pages: %" PRIu64 " pages\n",
+                       info->xbzrle_cache->pages);
+        monitor_printf(mon, "xbzrle cache miss: %" PRIu64 "\n",
+                       info->xbzrle_cache->cache_miss);
+        monitor_printf(mon, "xbzrle overflow : %" PRIu64 "\n",
+                       info->xbzrle_cache->overflow);
+    }
+
     qapi_free_MigrationInfo(info);
+    qapi_free_MigrationCapabilityStatusList(caps);
+}
+
+void hmp_info_migrate_capabilities(Monitor *mon)
+{
+    MigrationCapabilityStatusList *caps, *cap;
+
+    caps = qmp_query_migrate_capabilities(NULL);
+
+    if (caps) {
+        monitor_printf(mon, "capabilities: ");
+        for (cap = caps; cap; cap = cap->next) {
+            monitor_printf(mon, "%s: %s ",
+                           MigrationCapability_lookup[cap->value->capability],
+                           cap->value->state ? "on" : "off");
+        }
+        monitor_printf(mon, "\n");
+    }
+
+    qapi_free_MigrationCapabilityStatusList(caps);
+}
+
+void hmp_info_migrate_cache_size(Monitor *mon)
+{
+    monitor_printf(mon, "xbzrel cache size: %" PRId64 " kbytes\n",
+                   qmp_query_migrate_cache_size(NULL) >> 10);
 }
 
 void hmp_info_cpus(Monitor *mon)
@@ -225,6 +286,8 @@ void hmp_info_block(Monitor *mon)
             if (info->value->inserted->has_backing_file) {
                 monitor_printf(mon, " backing_file=");
                 monitor_print_filename(mon, info->value->inserted->backing_file);
+                monitor_printf(mon, " backing_file_depth=%" PRId64,
+                    info->value->inserted->backing_file_depth);
             }
             monitor_printf(mon, " ro=%d drv=%s encrypted=%d",
                            info->value->inserted->ro,
@@ -351,6 +414,8 @@ void hmp_info_spice(Monitor *mon)
         monitor_printf(mon, "     address: %s:%" PRId64 " [tls]\n",
                        info->host, info->tls_port);
     }
+    monitor_printf(mon, "    migrated: %s\n",
+                   info->migrated ? "true" : "false");
     monitor_printf(mon, "        auth: %s\n", info->auth);
     monitor_printf(mon, "    compiled: %s\n", info->compiled_version);
     monitor_printf(mon, "  mouse-mode: %s\n",
@@ -608,34 +673,35 @@ void hmp_pmemsave(Monitor *mon, const QDict *qdict)
 
 static void hmp_cont_cb(void *opaque, int err)
 {
-    Monitor *mon = opaque;
-
     if (!err) {
-        hmp_cont(mon, NULL);
+        qmp_cont(NULL);
     }
+}
+
+static bool key_is_missing(const BlockInfo *bdev)
+{
+    return (bdev->inserted && bdev->inserted->encryption_key_missing);
 }
 
 void hmp_cont(Monitor *mon, const QDict *qdict)
 {
+    BlockInfoList *bdev_list, *bdev;
     Error *errp = NULL;
 
-    qmp_cont(&errp);
-    if (error_is_set(&errp)) {
-        if (error_is_type(errp, QERR_DEVICE_ENCRYPTED)) {
-            const char *device;
-
-            /* The device is encrypted. Ask the user for the password
-               and retry */
-
-            device = error_get_field(errp, "device");
-            assert(device != NULL);
-
-            monitor_read_block_device_key(mon, device, hmp_cont_cb, mon);
-            error_free(errp);
-            return;
+    bdev_list = qmp_query_block(NULL);
+    for (bdev = bdev_list; bdev; bdev = bdev->next) {
+        if (key_is_missing(bdev->value)) {
+            monitor_read_block_device_key(mon, bdev->value->device,
+                                          hmp_cont_cb, NULL);
+            goto out;
         }
-        hmp_handle_error(mon, &errp);
     }
+
+    qmp_cont(&errp);
+    hmp_handle_error(mon, &errp);
+
+out:
+    qapi_free_BlockInfoList(bdev_list);
 }
 
 void hmp_system_wakeup(Monitor *mon, const QDict *qdict)
@@ -727,10 +793,55 @@ void hmp_migrate_set_downtime(Monitor *mon, const QDict *qdict)
     qmp_migrate_set_downtime(value, NULL);
 }
 
+void hmp_migrate_set_cache_size(Monitor *mon, const QDict *qdict)
+{
+    int64_t value = qdict_get_int(qdict, "value");
+    Error *err = NULL;
+
+    qmp_migrate_set_cache_size(value, &err);
+    if (err) {
+        monitor_printf(mon, "%s\n", error_get_pretty(err));
+        error_free(err);
+        return;
+    }
+}
+
 void hmp_migrate_set_speed(Monitor *mon, const QDict *qdict)
 {
     int64_t value = qdict_get_int(qdict, "value");
     qmp_migrate_set_speed(value, NULL);
+}
+
+void hmp_migrate_set_capability(Monitor *mon, const QDict *qdict)
+{
+    const char *cap = qdict_get_str(qdict, "capability");
+    bool state = qdict_get_bool(qdict, "state");
+    Error *err = NULL;
+    MigrationCapabilityStatusList *caps = g_malloc0(sizeof(*caps));
+    int i;
+
+    for (i = 0; i < MIGRATION_CAPABILITY_MAX; i++) {
+        if (strcmp(cap, MigrationCapability_lookup[i]) == 0) {
+            caps->value = g_malloc0(sizeof(*caps->value));
+            caps->value->capability = i;
+            caps->value->state = state;
+            caps->next = NULL;
+            qmp_migrate_set_capabilities(caps, &err);
+            break;
+        }
+    }
+
+    if (i == MIGRATION_CAPABILITY_MAX) {
+        error_set(&err, QERR_INVALID_PARAMETER, cap);
+    }
+
+    qapi_free_MigrationCapabilityStatusList(caps);
+
+    if (err) {
+        monitor_printf(mon, "migrate_set_parameter: %s\n",
+                       error_get_pretty(err));
+        error_free(err);
+    }
 }
 
 void hmp_set_password(Monitor *mon, const QDict *qdict)
@@ -771,22 +882,6 @@ static void hmp_change_read_arg(Monitor *mon, const char *password,
     monitor_read_command(mon, 1);
 }
 
-static void cb_hmp_change_bdrv_pwd(Monitor *mon, const char *password,
-                                   void *opaque)
-{
-    Error *encryption_err = opaque;
-    Error *err = NULL;
-    const char *device;
-
-    device = error_get_field(encryption_err, "device");
-
-    qmp_block_passwd(device, password, &err);
-    hmp_handle_error(mon, &err);
-    error_free(encryption_err);
-
-    monitor_read_command(mon, 1);
-}
-
 void hmp_change(Monitor *mon, const QDict *qdict)
 {
     const char *device = qdict_get_str(qdict, "device");
@@ -804,18 +899,10 @@ void hmp_change(Monitor *mon, const QDict *qdict)
     }
 
     qmp_change(device, target, !!arg, arg, &err);
-    if (error_is_type(err, QERR_DEVICE_ENCRYPTED)) {
-        monitor_printf(mon, "%s (%s) is encrypted.\n",
-                       error_get_field(err, "device"),
-                       error_get_field(err, "filename"));
-        if (!monitor_get_rs(mon)) {
-            monitor_printf(mon,
-                    "terminal does not support password prompting\n");
-            error_free(err);
-            return;
-        }
-        readline_start(monitor_get_rs(mon), "Password: ", 1,
-                       cb_hmp_change_bdrv_pwd, err);
+    if (error_is_set(&err) &&
+        error_get_class(err) == ERROR_CLASS_DEVICE_ENCRYPTED) {
+        error_free(err);
+        monitor_read_block_device_key(mon, device, NULL, NULL);
         return;
     }
     hmp_handle_error(mon, &err);
@@ -998,5 +1085,86 @@ void hmp_netdev_del(Monitor *mon, const QDict *qdict)
     Error *err = NULL;
 
     qmp_netdev_del(id, &err);
+    hmp_handle_error(mon, &err);
+}
+
+void hmp_getfd(Monitor *mon, const QDict *qdict)
+{
+    const char *fdname = qdict_get_str(qdict, "fdname");
+    Error *errp = NULL;
+
+    qmp_getfd(fdname, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_closefd(Monitor *mon, const QDict *qdict)
+{
+    const char *fdname = qdict_get_str(qdict, "fdname");
+    Error *errp = NULL;
+
+    qmp_closefd(fdname, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_send_key(Monitor *mon, const QDict *qdict)
+{
+    const char *keys = qdict_get_str(qdict, "keys");
+    QKeyCodeList *keylist, *head = NULL, *tmp = NULL;
+    int has_hold_time = qdict_haskey(qdict, "hold-time");
+    int hold_time = qdict_get_try_int(qdict, "hold-time", -1);
+    Error *err = NULL;
+    char keyname_buf[16];
+    char *separator;
+    int keyname_len, idx;
+
+    while (1) {
+        separator = strchr(keys, '-');
+        keyname_len = separator ? separator - keys : strlen(keys);
+        pstrcpy(keyname_buf, sizeof(keyname_buf), keys);
+
+        /* Be compatible with old interface, convert user inputted "<" */
+        if (!strncmp(keyname_buf, "<", 1) && keyname_len == 1) {
+            pstrcpy(keyname_buf, sizeof(keyname_buf), "less");
+            keyname_len = 4;
+        }
+        keyname_buf[keyname_len] = 0;
+
+        idx = index_from_key(keyname_buf);
+        if (idx == Q_KEY_CODE_MAX) {
+            monitor_printf(mon, "invalid parameter: %s\n", keyname_buf);
+            break;
+        }
+
+        keylist = g_malloc0(sizeof(*keylist));
+        keylist->value = idx;
+        keylist->next = NULL;
+
+        if (!head) {
+            head = keylist;
+        }
+        if (tmp) {
+            tmp->next = keylist;
+        }
+        tmp = keylist;
+
+        if (!separator) {
+            break;
+        }
+        keys = separator + 1;
+    }
+
+    if (idx != Q_KEY_CODE_MAX) {
+        qmp_send_key(head, has_hold_time, hold_time, &err);
+    }
+    hmp_handle_error(mon, &err);
+    qapi_free_QKeyCodeList(head);
+}
+
+void hmp_screen_dump(Monitor *mon, const QDict *qdict)
+{
+    const char *filename = qdict_get_str(qdict, "filename");
+    Error *err = NULL;
+
+    qmp_screendump(filename, &err);
     hmp_handle_error(mon, &err);
 }

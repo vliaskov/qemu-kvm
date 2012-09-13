@@ -156,12 +156,9 @@ static inline TranslationBlock *tb_find_fast(CPUArchState *env)
 
 static CPUDebugExcpHandler *debug_excp_handler;
 
-CPUDebugExcpHandler *cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler)
+void cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler)
 {
-    CPUDebugExcpHandler *old_handler = debug_excp_handler;
-
     debug_excp_handler = handler;
-    return old_handler;
 }
 
 static void cpu_handle_debug_exception(CPUArchState *env)
@@ -225,6 +222,7 @@ int cpu_exec(CPUArchState *env)
 #elif defined(TARGET_LM32)
 #elif defined(TARGET_MICROBLAZE)
 #elif defined(TARGET_MIPS)
+#elif defined(TARGET_OPENRISC)
 #elif defined(TARGET_SH4)
 #elif defined(TARGET_CRIS)
 #elif defined(TARGET_S390X)
@@ -288,6 +286,12 @@ int cpu_exec(CPUArchState *env)
                     }
 #endif
 #if defined(TARGET_I386)
+#if !defined(CONFIG_USER_ONLY)
+                    if (interrupt_request & CPU_INTERRUPT_POLL) {
+                        env->interrupt_request &= ~CPU_INTERRUPT_POLL;
+                        apic_poll_irq(env->apic_state);
+                    }
+#endif
                     if (interrupt_request & CPU_INTERRUPT_INIT) {
                             cpu_svm_check_intercept_param(env, SVM_EXIT_INIT,
                                                           0);
@@ -381,6 +385,23 @@ int cpu_exec(CPUArchState *env)
                         do_interrupt(env);
                         next_tb = 0;
                     }
+#elif defined(TARGET_OPENRISC)
+                    {
+                        int idx = -1;
+                        if ((interrupt_request & CPU_INTERRUPT_HARD)
+                            && (env->sr & SR_IEE)) {
+                            idx = EXCP_INT;
+                        }
+                        if ((interrupt_request & CPU_INTERRUPT_TIMER)
+                            && (env->sr & SR_TEE)) {
+                            idx = EXCP_TICK;
+                        }
+                        if (idx >= 0) {
+                            env->exception_index = idx;
+                            do_interrupt(env);
+                            next_tb = 0;
+                        }
+                    }
 #elif defined(TARGET_SPARC)
                     if (interrupt_request & CPU_INTERRUPT_HARD) {
                         if (cpu_interrupts_enabled(env) &&
@@ -423,6 +444,7 @@ int cpu_exec(CPUArchState *env)
 #elif defined(TARGET_UNICORE32)
                     if (interrupt_request & CPU_INTERRUPT_HARD
                         && !(env->uncached_asr & ASR_I)) {
+                        env->exception_index = UC32_EXCP_INTR;
                         do_interrupt(env);
                         next_tb = 0;
                     }
@@ -634,6 +656,7 @@ int cpu_exec(CPUArchState *env)
               | env->cc_dest | (env->cc_x << 4);
 #elif defined(TARGET_MICROBLAZE)
 #elif defined(TARGET_MIPS)
+#elif defined(TARGET_OPENRISC)
 #elif defined(TARGET_SH4)
 #elif defined(TARGET_ALPHA)
 #elif defined(TARGET_CRIS)

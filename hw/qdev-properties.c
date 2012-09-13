@@ -2,6 +2,8 @@
 #include "qdev.h"
 #include "qerror.h"
 #include "blockdev.h"
+#include "hw/block-common.h"
+#include "net/hub.h"
 
 void *qdev_get_prop_ptr(DeviceState *dev, Property *prop)
 {
@@ -9,6 +11,78 @@ void *qdev_get_prop_ptr(DeviceState *dev, Property *prop)
     ptr += prop->offset;
     return ptr;
 }
+
+static void get_pointer(Object *obj, Visitor *v, Property *prop,
+                        const char *(*print)(void *ptr),
+                        const char *name, Error **errp)
+{
+    DeviceState *dev = DEVICE(obj);
+    void **ptr = qdev_get_prop_ptr(dev, prop);
+    char *p;
+
+    p = (char *) (*ptr ? print(*ptr) : "");
+    visit_type_str(v, &p, name, errp);
+}
+
+static void set_pointer(Object *obj, Visitor *v, Property *prop,
+                        int (*parse)(DeviceState *dev, const char *str,
+                                     void **ptr),
+                        const char *name, Error **errp)
+{
+    DeviceState *dev = DEVICE(obj);
+    Error *local_err = NULL;
+    void **ptr = qdev_get_prop_ptr(dev, prop);
+    char *str;
+    int ret;
+
+    if (dev->state != DEV_STATE_CREATED) {
+        error_set(errp, QERR_PERMISSION_DENIED);
+        return;
+    }
+
+    visit_type_str(v, &str, name, &local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+    if (!*str) {
+        g_free(str);
+        *ptr = NULL;
+        return;
+    }
+    ret = parse(dev, str, ptr);
+    error_set_from_qdev_prop_error(errp, ret, dev, prop, str);
+    g_free(str);
+}
+
+static void get_enum(Object *obj, Visitor *v, void *opaque,
+                     const char *name, Error **errp)
+{
+    DeviceState *dev = DEVICE(obj);
+    Property *prop = opaque;
+    int *ptr = qdev_get_prop_ptr(dev, prop);
+
+    visit_type_enum(v, ptr, prop->info->enum_table,
+                    prop->info->name, prop->name, errp);
+}
+
+static void set_enum(Object *obj, Visitor *v, void *opaque,
+                     const char *name, Error **errp)
+{
+    DeviceState *dev = DEVICE(obj);
+    Property *prop = opaque;
+    int *ptr = qdev_get_prop_ptr(dev, prop);
+
+    if (dev->state != DEV_STATE_CREATED) {
+        error_set(errp, QERR_PERMISSION_DENIED);
+        return;
+    }
+
+    visit_type_enum(v, ptr, prop->info->enum_table,
+                    prop->info->name, prop->name, errp);
+}
+
+/* Bit */
 
 static uint32_t qdev_get_prop_mask(Property *prop)
 {
@@ -25,8 +99,6 @@ static void bit_prop_set(DeviceState *dev, Property *props, bool val)
     else
         *p &= ~mask;
 }
-
-/* Bit */
 
 static int print_bit(DeviceState *dev, Property *prop, char *dest, size_t len)
 {
@@ -435,48 +507,6 @@ static const char *print_drive(void *ptr)
     return bdrv_get_device_name(ptr);
 }
 
-static void get_pointer(Object *obj, Visitor *v, Property *prop,
-                        const char *(*print)(void *ptr),
-                        const char *name, Error **errp)
-{
-    DeviceState *dev = DEVICE(obj);
-    void **ptr = qdev_get_prop_ptr(dev, prop);
-    char *p;
-
-    p = (char *) (*ptr ? print(*ptr) : "");
-    visit_type_str(v, &p, name, errp);
-}
-
-static void set_pointer(Object *obj, Visitor *v, Property *prop,
-                        int (*parse)(DeviceState *dev, const char *str, void **ptr),
-                        const char *name, Error **errp)
-{
-    DeviceState *dev = DEVICE(obj);
-    Error *local_err = NULL;
-    void **ptr = qdev_get_prop_ptr(dev, prop);
-    char *str;
-    int ret;
-
-    if (dev->state != DEV_STATE_CREATED) {
-        error_set(errp, QERR_PERMISSION_DENIED);
-        return;
-    }
-
-    visit_type_str(v, &str, name, &local_err);
-    if (local_err) {
-        error_propagate(errp, local_err);
-        return;
-    }
-    if (!*str) {
-        g_free(str);
-        *ptr = NULL;
-        return;
-    }
-    ret = parse(dev, str, ptr);
-    error_set_from_qdev_prop_error(errp, ret, dev, prop, str);
-    g_free(str);
-}
-
 static void get_drive(Object *obj, Visitor *v, void *opaque,
                       const char *name, Error **errp)
 {
@@ -554,7 +584,7 @@ PropertyInfo qdev_prop_chr = {
 
 static int parse_netdev(DeviceState *dev, const char *str, void **ptr)
 {
-    VLANClientState *netdev = qemu_find_netdev(str);
+    NetClientState *netdev = qemu_find_netdev(str);
 
     if (netdev == NULL) {
         return -ENOENT;
@@ -568,7 +598,7 @@ static int parse_netdev(DeviceState *dev, const char *str, void **ptr)
 
 static const char *print_netdev(void *ptr)
 {
-    VLANClientState *netdev = ptr;
+    NetClientState *netdev = ptr;
 
     return netdev->name ? netdev->name : "";
 }
@@ -595,13 +625,16 @@ PropertyInfo qdev_prop_netdev = {
 
 static int print_vlan(DeviceState *dev, Property *prop, char *dest, size_t len)
 {
-    VLANState **ptr = qdev_get_prop_ptr(dev, prop);
+    NetClientState **ptr = qdev_get_prop_ptr(dev, prop);
 
     if (*ptr) {
-        return snprintf(dest, len, "%d", (*ptr)->id);
-    } else {
-        return snprintf(dest, len, "<null>");
+        int id;
+        if (!net_hub_id_for_client(*ptr, &id)) {
+            return snprintf(dest, len, "%d", id);
+        }
     }
+
+    return snprintf(dest, len, "<null>");
 }
 
 static void get_vlan(Object *obj, Visitor *v, void *opaque,
@@ -609,11 +642,17 @@ static void get_vlan(Object *obj, Visitor *v, void *opaque,
 {
     DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    VLANState **ptr = qdev_get_prop_ptr(dev, prop);
-    int64_t id;
+    NetClientState **ptr = qdev_get_prop_ptr(dev, prop);
+    int32_t id = -1;
 
-    id = *ptr ? (*ptr)->id : -1;
-    visit_type_int64(v, &id, name, errp);
+    if (*ptr) {
+        int hub_id;
+        if (!net_hub_id_for_client(*ptr, &hub_id)) {
+            id = hub_id;
+        }
+    }
+
+    visit_type_int32(v, &id, name, errp);
 }
 
 static void set_vlan(Object *obj, Visitor *v, void *opaque,
@@ -621,17 +660,17 @@ static void set_vlan(Object *obj, Visitor *v, void *opaque,
 {
     DeviceState *dev = DEVICE(obj);
     Property *prop = opaque;
-    VLANState **ptr = qdev_get_prop_ptr(dev, prop);
+    NetClientState **ptr = qdev_get_prop_ptr(dev, prop);
     Error *local_err = NULL;
-    int64_t id;
-    VLANState *vlan;
+    int32_t id;
+    NetClientState *hubport;
 
     if (dev->state != DEV_STATE_CREATED) {
         error_set(errp, QERR_PERMISSION_DENIED);
         return;
     }
 
-    visit_type_int64(v, &id, name, &local_err);
+    visit_type_int32(v, &id, name, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         return;
@@ -640,13 +679,14 @@ static void set_vlan(Object *obj, Visitor *v, void *opaque,
         *ptr = NULL;
         return;
     }
-    vlan = qemu_find_vlan(id, 1);
-    if (!vlan) {
+
+    hubport = net_hub_port_find(id);
+    if (!hubport) {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE,
                   name, prop->info->name);
         return;
     }
-    *ptr = vlan;
+    *ptr = hubport;
 }
 
 PropertyInfo qdev_prop_vlan = {
@@ -735,7 +775,6 @@ PropertyInfo qdev_prop_macaddr = {
     .set   = set_mac,
 };
 
-
 /* --- lost tick policy --- */
 
 static const char *lost_tick_policy_table[LOST_TICK_MAX+1] = {
@@ -748,38 +787,26 @@ static const char *lost_tick_policy_table[LOST_TICK_MAX+1] = {
 
 QEMU_BUILD_BUG_ON(sizeof(LostTickPolicy) != sizeof(int));
 
-static void get_enum(Object *obj, Visitor *v, void *opaque,
-                     const char *name, Error **errp)
-{
-    DeviceState *dev = DEVICE(obj);
-    Property *prop = opaque;
-    int *ptr = qdev_get_prop_ptr(dev, prop);
-
-    visit_type_enum(v, ptr, prop->info->enum_table,
-                    prop->info->name, prop->name, errp);
-}
-
-static void set_enum(Object *obj, Visitor *v, void *opaque,
-                     const char *name, Error **errp)
-{
-    DeviceState *dev = DEVICE(obj);
-    Property *prop = opaque;
-    int *ptr = qdev_get_prop_ptr(dev, prop);
-
-    if (dev->state != DEV_STATE_CREATED) {
-        error_set(errp, QERR_PERMISSION_DENIED);
-        return;
-    }
-
-    visit_type_enum(v, ptr, prop->info->enum_table,
-                    prop->info->name, prop->name, errp);
-}
-
 PropertyInfo qdev_prop_losttickpolicy = {
     .name  = "LostTickPolicy",
     .enum_table  = lost_tick_policy_table,
     .get   = get_enum,
     .set   = set_enum,
+};
+
+/* --- BIOS CHS translation */
+
+static const char *bios_chs_trans_table[] = {
+    [BIOS_ATA_TRANSLATION_AUTO] = "auto",
+    [BIOS_ATA_TRANSLATION_NONE] = "none",
+    [BIOS_ATA_TRANSLATION_LBA]  = "lba",
+};
+
+PropertyInfo qdev_prop_bios_chs_trans = {
+    .name = "bios-chs-trans",
+    .enum_table = bios_chs_trans_table,
+    .get = get_enum,
+    .set = set_enum,
 };
 
 /* --- pci address --- */
@@ -1123,7 +1150,7 @@ void qdev_prop_set_uint64(DeviceState *dev, const char *name, uint64_t value)
     assert_no_error(errp);
 }
 
-void qdev_prop_set_string(DeviceState *dev, const char *name, char *value)
+void qdev_prop_set_string(DeviceState *dev, const char *name, const char *value)
 {
     Error *errp = NULL;
     object_property_set_str(OBJECT(dev), value, name, &errp);
@@ -1159,19 +1186,12 @@ void qdev_prop_set_chr(DeviceState *dev, const char *name, CharDriverState *valu
     assert_no_error(errp);
 }
 
-void qdev_prop_set_netdev(DeviceState *dev, const char *name, VLANClientState *value)
+void qdev_prop_set_netdev(DeviceState *dev, const char *name, NetClientState *value)
 {
     Error *errp = NULL;
     assert(!value || value->name);
     object_property_set_str(OBJECT(dev),
                             value ? value->name : "", name, &errp);
-    assert_no_error(errp);
-}
-
-void qdev_prop_set_vlan(DeviceState *dev, const char *name, VLANState *value)
-{
-    Error *errp = NULL;
-    object_property_set_int(OBJECT(dev), value ? value->id : -1, name, &errp);
     assert_no_error(errp);
 }
 

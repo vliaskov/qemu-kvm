@@ -388,11 +388,23 @@ static const VMStateDescription vmstate_uhci_port = {
     }
 };
 
+static int uhci_post_load(void *opaque, int version_id)
+{
+    UHCIState *s = opaque;
+
+    if (version_id < 2) {
+        s->expire_time = qemu_get_clock_ns(vm_clock) +
+            (get_ticks_per_sec() / FRAME_TIMER_FREQ);
+    }
+    return 0;
+}
+
 static const VMStateDescription vmstate_uhci = {
     .name = "uhci",
     .version_id = 2,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
+    .post_load = uhci_post_load,
     .fields      = (VMStateField []) {
         VMSTATE_PCI_DEVICE(dev, UHCIState),
         VMSTATE_UINT8_EQUAL(num_ports_vmstate, UHCIState),
@@ -717,11 +729,6 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
         *int_mask |= 0x01;
 
     if (pid == USB_TOKEN_IN) {
-        if (len > max_len) {
-            ret = USB_RET_BABBLE;
-            goto out;
-        }
-
         if ((td->ctrl & TD_CTRL_SPD) && len < max_len) {
             *int_mask |= 0x02;
             /* short packet: do not update QH */
@@ -736,6 +743,22 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
     return TD_RESULT_COMPLETE;
 
 out:
+    /*
+     * We should not do any further processing on a queue with errors!
+     * This is esp. important for bulk endpoints with pipelining enabled
+     * (redirection to a real USB device), where we must cancel all the
+     * transfers after this one so that:
+     * 1) If they've completed already, they are not processed further
+     *    causing more stalls, originating from the same failed transfer
+     * 2) If still in flight, they are cancelled before the guest does
+     *    a clear stall, otherwise the guest and device can loose sync!
+     */
+    while (!QTAILQ_EMPTY(&async->queue->asyncs)) {
+        UHCIAsync *as = QTAILQ_FIRST(&async->queue->asyncs);
+        uhci_async_unlink(as);
+        uhci_async_cancel(as);
+    }
+
     switch(ret) {
     case USB_RET_STALL:
         td->ctrl |= TD_CTRL_STALL;
@@ -831,14 +854,14 @@ static int uhci_handle_td(UHCIState *s, uint32_t addr, UHCI_TD *td,
      * for initial isochronous requests
      */
     async->queue->valid = 32;
-    async->isoc  = td->ctrl & TD_CTRL_IOS;
+    async->isoc = td->ctrl & TD_CTRL_IOS;
 
     max_len = ((td->token >> 21) + 1) & 0x7ff;
     pid = td->token & 0xff;
 
     dev = uhci_find_device(s, (td->token >> 8) & 0x7f);
     ep = usb_ep_get(dev, pid, (td->token >> 15) & 0xf);
-    usb_packet_setup(&async->packet, pid, ep);
+    usb_packet_setup(&async->packet, pid, ep, addr);
     qemu_sglist_add(&async->sgl, td->buffer, max_len);
     usb_packet_map(&async->packet, &async->sgl);
 
@@ -1257,12 +1280,11 @@ static int usb_uhci_vt82c686b_initfn(PCIDevice *dev)
     return usb_uhci_common_initfn(dev);
 }
 
-static int usb_uhci_exit(PCIDevice *dev)
+static void usb_uhci_exit(PCIDevice *dev)
 {
     UHCIState *s = DO_UPCAST(UHCIState, dev, dev);
 
     memory_region_destroy(&s->io_bar);
-    return 0;
 }
 
 static Property uhci_properties[] = {

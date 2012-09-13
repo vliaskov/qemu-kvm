@@ -159,7 +159,6 @@ int qdev_init(DeviceState *dev)
 
     rc = dc->init(dev);
     if (rc < 0) {
-        object_unparent(OBJECT(dev));
         qdev_free(dev);
         return rc;
     }
@@ -243,7 +242,6 @@ void qbus_reset_all_fn(void *opaque)
 int qdev_simple_unplug_cb(DeviceState *dev)
 {
     /* just zap it */
-    object_unparent(OBJECT(dev));
     qdev_free(dev);
     return 0;
 }
@@ -320,8 +318,6 @@ void qdev_connect_gpio_out(DeviceState * dev, int n, qemu_irq pin)
 void qdev_set_nic_properties(DeviceState *dev, NICInfo *nd)
 {
     qdev_prop_set_macaddr(dev, "mac", nd->macaddr.a);
-    if (nd->vlan)
-        qdev_prop_set_vlan(dev, "vlan", nd->vlan);
     if (nd->netdev)
         qdev_prop_set_netdev(dev, "netdev", nd->netdev);
     if (nd->nvectors != DEV_NVECTORS_UNSPECIFIED &&

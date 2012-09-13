@@ -33,8 +33,18 @@
 /* PWM */
 #define EXYNOS4210_PWM_BASE_ADDR       0x139D0000
 
+/* RTC */
+#define EXYNOS4210_RTC_BASE_ADDR       0x10070000
+
 /* MCT */
 #define EXYNOS4210_MCT_BASE_ADDR       0x10050000
+
+/* I2C */
+#define EXYNOS4210_I2C_SHIFT           0x00010000
+#define EXYNOS4210_I2C_BASE_ADDR       0x13860000
+/* Interrupt Group of External Interrupt Combiner for I2C */
+#define EXYNOS4210_I2C_INTG            27
+#define EXYNOS4210_HDMI_INTG           16
 
 /* UART's definitions */
 #define EXYNOS4210_UART0_BASE_ADDR     0x13800000
@@ -216,7 +226,7 @@ Exynos4210State *exynos4210_init(MemoryRegion *system_mem,
     /* mirror of iROM */
     memory_region_init_alias(&s->irom_alias_mem, "exynos4210.irom_alias",
                              &s->irom_mem,
-                             EXYNOS4210_IROM_BASE_ADDR,
+                             0,
                              EXYNOS4210_IROM_SIZE);
     memory_region_set_readonly(&s->irom_alias_mem, true);
     memory_region_add_subregion(system_mem, EXYNOS4210_IROM_MIRROR_BASE_ADDR,
@@ -258,6 +268,11 @@ Exynos4210State *exynos4210_init(MemoryRegion *system_mem,
                           s->irq_table[exynos4210_get_irq(22, 3)],
                           s->irq_table[exynos4210_get_irq(22, 4)],
                           NULL);
+    /* RTC */
+    sysbus_create_varargs("exynos4210.rtc", EXYNOS4210_RTC_BASE_ADDR,
+                          s->irq_table[exynos4210_get_irq(23, 0)],
+                          s->irq_table[exynos4210_get_irq(23, 1)],
+                          NULL);
 
     /* Multi Core Timer */
     dev = qdev_create(NULL, "exynos4210.mct");
@@ -274,6 +289,26 @@ Exynos4210State *exynos4210_init(MemoryRegion *system_mem,
     sysbus_connect_irq(busdev, 5,
             s->irq_table[exynos4210_get_irq(35, 3)]);
     sysbus_mmio_map(busdev, 0, EXYNOS4210_MCT_BASE_ADDR);
+
+    /*** I2C ***/
+    for (n = 0; n < EXYNOS4210_I2C_NUMBER; n++) {
+        uint32_t addr = EXYNOS4210_I2C_BASE_ADDR + EXYNOS4210_I2C_SHIFT * n;
+        qemu_irq i2c_irq;
+
+        if (n < 8) {
+            i2c_irq = s->irq_table[exynos4210_get_irq(EXYNOS4210_I2C_INTG, n)];
+        } else {
+            i2c_irq = s->irq_table[exynos4210_get_irq(EXYNOS4210_HDMI_INTG, 1)];
+        }
+
+        dev = qdev_create(NULL, "exynos4210.i2c");
+        qdev_init_nofail(dev);
+        busdev = sysbus_from_qdev(dev);
+        sysbus_connect_irq(busdev, 0, i2c_irq);
+        sysbus_mmio_map(busdev, 0, addr);
+        s->i2c_if[n] = (i2c_bus *)qdev_get_child_bus(dev, "i2c");
+    }
+
 
     /*** UARTs ***/
     exynos4210_uart_create(EXYNOS4210_UART0_BASE_ADDR,

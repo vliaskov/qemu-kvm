@@ -28,8 +28,14 @@
 #include "qemu-config.h"
 
 #include "qapi/qapi-visit-core.h"
+#include "arch_init.h"
 
 #include "hyperv.h"
+
+#include "hw/hw.h"
+#if defined(CONFIG_KVM)
+#include <linux/kvm_para.h>
+#endif
 
 /* feature flags taken from "Intel Processor Identification and the CPUID
  * Instruction" and AMD's "CPUID Specification".  In cases of disagreement
@@ -50,7 +56,7 @@ static const char *ext_feature_name[] = {
     "ds_cpl", "vmx", "smx", "est",
     "tm2", "ssse3", "cid", NULL,
     "fma", "cx16", "xtpr", "pdcm",
-    NULL, NULL, "dca", "sse4.1|sse4_1",
+    NULL, "pcid", "dca", "sse4.1|sse4_1",
     "sse4.2|sse4_2", "x2apic", "movbe", "popcnt",
     "tsc-deadline", "aes", "xsave", "osxsave",
     "avx", NULL, NULL, "hypervisor",
@@ -77,7 +83,7 @@ static const char *ext3_feature_name[] = {
 };
 
 static const char *kvm_feature_name[] = {
-    "kvmclock", "kvm_nopiodelay", "kvm_mmu", "kvmclock", "kvm_asyncpf", NULL, NULL, NULL,
+    "kvmclock", "kvm_nopiodelay", "kvm_mmu", "kvmclock", "kvm_asyncpf", NULL, "kvm_pv_eoi", NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
@@ -884,7 +890,17 @@ static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
         memcpy(x86_cpu_def, def, sizeof(*def));
     }
 
-    plus_kvm_features = ~0; /* not supported bits will be filtered out later */
+#if defined(CONFIG_KVM)
+    plus_kvm_features = (1 << KVM_FEATURE_CLOCKSOURCE) |
+        (1 << KVM_FEATURE_NOP_IO_DELAY) | 
+        (1 << KVM_FEATURE_MMU_OP) |
+        (1 << KVM_FEATURE_CLOCKSOURCE2) |
+        (1 << KVM_FEATURE_ASYNC_PF) | 
+        (1 << KVM_FEATURE_STEAL_TIME) |
+        (1 << KVM_FEATURE_CLOCKSOURCE_STABLE_BIT);
+#else
+    plus_kvm_features = 0;
+#endif
 
     add_flagname_to_bitmaps("hypervisor", &plus_features,
         &plus_ext_features, &plus_ext2_features, &plus_ext3_features,
@@ -1121,6 +1137,27 @@ void x86_cpu_list(FILE *f, fprintf_function cpu_fprintf, const char *optarg)
     if (kvm_enabled()) {
         (*cpu_fprintf)(f, "x86 %16s\n", "[host]");
     }
+}
+
+CpuDefinitionInfoList *arch_query_cpu_definitions(Error **errp)
+{
+    CpuDefinitionInfoList *cpu_list = NULL;
+    x86_def_t *def;
+
+    for (def = x86_defs; def; def = def->next) {
+        CpuDefinitionInfoList *entry;
+        CpuDefinitionInfo *info;
+
+        info = g_malloc0(sizeof(*info));
+        info->name = g_strdup(def->name);
+
+        entry = g_malloc0(sizeof(*entry));
+        entry->value = info;
+        entry->next = cpu_list;
+        cpu_list = entry;
+    }
+
+    return cpu_list;
 }
 
 int cpu_x86_register(X86CPU *cpu, const char *cpu_model)
@@ -1686,7 +1723,30 @@ static void x86_cpu_reset(CPUState *s)
     env->dr[7] = DR7_FIXED_1;
     cpu_breakpoint_remove_all(env, BP_CPU);
     cpu_watchpoint_remove_all(env, BP_CPU);
+
+#if !defined(CONFIG_USER_ONLY)
+    /* We hard-wire the BSP to the first CPU. */
+    if (env->cpu_index == 0) {
+        apic_designate_bsp(env->apic_state);
+    }
+
+    env->halted = !cpu_is_bsp(cpu);
+#endif
 }
+
+#ifndef CONFIG_USER_ONLY
+bool cpu_is_bsp(X86CPU *cpu)
+{
+    return cpu_get_apic_base(cpu->env.apic_state) & MSR_IA32_APICBASE_BSP;
+}
+
+/* TODO: remove me, when reset over QOM tree is implemented */
+static void x86_cpu_machine_reset_cb(void *opaque)
+{
+    X86CPU *cpu = opaque;
+    cpu_reset(CPU(cpu));
+}
+#endif
 
 static void mce_init(X86CPU *cpu)
 {
@@ -1708,14 +1768,20 @@ void x86_cpu_realize(Object *obj, Error **errp)
 {
     X86CPU *cpu = X86_CPU(obj);
 
+#ifndef CONFIG_USER_ONLY
+    qemu_register_reset(x86_cpu_machine_reset_cb, cpu);
+#endif
+
     mce_init(cpu);
     qemu_init_vcpu(&cpu->env);
+    cpu_reset(CPU(cpu));
 }
 
 static void x86_cpu_initfn(Object *obj)
 {
     X86CPU *cpu = X86_CPU(obj);
     CPUX86State *env = &cpu->env;
+    static int inited;
 
     cpu_exec_init(env);
 
@@ -1745,6 +1811,15 @@ static void x86_cpu_initfn(Object *obj)
                         x86_cpuid_set_tsc_freq, NULL, NULL, NULL);
 
     env->cpuid_apic_id = env->cpu_index;
+
+    /* init various static tables used in TCG mode */
+    if (tcg_enabled() && !inited) {
+        inited = 1;
+        optimize_flags_init();
+#ifndef CONFIG_USER_ONLY
+        cpu_set_debug_excp_handler(breakpoint_handler);
+#endif
+    }
 }
 
 static void x86_cpu_common_class_init(ObjectClass *oc, void *data)

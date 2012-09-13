@@ -29,7 +29,7 @@ endif
 	$(call quiet-command,$(CC) $(QEMU_INCLUDES) $(QEMU_CFLAGS) $(QEMU_DGFLAGS) $(CFLAGS) -c -o $@ $<,"  AS    $(TARGET_DIR)$@")
 
 %.o: %.m
-	$(call quiet-command,$(CC) $(QEMU_INCLUDES) $(QEMU_CFLAGS) $(QEMU_DGFLAGS) $(CFLAGS) -c -o $@ $<,"  OBJC  $(TARGET_DIR)$@")
+	$(call quiet-command,$(OBJCC) $(QEMU_INCLUDES) $(QEMU_CFLAGS) $(QEMU_DGFLAGS) $(CFLAGS) -c -o $@ $<,"  OBJC  $(TARGET_DIR)$@")
 
 LINK = $(call quiet-command,$(CC) $(QEMU_CFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $(sort $(1)) $(LIBS),"  LINK  $(TARGET_DIR)$@")
 
@@ -94,7 +94,6 @@ define unnest-dir
 $(foreach var,$(nested-vars),$(call push-var,$(var),$1/))
 $(eval obj := $(obj)/$1)
 $(eval include $(SRC_PATH)/$1/Makefile.objs)
-$(eval -include $(wildcard $1/*.d))
 $(eval obj := $(patsubst %/$1,%,$(obj)))
 $(foreach var,$(nested-vars),$(call pop-var,$(var),$1/))
 endef
@@ -113,4 +112,6 @@ define unnest-vars
 $(call unnest-vars-1)
 $(foreach var,$(nested-vars),$(eval $(var) := $(filter-out %/, $($(var)))))
 $(shell mkdir -p $(sort $(foreach var,$(nested-vars),$(dir $($(var))))))
+$(foreach var,$(nested-vars), $(eval \
+  -include $(addsuffix *.d, $(sort $(dir $($(var)))))))
 endef

@@ -182,12 +182,12 @@ static void eth_rx_desc_get(uint32_t addr, mv88w8618_rx_desc *desc)
     le32_to_cpus(&desc->next);
 }
 
-static int eth_can_receive(VLANClientState *nc)
+static int eth_can_receive(NetClientState *nc)
 {
     return 1;
 }
 
-static ssize_t eth_receive(VLANClientState *nc, const uint8_t *buf, size_t size)
+static ssize_t eth_receive(NetClientState *nc, const uint8_t *buf, size_t size)
 {
     mv88w8618_eth_state *s = DO_UPCAST(NICState, nc, nc)->opaque;
     uint32_t desc_addr;
@@ -366,7 +366,7 @@ static const MemoryRegionOps mv88w8618_eth_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static void eth_cleanup(VLANClientState *nc)
+static void eth_cleanup(NetClientState *nc)
 {
     mv88w8618_eth_state *s = DO_UPCAST(NICState, nc, nc)->opaque;
 
@@ -374,7 +374,7 @@ static void eth_cleanup(VLANClientState *nc)
 }
 
 static NetClientInfo net_mv88w8618_info = {
-    .type = NET_CLIENT_TYPE_NIC,
+    .type = NET_CLIENT_OPTIONS_KIND_NIC,
     .size = sizeof(NICState),
     .can_receive = eth_can_receive,
     .receive = eth_receive,
@@ -1583,7 +1583,7 @@ static void musicpal_init(ram_addr_t ram_size,
          * image is smaller than 32 MB.
          */
 #ifdef TARGET_WORDS_BIGENDIAN
-        pflash_cfi02_register(0-MP_FLASH_SIZE_MAX, NULL,
+        pflash_cfi02_register(0x100000000ULL-MP_FLASH_SIZE_MAX, NULL,
                               "musicpal.flash", flash_size,
                               dinfo->bdrv, 0x10000,
                               (flash_size + 0xffff) >> 16,
@@ -1591,7 +1591,7 @@ static void musicpal_init(ram_addr_t ram_size,
                               2, 0x00BF, 0x236D, 0x0000, 0x0000,
                               0x5555, 0x2AAA, 1);
 #else
-        pflash_cfi02_register(0-MP_FLASH_SIZE_MAX, NULL,
+        pflash_cfi02_register(0x100000000ULL-MP_FLASH_SIZE_MAX, NULL,
                               "musicpal.flash", flash_size,
                               dinfo->bdrv, 0x10000,
                               (flash_size + 0xffff) >> 16,

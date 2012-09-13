@@ -44,6 +44,7 @@ static const QDevAlias qdev_alias_table[] = {
     { "virtio-serial-s390", "virtio-serial", QEMU_ARCH_S390X },
     { "lsi53c895a", "lsi" },
     { "ich9-ahci", "ahci" },
+    { "kvm-pci-assign", "pci-assign" },
     { }
 };
 
@@ -138,13 +139,13 @@ int qdev_device_help(QemuOpts *opts)
     ObjectClass *klass;
 
     driver = qemu_opt_get(opts, "driver");
-    if (driver && !strcmp(driver, "?")) {
+    if (driver && is_help_option(driver)) {
         bool show_no_user = false;
         object_class_foreach(qdev_print_devinfo, TYPE_DEVICE, false, &show_no_user);
         return 1;
     }
 
-    if (!driver || !qemu_opt_get(opts, "?")) {
+    if (!driver || !qemu_opt_has_help_opt(opts)) {
         return 0;
     }
 
@@ -443,7 +444,7 @@ DeviceState *qdev_device_add(QemuOpts *opts)
         bus = qbus_find_recursive(sysbus_get_default(), NULL, k->bus_type);
         if (!bus) {
             qerror_report(QERR_NO_BUS_FOR_DEVICE,
-                          driver, k->bus_type);
+                          k->bus_type, driver);
             return NULL;
         }
     }
@@ -543,7 +544,7 @@ static void qdev_print(Monitor *mon, DeviceState *dev, int indent)
         qdev_print_props(mon, dev, DEVICE_CLASS(class)->props, indent);
         class = object_class_get_parent(class);
     } while (class != object_class_by_name(TYPE_DEVICE));
-    bus_print_dev(dev->parent_bus, mon, dev, indent + 2);
+    bus_print_dev(dev->parent_bus, mon, dev, indent);
     QLIST_FOREACH(child, &dev->child_bus, sibling) {
         qbus_print(mon, child, indent);
     }

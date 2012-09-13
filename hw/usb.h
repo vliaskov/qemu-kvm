@@ -25,7 +25,6 @@
  * THE SOFTWARE.
  */
 
-#include "block.h"
 #include "qdev.h"
 #include "qemu-queue.h"
 
@@ -136,14 +135,23 @@
 #define USB_DT_OTHER_SPEED_CONFIG       0x07
 #define USB_DT_DEBUG                    0x0A
 #define USB_DT_INTERFACE_ASSOC          0x0B
+#define USB_DT_BOS                      0x0F
+#define USB_DT_DEVICE_CAPABILITY        0x10
 #define USB_DT_CS_INTERFACE             0x24
 #define USB_DT_CS_ENDPOINT              0x25
+#define USB_DT_ENDPOINT_COMPANION       0x30
+
+#define USB_DEV_CAP_WIRELESS            0x01
+#define USB_DEV_CAP_USB2_EXT            0x02
+#define USB_DEV_CAP_SUPERSPEED          0x03
 
 #define USB_ENDPOINT_XFER_CONTROL	0
 #define USB_ENDPOINT_XFER_ISOC		1
 #define USB_ENDPOINT_XFER_BULK		2
 #define USB_ENDPOINT_XFER_INT		3
 #define USB_ENDPOINT_XFER_INVALID     255
+
+#define USB_INTERFACE_INVALID         255
 
 typedef struct USBBus USBBus;
 typedef struct USBBusOps USBBusOps;
@@ -178,6 +186,7 @@ struct USBEndpoint {
     uint8_t ifnum;
     int max_packet_size;
     bool pipeline;
+    bool halted;
     USBDevice *dev;
     QTAILQ_HEAD(, USBPacket) queue;
 };
@@ -330,6 +339,7 @@ typedef enum USBPacketState {
 struct USBPacket {
     /* Data fields for use by the driver.  */
     int pid;
+    uint64_t id;
     USBEndpoint *ep;
     QEMUIOVector iov;
     uint64_t parameter; /* control transfers */
@@ -342,7 +352,7 @@ struct USBPacket {
 void usb_packet_init(USBPacket *p);
 void usb_packet_set_state(USBPacket *p, USBPacketState state);
 void usb_packet_check_state(USBPacket *p, USBPacketState expected);
-void usb_packet_setup(USBPacket *p, int pid, USBEndpoint *ep);
+void usb_packet_setup(USBPacket *p, int pid, USBEndpoint *ep, uint64_t id);
 void usb_packet_addbuf(USBPacket *p, void *ptr, size_t len);
 int usb_packet_map(USBPacket *p, QEMUSGList *sgl);
 void usb_packet_unmap(USBPacket *p, QEMUSGList *sgl);
@@ -363,6 +373,7 @@ void usb_packet_complete(USBDevice *dev, USBPacket *p);
 void usb_cancel_packet(USBPacket * p);
 
 void usb_ep_init(USBDevice *dev);
+void usb_ep_reset(USBDevice *dev);
 void usb_ep_dump(USBDevice *dev);
 struct USBEndpoint *usb_ep_get(USBDevice *dev, int pid, int ep);
 uint8_t usb_ep_get_type(USBDevice *dev, int pid, int ep);
@@ -373,6 +384,8 @@ void usb_ep_set_max_packet_size(USBDevice *dev, int pid, int ep,
                                 uint16_t raw);
 int usb_ep_get_max_packet_size(USBDevice *dev, int pid, int ep);
 void usb_ep_set_pipeline(USBDevice *dev, int pid, int ep, bool enabled);
+USBPacket *usb_ep_find_packet_by_id(USBDevice *dev, int pid, int ep,
+                                    uint64_t id);
 
 void usb_attach(USBPort *port);
 void usb_detach(USBPort *port);

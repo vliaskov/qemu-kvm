@@ -2141,13 +2141,18 @@ typedef struct {
 
 static void tcp_chr_accept(void *opaque);
 
+static void tcp_chr_connect(void *opaque);
+
 static int tcp_chr_write(CharDriverState *chr, const uint8_t *buf, int len)
 {
     TCPCharDriver *s = chr->opaque;
     if (s->connected) {
         return send_all(s->fd, buf, len);
+    } else if (s->listen_fd == -1) {
+        /* (Re-)connect for unconnected writing */
+        tcp_chr_connect(chr);
+        return 0;
     } else {
-        /* XXX: indicate an error ? */
         return len;
     }
 }
@@ -2238,6 +2243,9 @@ static void unix_process_msgfd(CharDriverState *chr, struct msghdr *msg)
         if (fd < 0)
             continue;
 
+#ifndef MSG_CMSG_CLOEXEC
+        qemu_set_cloexec(fd);
+#endif
         if (s->msgfd != -1)
             close(s->msgfd);
         s->msgfd = fd;
@@ -2253,6 +2261,7 @@ static ssize_t tcp_chr_recv(CharDriverState *chr, char *buf, size_t len)
         struct cmsghdr cmsg;
         char control[CMSG_SPACE(sizeof(int))];
     } msg_control;
+    int flags = 0;
     ssize_t ret;
 
     iov[0].iov_base = buf;
@@ -2263,9 +2272,13 @@ static ssize_t tcp_chr_recv(CharDriverState *chr, char *buf, size_t len)
     msg.msg_control = &msg_control;
     msg.msg_controllen = sizeof(msg_control);
 
-    ret = recvmsg(s->fd, &msg, 0);
-    if (ret > 0 && s->is_unix)
+#ifdef MSG_CMSG_CLOEXEC
+    flags |= MSG_CMSG_CLOEXEC;
+#endif
+    ret = recvmsg(s->fd, &msg, flags);
+    if (ret > 0 && s->is_unix) {
         unix_process_msgfd(chr, &msg);
+    }
 
     return ret;
 }
@@ -2446,7 +2459,7 @@ static CharDriverState *qemu_chr_open_socket(QemuOpts *opts)
         if (is_listen) {
             fd = inet_listen_opts(opts, 0, NULL);
         } else {
-            fd = inet_connect_opts(opts, NULL);
+            fd = inet_connect_opts(opts, NULL, NULL);
         }
     }
     if (fd < 0) {

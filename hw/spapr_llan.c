@@ -83,14 +83,14 @@ typedef struct VIOsPAPRVLANDevice {
     target_ulong rxq_ptr;
 } VIOsPAPRVLANDevice;
 
-static int spapr_vlan_can_receive(VLANClientState *nc)
+static int spapr_vlan_can_receive(NetClientState *nc)
 {
     VIOsPAPRVLANDevice *dev = DO_UPCAST(NICState, nc, nc)->opaque;
 
     return (dev->isopen && dev->rx_bufs > 0);
 }
 
-static ssize_t spapr_vlan_receive(VLANClientState *nc, const uint8_t *buf,
+static ssize_t spapr_vlan_receive(NetClientState *nc, const uint8_t *buf,
                                   size_t size)
 {
     VIOsPAPRDevice *sdev = DO_UPCAST(NICState, nc, nc)->opaque;
@@ -169,14 +169,14 @@ static ssize_t spapr_vlan_receive(VLANClientState *nc, const uint8_t *buf,
     }
 
     if (sdev->signal_state & 1) {
-        qemu_irq_pulse(sdev->qirq);
+        qemu_irq_pulse(spapr_vio_qirq(sdev));
     }
 
     return size;
 }
 
 static NetClientInfo net_spapr_vlan_info = {
-    .type = NET_CLIENT_TYPE_NIC,
+    .type = NET_CLIENT_OPTIONS_KIND_NIC,
     .size = sizeof(NICState),
     .can_receive = spapr_vlan_can_receive,
     .receive = spapr_vlan_receive,

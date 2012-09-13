@@ -24,13 +24,69 @@
 
 extern int kvm_allowed;
 extern bool kvm_kernel_irqchip;
+extern bool kvm_async_interrupts_allowed;
+extern bool kvm_irqfds_allowed;
+extern bool kvm_msi_via_irqfd_allowed;
+extern bool kvm_gsi_routing_allowed;
 
 #if defined CONFIG_KVM || !defined NEED_CPU_H
 #define kvm_enabled()           (kvm_allowed)
+/**
+ * kvm_irqchip_in_kernel:
+ *
+ * Returns: true if the user asked us to create an in-kernel
+ * irqchip via the "kernel_irqchip=on" machine option.
+ * What this actually means is architecture and machine model
+ * specific: on PC, for instance, it means that the LAPIC,
+ * IOAPIC and PIT are all in kernel. This function should never
+ * be used from generic target-independent code: use one of the
+ * following functions or some other specific check instead.
+ */
 #define kvm_irqchip_in_kernel() (kvm_kernel_irqchip)
+
+/**
+ * kvm_async_interrupts_enabled:
+ *
+ * Returns: true if we can deliver interrupts to KVM
+ * asynchronously (ie by ioctl from any thread at any time)
+ * rather than having to do interrupt delivery synchronously
+ * (where the vcpu must be stopped at a suitable point first).
+ */
+#define kvm_async_interrupts_enabled() (kvm_async_interrupts_allowed)
+
+/**
+ * kvm_irqfds_enabled:
+ *
+ * Returns: true if we can use irqfds to inject interrupts into
+ * a KVM CPU (ie the kernel supports irqfds and we are running
+ * with a configuration where it is meaningful to use them).
+ */
+#define kvm_irqfds_enabled() (kvm_irqfds_allowed)
+
+/**
+ * kvm_msi_via_irqfd_enabled:
+ *
+ * Returns: true if we can route a PCI MSI (Message Signaled Interrupt)
+ * to a KVM CPU via an irqfd. This requires that the kernel supports
+ * this and that we're running in a configuration that permits it.
+ */
+#define kvm_msi_via_irqfd_enabled() (kvm_msi_via_irqfd_allowed)
+
+/**
+ * kvm_gsi_routing_enabled:
+ *
+ * Returns: true if GSI routing is enabled (ie the kernel supports
+ * it and we're running in a configuration that permits it).
+ */
+#define kvm_gsi_routing_enabled() (kvm_gsi_routing_allowed)
+
 #else
 #define kvm_enabled()           (0)
 #define kvm_irqchip_in_kernel() (false)
+#define kvm_async_interrupts_enabled() (false)
+#define kvm_irqfds_enabled() (false)
+#define kvm_msi_via_irqfd_enabled() (false)
+#define kvm_gsi_routing_allowed() (false)
 #endif
 
 struct kvm_run;
@@ -61,8 +117,7 @@ int kvm_has_xcrs(void);
 int kvm_has_pit_state2(void);
 int kvm_has_many_ioeventfds(void);
 int kvm_has_gsi_routing(void);
-
-int kvm_allows_irq0_override(void);
+int kvm_has_intx_set_mask(void);
 
 #ifdef NEED_CPU_H
 int kvm_init_vcpu(CPUArchState *env);
@@ -70,6 +125,8 @@ int kvm_init_vcpu(CPUArchState *env);
 int kvm_cpu_exec(CPUArchState *env);
 
 #if !defined(CONFIG_USER_ONLY)
+void *kvm_vmalloc(ram_addr_t size);
+void *kvm_arch_vmalloc(ram_addr_t size);
 void kvm_setup_guest_memory(void *start, size_t size);
 
 int kvm_coalesce_mmio_region(target_phys_addr_t start, ram_addr_t size);
@@ -131,7 +188,7 @@ int kvm_arch_on_sigbus(int code, void *addr);
 
 void kvm_arch_init_irq_routing(KVMState *s);
 
-int kvm_irqchip_set_irq(KVMState *s, int irq, int level);
+int kvm_set_irq(KVMState *s, int irq, int level);
 int kvm_irqchip_send_msi(KVMState *s, MSIMessage msg);
 
 void kvm_irqchip_add_irq_route(KVMState *s, int gsi, int irqchip, int pin);
@@ -214,8 +271,9 @@ int kvm_set_ioeventfd_mmio(int fd, uint32_t adr, uint32_t val, bool assign,
 int kvm_set_ioeventfd_pio_word(int fd, uint16_t adr, uint16_t val, bool assign);
 
 int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg);
+int kvm_irqchip_update_msi_route(KVMState *s, int virq, MSIMessage msg);
 void kvm_irqchip_release_virq(KVMState *s, int virq);
 
-int kvm_irqchip_add_irqfd(KVMState *s, int fd, int virq);
-int kvm_irqchip_remove_irqfd(KVMState *s, int fd, int virq);
+int kvm_irqchip_add_irqfd_notifier(KVMState *s, EventNotifier *n, int virq);
+int kvm_irqchip_remove_irqfd_notifier(KVMState *s, EventNotifier *n, int virq);
 #endif

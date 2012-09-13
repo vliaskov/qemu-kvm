@@ -41,7 +41,7 @@ coroutine-obj-$(CONFIG_WIN32) += coroutine-win32.o
 #######################################################################
 # block-obj-y is code used by both qemu system emulation and qemu-img
 
-block-obj-y = cutils.o cache-utils.o qemu-option.o module.o async.o
+block-obj-y = cutils.o iov.o cache-utils.o qemu-option.o module.o async.o
 block-obj-y += nbd.o block.o aio.o aes.o qemu-config.o qemu-progress.o qemu-sockets.o
 block-obj-y += $(coroutine-obj-y) $(qobject-obj-y) $(version-obj-y)
 block-obj-$(CONFIG_POSIX) += posix-aio-compat.o
@@ -77,6 +77,7 @@ common-obj-y += qemu-char.o #aio.o
 common-obj-y += block-migration.o iohandler.o
 common-obj-y += pflib.o
 common-obj-y += bitmap.o bitops.o
+common-obj-y += page_cache.o
 
 common-obj-$(CONFIG_POSIX) += migration-exec.o migration-unix.o migration-fd.o
 common-obj-$(CONFIG_WIN32) += version.o
@@ -96,12 +97,18 @@ common-obj-y += qemu-timer.o qemu-timer-common.o
 common-obj-$(CONFIG_SLIRP) += slirp/
 
 ######################################################################
+# libseccomp
+ifeq ($(CONFIG_SECCOMP),y)
+common-obj-y += qemu-seccomp.o
+endif
+
+######################################################################
 # libuser
 
 user-obj-y =
 user-obj-y += envlist.o path.o
 user-obj-y += tcg-runtime.o host-utils.o
-user-obj-y += cutils.o cache-utils.o
+user-obj-y += cutils.o iov.o cache-utils.o
 user-obj-y += module.o
 user-obj-y += qemu-user.o
 user-obj-y += $(trace-obj-y)
@@ -211,6 +218,7 @@ common-obj-$(CONFIG_SMARTCARD_NSS) += $(libcacard-y)
 # qapi
 
 qapi-obj-y = qapi/
+qapi-obj-y += qapi-types.o qapi-visit.o
 
 common-obj-y += qmp-marshal.o qapi-visit.o qapi-types.o
 common-obj-y += qmp.o hmp.o

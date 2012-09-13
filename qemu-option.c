@@ -29,9 +29,9 @@
 #include "qemu-common.h"
 #include "qemu-error.h"
 #include "qemu-objects.h"
-#include "qemu-option.h"
 #include "error.h"
 #include "qerror.h"
+#include "qemu-option-internal.h"
 
 /*
  * Extracts the name of an option from the parameter string (p points at the
@@ -511,28 +511,6 @@ void print_option_help(QEMUOptionParameter *list)
 
 /* ------------------------------------------------------------------ */
 
-struct QemuOpt {
-    const char   *name;
-    const char   *str;
-
-    const QemuOptDesc *desc;
-    union {
-        bool boolean;
-        uint64_t uint;
-    } value;
-
-    QemuOpts     *opts;
-    QTAILQ_ENTRY(QemuOpt) next;
-};
-
-struct QemuOpts {
-    char *id;
-    QemuOptsList *list;
-    Location loc;
-    QTAILQ_HEAD(QemuOptHead, QemuOpt) head;
-    QTAILQ_ENTRY(QemuOpts) next;
-};
-
 static QemuOpt *qemu_opt_find(QemuOpts *opts, const char *name)
 {
     QemuOpt *opt;
@@ -549,6 +527,18 @@ const char *qemu_opt_get(QemuOpts *opts, const char *name)
 {
     QemuOpt *opt = qemu_opt_find(opts, name);
     return opt ? opt->str : NULL;
+}
+
+bool qemu_opt_has_help_opt(QemuOpts *opts)
+{
+    QemuOpt *opt;
+
+    QTAILQ_FOREACH_REVERSE(opt, &opts->head, QemuOptHead, next) {
+        if (is_help_option(opt->name)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool qemu_opt_get_bool(QemuOpts *opts, const char *name, bool defval)

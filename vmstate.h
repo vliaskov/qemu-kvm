@@ -26,10 +26,19 @@
 #ifndef QEMU_VMSTATE_H
 #define QEMU_VMSTATE_H 1
 
-typedef void SaveSetParamsHandler(int blk_enable, int shared, void * opaque);
 typedef void SaveStateHandler(QEMUFile *f, void *opaque);
-typedef int SaveLiveStateHandler(QEMUFile *f, int stage, void *opaque);
 typedef int LoadStateHandler(QEMUFile *f, void *opaque, int version_id);
+
+typedef struct SaveVMHandlers {
+    void (*set_params)(const MigrationParams *params, void * opaque);
+    SaveStateHandler *save_state;
+    int (*save_live_setup)(QEMUFile *f, void *opaque);
+    int (*save_live_iterate)(QEMUFile *f, void *opaque);
+    int (*save_live_complete)(QEMUFile *f, void *opaque);
+    void (*cancel)(void *opaque);
+    LoadStateHandler *load_state;
+    bool (*is_active)(void *opaque);
+} SaveVMHandlers;
 
 int register_savevm(DeviceState *dev,
                     const char *idstr,
@@ -43,10 +52,7 @@ int register_savevm_live(DeviceState *dev,
                          const char *idstr,
                          int instance_id,
                          int version_id,
-                         SaveSetParamsHandler *set_params,
-                         SaveLiveStateHandler *save_live_state,
-                         SaveStateHandler *save_state,
-                         LoadStateHandler *load_state,
+                         SaveVMHandlers *ops,
                          void *opaque);
 
 void unregister_savevm(DeviceState *dev, const char *idstr, void *opaque);
@@ -497,8 +503,11 @@ extern const VMStateInfo vmstate_info_unused_buffer;
 #define VMSTATE_TIMER_TEST(_f, _s, _test)                             \
     VMSTATE_POINTER_TEST(_f, _s, _test, vmstate_info_timer, QEMUTimer *)
 
+#define VMSTATE_TIMER_V(_f, _s, _v)                                   \
+    VMSTATE_POINTER(_f, _s, _v, vmstate_info_timer, QEMUTimer *)
+
 #define VMSTATE_TIMER(_f, _s)                                         \
-    VMSTATE_TIMER_TEST(_f, _s, NULL)
+    VMSTATE_TIMER_V(_f, _s, 0)
 
 #define VMSTATE_TIMER_ARRAY(_f, _s, _n)                              \
     VMSTATE_ARRAY_OF_POINTER(_f, _s, _n, 0, vmstate_info_timer, QEMUTimer *)

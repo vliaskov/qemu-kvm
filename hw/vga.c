@@ -38,6 +38,9 @@
 
 //#define DEBUG_BOCHS_VBE
 
+/* 16 state changes per vertical frame @60 Hz */
+#define VGA_TEXT_CURSOR_PERIOD_MS       (1000 * 2 * 16 / 60)
+
 /*
  * Video Graphics Array (VGA)
  *
@@ -163,7 +166,8 @@ static uint32_t expand4[256];
 static uint16_t expand2[256];
 static uint8_t expand4to8[16];
 
-static void vga_screen_dump(void *opaque, const char *filename, bool cswitch);
+static void vga_screen_dump(void *opaque, const char *filename, bool cswitch,
+                            Error **errp);
 
 static void vga_update_memory_access(VGACommonState *s)
 {
@@ -357,6 +361,8 @@ uint32_t vga_ioport_read(void *opaque, uint32_t addr)
     VGACommonState *s = opaque;
     int val, index;
 
+    qemu_flush_coalesced_mmio_buffer();
+
     if (vga_ioport_invalid(s, addr)) {
         val = 0xff;
     } else {
@@ -448,6 +454,8 @@ void vga_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 {
     VGACommonState *s = opaque;
     int index;
+
+    qemu_flush_coalesced_mmio_buffer();
 
     /* check port range access depending on color/monochrome mode */
     if (vga_ioport_invalid(s, addr)) {
@@ -1300,6 +1308,7 @@ static void vga_draw_text(VGACommonState *s, int full_update)
     uint32_t *ch_attr_ptr;
     vga_draw_glyph8_func *vga_draw_glyph8;
     vga_draw_glyph9_func *vga_draw_glyph9;
+    int64_t now = qemu_get_clock_ms(vm_clock);
 
     /* compute font data address (in plane 2) */
     v = s->sr[VGA_SEQ_CHARACTER_MAP];
@@ -1370,6 +1379,10 @@ static void vga_draw_text(VGACommonState *s, int full_update)
         s->cursor_end = s->cr[VGA_CRTC_CURSOR_END];
     }
     cursor_ptr = s->vram_ptr + (s->start_addr + cursor_offset) * 4;
+    if (now >= s->cursor_blink_time) {
+        s->cursor_blink_time = now + VGA_TEXT_CURSOR_PERIOD_MS / 2;
+        s->cursor_visible_phase = !s->cursor_visible_phase;
+    }
 
     depth_index = get_depth_index(s->ds);
     if (cw == 16)
@@ -1390,7 +1403,7 @@ static void vga_draw_text(VGACommonState *s, int full_update)
         cx_max = -1;
         for(cx = 0; cx < width; cx++) {
             ch_attr = *(uint16_t *)src;
-            if (full_update || ch_attr != *ch_attr_ptr) {
+            if (full_update || ch_attr != *ch_attr_ptr || src == cursor_ptr) {
                 if (cx < cx_min)
                     cx_min = cx;
                 if (cx > cx_max)
@@ -1420,7 +1433,8 @@ static void vga_draw_text(VGACommonState *s, int full_update)
                                     font_ptr, cheight, fgcol, bgcol, dup9);
                 }
                 if (src == cursor_ptr &&
-                    !(s->cr[VGA_CRTC_CURSOR_START] & 0x20)) {
+                    !(s->cr[VGA_CRTC_CURSOR_START] & 0x20) &&
+                    s->cursor_visible_phase) {
                     int line_start, line_last, h;
                     /* draw the cursor */
                     line_start = s->cr[VGA_CRTC_CURSOR_START] & 0x1f;
@@ -1884,6 +1898,7 @@ static void vga_update_display(void *opaque)
         }
         if (graphic_mode != s->graphic_mode) {
             s->graphic_mode = graphic_mode;
+            s->cursor_blink_time = qemu_get_clock_ms(vm_clock);
             full_update = 1;
         }
         switch(graphic_mode) {
@@ -2327,6 +2342,7 @@ MemoryRegion *vga_init_io(VGACommonState *s,
     vga_mem = g_malloc(sizeof(*vga_mem));
     memory_region_init_io(vga_mem, &vga_mem_ops, s,
                           "vga-lowmem", 0x20000);
+    memory_region_set_flush_coalesced(vga_mem);
 
     return vga_mem;
 }
@@ -2379,7 +2395,7 @@ void vga_init_vbe(VGACommonState *s, MemoryRegion *system_memory)
 /********************************************************/
 /* vga screen dump */
 
-int ppm_save(const char *filename, struct DisplaySurface *ds)
+void ppm_save(const char *filename, struct DisplaySurface *ds, Error **errp)
 {
     FILE *f;
     uint8_t *d, *d1;
@@ -2391,10 +2407,16 @@ int ppm_save(const char *filename, struct DisplaySurface *ds)
 
     trace_ppm_save(filename, ds);
     f = fopen(filename, "wb");
-    if (!f)
-        return -1;
-    fprintf(f, "P6\n%d %d\n%d\n",
-            ds->width, ds->height, 255);
+    if (!f) {
+        error_setg(errp, "failed to open file '%s': %s", filename,
+                   strerror(errno));
+        return;
+    }
+    ret = fprintf(f, "P6\n%d %d\n%d\n", ds->width, ds->height, 255);
+    if (ret < 0) {
+        linebuf = NULL;
+        goto write_err;
+    }
     linebuf = g_malloc(ds->width * 3);
     d1 = ds->data;
     for(y = 0; y < ds->height; y++) {
@@ -2415,17 +2437,30 @@ int ppm_save(const char *filename, struct DisplaySurface *ds)
             d += ds->pf.bytes_per_pixel;
         }
         d1 += ds->linesize;
+        clearerr(f);
         ret = fwrite(linebuf, 1, pbuf - linebuf, f);
         (void)ret;
+        if (ferror(f)) {
+            goto write_err;
+        }
     }
+
+out:
     g_free(linebuf);
     fclose(f);
-    return 0;
+    return;
+
+write_err:
+    error_setg(errp, "failed to write to file '%s': %s", filename,
+               strerror(errno));
+    unlink(filename);
+    goto out;
 }
 
 /* save the vga display in a PPM image even if no display is
    available */
-static void vga_screen_dump(void *opaque, const char *filename, bool cswitch)
+static void vga_screen_dump(void *opaque, const char *filename, bool cswitch,
+                            Error **errp)
 {
     VGACommonState *s = opaque;
 
@@ -2433,5 +2468,5 @@ static void vga_screen_dump(void *opaque, const char *filename, bool cswitch)
         vga_invalidate_display(s);
     }
     vga_hw_update();
-    ppm_save(filename, s->ds->surface);
+    ppm_save(filename, s->ds->surface, errp);
 }

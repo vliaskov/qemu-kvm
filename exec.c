@@ -1824,19 +1824,10 @@ void tb_flush_jmp_cache(CPUArchState *env, target_ulong addr)
             TB_JMP_PAGE_SIZE * sizeof(TranslationBlock *));
 }
 
-/* Note: start and end must be within the same ram block.  */
-void cpu_physical_memory_reset_dirty(ram_addr_t start, ram_addr_t end,
-                                     int dirty_flags)
+static void tlb_reset_dirty_range_all(ram_addr_t start, ram_addr_t end,
+                                      uintptr_t length)
 {
-    uintptr_t length, start1;
-
-    start &= TARGET_PAGE_MASK;
-    end = TARGET_PAGE_ALIGN(end);
-
-    length = end - start;
-    if (length == 0)
-        return;
-    cpu_physical_memory_mask_dirty_range(start, length, dirty_flags);
+    uintptr_t start1;
 
     /* we modify the TLB cache so that the dirty bit will be set again
        when accessing the range */
@@ -1848,6 +1839,26 @@ void cpu_physical_memory_reset_dirty(ram_addr_t start, ram_addr_t end,
         abort();
     }
     cpu_tlb_reset_dirty_all(start1, length);
+
+}
+
+/* Note: start and end must be within the same ram block.  */
+void cpu_physical_memory_reset_dirty(ram_addr_t start, ram_addr_t end,
+                                     int dirty_flags)
+{
+    uintptr_t length;
+
+    start &= TARGET_PAGE_MASK;
+    end = TARGET_PAGE_ALIGN(end);
+
+    length = end - start;
+    if (length == 0)
+        return;
+    cpu_physical_memory_mask_dirty_range(start, length, dirty_flags);
+
+    if (tcg_enabled()) {
+        tlb_reset_dirty_range_all(start, end, length);
+    }
 }
 
 int cpu_physical_memory_set_dirty_tracking(int enable)
@@ -2229,14 +2240,6 @@ static void phys_sections_clear(void)
     phys_sections_nb = 0;
 }
 
-/* register physical memory.
-   For RAM, 'size' must be a multiple of the target page size.
-   If (phys_offset & ~TARGET_PAGE_MASK) != 0, then it is an
-   io memory page.  The address used when calling the IO function is
-   the offset from the start of the region, plus region_offset.  Both
-   start_addr and region_offset are rounded down to a page boundary
-   before calculating this offset.  This should not be a problem unless
-   the low bits of start_addr and region_offset differ.  */
 static void register_subpage(MemoryRegionSection *section)
 {
     subpage_t *subpage;
@@ -2260,7 +2263,7 @@ static void register_subpage(MemoryRegionSection *section)
         subpage = container_of(existing->mr, subpage_t, iomem);
     }
     start = section->offset_within_address_space & ~TARGET_PAGE_MASK;
-    end = start + section->size;
+    end = start + section->size - 1;
     subpage_register(subpage, start, end, phys_section_add(section));
 }
 
@@ -2294,10 +2297,15 @@ void cpu_register_physical_memory_log(MemoryRegionSection *section,
         remain.offset_within_address_space += now.size;
         remain.offset_within_region += now.size;
     }
-    now = remain;
-    now.size &= TARGET_PAGE_MASK;
-    if (now.size) {
-        register_multipage(&now);
+    while (remain.size >= TARGET_PAGE_SIZE) {
+        now = remain;
+        if (remain.offset_within_region & ~TARGET_PAGE_MASK) {
+            now.size = TARGET_PAGE_SIZE;
+            register_subpage(&now);
+        } else {
+            now.size &= TARGET_PAGE_MASK;
+            register_multipage(&now);
+        }
         remain.size -= now.size;
         remain.offset_within_address_space += now.size;
         remain.offset_within_region += now.size;
@@ -2467,6 +2475,24 @@ static ram_addr_t last_ram_offset(void)
     return last;
 }
 
+static void qemu_ram_setup_dump(void *addr, ram_addr_t size)
+{
+    int ret;
+    QemuOpts *machine_opts;
+
+    /* Use MADV_DONTDUMP, if user doesn't want the guest memory in the core */
+    machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
+    if (machine_opts &&
+        !qemu_opt_get_bool(machine_opts, "dump-guest-core", true)) {
+        ret = qemu_madvise(addr, size, QEMU_MADV_DONTDUMP);
+        if (ret) {
+            perror("qemu_madvise");
+            fprintf(stderr, "madvise doesn't support MADV_DONTDUMP, "
+                            "but dump_guest_core=off specified\n");
+        }
+    }
+}
+
 void qemu_ram_set_idstr(ram_addr_t addr, const char *name, DeviceState *dev)
 {
     RAMBlock *new_block, *block;
@@ -2525,26 +2551,14 @@ ram_addr_t qemu_ram_alloc_from_ptr(ram_addr_t size, void *host,
             exit(1);
 #endif
         } else {
-#if defined(TARGET_S390X) && defined(CONFIG_KVM)
-            /* S390 KVM requires the topmost vma of the RAM to be smaller than
-               an system defined value, which is at least 256GB. Larger systems
-               have larger values. We put the guest between the end of data
-               segment (system break) and this value. We use 32GB as a base to
-               have enough room for the system break to grow. */
-            new_block->host = mmap((void*)0x800000000, size,
-                                   PROT_EXEC|PROT_READ|PROT_WRITE,
-                                   MAP_SHARED | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-            if (new_block->host == MAP_FAILED) {
-                fprintf(stderr, "Allocating RAM failed\n");
-                abort();
-            }
-#else
             if (xen_enabled()) {
                 xen_ram_alloc(new_block->offset, size, mr);
+            } else if (kvm_enabled()) {
+                /* some s390/kvm configurations have special constraints */
+                new_block->host = kvm_vmalloc(size);
             } else {
                 new_block->host = qemu_vmalloc(size);
             }
-#endif
             qemu_madvise(new_block->host, size, QEMU_MADV_MERGEABLE);
         }
     }
@@ -2555,7 +2569,10 @@ ram_addr_t qemu_ram_alloc_from_ptr(ram_addr_t size, void *host,
     ram_list.phys_dirty = g_realloc(ram_list.phys_dirty,
                                        last_ram_offset() >> TARGET_PAGE_BITS);
     memset(ram_list.phys_dirty + (new_block->offset >> TARGET_PAGE_BITS),
-           0xff, size >> TARGET_PAGE_BITS);
+           0, size >> TARGET_PAGE_BITS);
+    cpu_physical_memory_set_dirty_range(new_block->offset, size, 0xff);
+
+    qemu_ram_setup_dump(new_block->host, size);
 
     if (kvm_enabled())
         kvm_setup_guest_memory(new_block->host, size);
@@ -2673,6 +2690,7 @@ void qemu_ram_remap(ram_addr_t addr, ram_addr_t length)
                     exit(1);
                 }
                 qemu_madvise(vaddr, length, QEMU_MADV_MERGEABLE);
+                qemu_ram_setup_dump(vaddr, length);
             }
             return;
         }
@@ -3212,13 +3230,13 @@ static void core_log_global_stop(MemoryListener *listener)
 
 static void core_eventfd_add(MemoryListener *listener,
                              MemoryRegionSection *section,
-                             bool match_data, uint64_t data, int fd)
+                             bool match_data, uint64_t data, EventNotifier *e)
 {
 }
 
 static void core_eventfd_del(MemoryListener *listener,
                              MemoryRegionSection *section,
-                             bool match_data, uint64_t data, int fd)
+                             bool match_data, uint64_t data, EventNotifier *e)
 {
 }
 
@@ -3278,13 +3296,13 @@ static void io_log_global_stop(MemoryListener *listener)
 
 static void io_eventfd_add(MemoryListener *listener,
                            MemoryRegionSection *section,
-                           bool match_data, uint64_t data, int fd)
+                           bool match_data, uint64_t data, EventNotifier *e)
 {
 }
 
 static void io_eventfd_del(MemoryListener *listener,
                            MemoryRegionSection *section,
-                           bool match_data, uint64_t data, int fd)
+                           bool match_data, uint64_t data, EventNotifier *e)
 {
 }
 
