@@ -2842,3 +2842,8 @@ HXCOMM This is the last statement. Insert new options before this line!
 STEXI
 @end table
 ETEXI
+
+DEF("dimm", HAS_ARG, QEMU_OPTION_dimm,
+        "-dimm id=dimmid,size=sz,node=nd,populated=on|off\n"
+        "specify memory dimm device with name dimmid, size sz on node nd",
+        QEMU_ARCH_ALL)
