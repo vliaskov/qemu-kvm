@@ -45,6 +45,7 @@
 #include "hw/pcspk.h"
 #include "qemu/page_cache.h"
 #include "qmp-commands.h"
+#include "hw/dimm.h"
 
 #ifdef DEBUG_ARCH_INIT
 #define DPRINTF(fmt, ...) \
@@ -740,10 +741,27 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
                     }
 
                     if (!block) {
-                        fprintf(stderr, "Unknown ramblock \"%s\", cannot "
+                        /* this can happen if a dimm was hot-added at source host */
+                        bool ramblock_found = false;
+                        if (dimm_add(id)) {
+                            fprintf(stderr, "Cannot add unknown ramblock \"%s\", "
+                                    "cannot accept migration\n", id);
+                            ret = -EINVAL;
+                            goto done;
+                        }
+                        /* rescan ram_list, verify ramblock is there now */
+                        QLIST_FOREACH(block, &ram_list.blocks, next) {
+                            if (!strncmp(id, block->idstr, sizeof(id))) {
+                                ramblock_found = true;
+                                break;
+                            }
+                        }
+                        if (!ramblock_found) {
+                            fprintf(stderr, "Unknown ramblock \"%s\", cannot "
                                 "accept migration\n", id);
-                        ret = -EINVAL;
-                        goto done;
+                            ret = -EINVAL;
+                            goto done;
+                        }
                     }
 
                     total_ram_bytes -= length;
