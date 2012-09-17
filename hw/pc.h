@@ -10,6 +10,7 @@
 #include "memory.h"
 #include "ioapic.h"
 
+#define PCI_HOLE_START 0xe0000000
 /* PC-style peripherals (also used by other machines).  */
 
 /* serial.c */
@@ -213,6 +214,11 @@ static inline bool isa_ne2000_init(ISABus *bus, int base, int irq, NICInfo *nd)
 
 /* pc_sysfw.c */
 void pc_system_firmware_init(MemoryRegion *rom_memory);
+
+/* memory hotplug */
+target_phys_addr_t pc_set_hp_memory_offset(uint64_t size);
+extern ram_addr_t below_4g_hp_mem_size;
+extern ram_addr_t above_4g_hp_mem_size;
 
 /* e820 types */
 #define E820_RAM        1
