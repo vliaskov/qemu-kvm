@@ -86,5 +86,6 @@ int dimm_add(char *id);
 void main_memory_bus_create(Object *parent);
 void dimm_config_create(char *id, uint64_t size, uint64_t node,
         uint32_t dimm_idx, uint32_t populated);
+uint64_t get_hp_memory_total(void);
 
 #endif

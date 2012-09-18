@@ -2747,6 +2747,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = hmp_info_memory_hotplug,
     },
     {
+        .name       = "memory-total",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show total memory size",
+        .mhandler.info = hmp_info_memory_total,
+    },
+    {
         .name       = NULL,
     },
 };

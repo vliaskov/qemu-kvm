@@ -28,6 +28,7 @@ static DimmBus *main_memory_bus;
 /* the following list is used to hold dimm config info before machine
  * initialization. After machine init, the list is emptied and not used anymore.*/
 static DimmConfiglist dimmconfig_list = QTAILQ_HEAD_INITIALIZER(dimmconfig_list);
+extern ram_addr_t ram_size;
 
 static void dimmbus_dev_print(Monitor *mon, DeviceState *dev, int indent);
 static char *dimmbus_get_fw_dev_path(DeviceState *dev);
@@ -231,6 +232,26 @@ void setup_fwcfg_hp_dimms(uint64_t *fw_cfg_slots)
         fw_cfg_slots[3 * slot->idx + 1] = cpu_to_le64(slot->size);
         fw_cfg_slots[3 * slot->idx + 2] = cpu_to_le64(slot->node);
     }
+}
+
+uint64_t get_hp_memory_total(void)
+{
+    DimmBus *bus = main_memory_bus;
+    DimmDevice *slot;
+    uint64_t info = 0;
+
+    QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
+        info += slot->size;
+    }
+    return info;
+}
+
+int64_t qmp_query_memory_total(Error **errp)
+{
+    uint64_t info;
+    info = ram_size + get_hp_memory_total();
+
+    return (int64_t)info;
 }
 
 void dimm_notify(uint32_t idx, uint32_t event)
