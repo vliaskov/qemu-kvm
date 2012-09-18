@@ -598,6 +598,7 @@ static void *bochs_bios_init(void)
     uint8_t *smbios_table;
     size_t smbios_len;
     uint64_t *numa_fw_cfg;
+    uint64_t *hp_dimms_fw_cfg;
     int i, j;
 
     register_ioport_write(0x400, 1, 2, bochs_bios_write, NULL);
@@ -632,8 +633,10 @@ static void *bochs_bios_init(void)
     /* allocate memory for the NUMA channel: one (64bit) word for the number
      * of nodes, one word for each VCPU->node and one word for each node to
      * hold the amount of memory.
+     * Finally one word for the number of hotplug memory slots and three words
+     * for each hotplug memory slot (start address, size and node proximity).
      */
-    numa_fw_cfg = g_malloc0((1 + max_cpus + nb_numa_nodes) * 8);
+    numa_fw_cfg = g_malloc0((2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms) * 8);
     numa_fw_cfg[0] = cpu_to_le64(nb_numa_nodes);
     for (i = 0; i < max_cpus; i++) {
         for (j = 0; j < nb_numa_nodes; j++) {
@@ -646,8 +649,15 @@ static void *bochs_bios_init(void)
     for (i = 0; i < nb_numa_nodes; i++) {
         numa_fw_cfg[max_cpus + 1 + i] = cpu_to_le64(node_mem[i]);
     }
+
+    numa_fw_cfg[1 + max_cpus + nb_numa_nodes] = cpu_to_le64(nb_hp_dimms);
+
+    hp_dimms_fw_cfg = numa_fw_cfg + 2 + max_cpus + nb_numa_nodes;
+    if (nb_hp_dimms)
+        setup_fwcfg_hp_dimms(hp_dimms_fw_cfg);
+
     fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, (uint8_t *)numa_fw_cfg,
-                     (1 + max_cpus + nb_numa_nodes) * 8);
+                     (2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms) * 8);
 
     return fw_cfg;
 }
