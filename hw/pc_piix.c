@@ -44,6 +44,7 @@
 #include "memory.h"
 #include "exec-memory.h"
 #include "dimm.h"
+#include "fw_cfg.h"
 #ifdef CONFIG_XEN
 #  include <xen/hvm/hvm_info_table.h>
 #endif
@@ -149,6 +150,7 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
     void *fw_cfg = NULL;
+    uint64_t *pci_window_fw_cfg;
 
     pc_cpus_init(cpu_model);
 
@@ -205,6 +207,14 @@ static void pc_init1(MemoryRegion *system_memory,
                                ? 0
                                : ((uint64_t)1 << 62)),
                               pci_memory, ram_memory);
+
+        pci_window_fw_cfg = g_malloc0(2 * 8);
+        pci_window_fw_cfg[0] = cpu_to_le64(below_4g_mem_size +
+                                below_4g_hp_mem_size);
+        pci_window_fw_cfg[1] = cpu_to_le64(0x100000000ULL + above_4g_mem_size
+                                + above_4g_hp_mem_size);
+        fw_cfg_add_bytes(fw_cfg, FW_CFG_PCI_WINDOW, 
+                            (uint8_t *)pci_window_fw_cfg, 2 * 8);
     } else {
         pci_bus = NULL;
         i440fx_state = NULL;

@@ -26,3 +26,12 @@ Entry max_cpus+nb_numa_nodes+1 contains the number of memory dimms (nb_hp_dimms)
 The last 3 * nb_hp_dimms entries are organized in triplets: Each triplet contains
 the physical address offset, size (in bytes), and node proximity for the
 respective dimm.
+
+FW_CFG_PCI_WINDOW paravirt info
+--------------------
+QEMU passes the starting address for the 32-bit and 64-bit PCI windows to BIOS.
+The following layouts are followed:
+
+--------------------------------
+pcimem32_start | pcimem64_start | 
+--------------------------------

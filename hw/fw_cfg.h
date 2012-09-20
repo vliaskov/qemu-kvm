@@ -27,6 +27,7 @@
 #define FW_CFG_SETUP_SIZE       0x17
 #define FW_CFG_SETUP_DATA       0x18
 #define FW_CFG_FILE_DIR         0x19
+#define FW_CFG_PCI_WINDOW       0x1a
 
 #define FW_CFG_FILE_FIRST       0x20
 #define FW_CFG_FILE_SLOTS       0x10
