@@ -1168,3 +1168,20 @@ void hmp_screen_dump(Monitor *mon, const QDict *qdict)
     qmp_screendump(filename, &err);
     hmp_handle_error(mon, &err);
 }
+
+void hmp_info_memory_hotplug(Monitor *mon)
+{
+    MemHpInfoList *info;
+    MemHpInfoList *item;
+    MemHpInfo *dimm;
+
+    info = qmp_query_memory_hotplug(NULL);
+    for (item = info; item; item = item->next) {
+        dimm = item->value;
+        monitor_printf(mon, "dimm: %s %s %s\n", dimm->dimm,
+                dimm->request, dimm->result);
+        dimm->dimm = NULL;
+    }
+
+    qapi_free_MemHpInfoList(info);
+}

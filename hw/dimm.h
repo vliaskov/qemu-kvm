@@ -69,6 +69,7 @@ typedef struct DimmBus {
     dimm_calcoffset_fn dimm_calcoffset;
     DimmConfiglist dimmconfig_list;
     QTAILQ_HEAD(Dimmlist, DimmDevice) dimmlist;
+    QTAILQ_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
 } DimmBus;
 
 struct dimm_hp_result {
@@ -85,6 +86,5 @@ int dimm_add(char *id);
 void main_memory_bus_create(Object *parent);
 void dimm_config_create(char *id, uint64_t size, uint64_t node,
         uint32_t dimm_idx, uint32_t populated);
-
 
 #endif

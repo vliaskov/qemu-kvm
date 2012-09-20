@@ -2555,3 +2555,29 @@
 # Since: 0.14.0
 ##
 { 'command': 'screendump', 'data': {'filename': 'str'} }
+
+##
+# @MemHpInfo:
+#
+# Information about status of a memory hotplug command
+#
+# @dimm: the Dimm associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 1.3
+#
+##
+{ 'type': 'MemHpInfo',
+  'data': {'dimm': 'str', 'request': 'str', 'result': 'str'} }
+
+##
+# @query-memory-hotplug:
+#
+# Returns a list of information about pending hotplug commands
+#
+# Returns: a list of @MemhpInfo
+#
+# Since: 1.3
+##
+{ 'command': 'query-memory-hotplug', 'returns': ['MemHpInfo'] }

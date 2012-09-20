@@ -1462,6 +1462,8 @@ show device tree
 show qdev device model list
 @item info roms
 show roms
+@item info memory-hotplug
+show memory-hotplug
 @end table
 ETEXI
 

@@ -73,5 +73,6 @@ void hmp_getfd(Monitor *mon, const QDict *qdict);
 void hmp_closefd(Monitor *mon, const QDict *qdict);
 void hmp_send_key(Monitor *mon, const QDict *qdict);
 void hmp_screen_dump(Monitor *mon, const QDict *qdict);
+void hmp_info_memory_hotplug(Monitor *mon);
 
 #endif
