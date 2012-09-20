@@ -49,6 +49,9 @@
 #define PCI_RMV_BASE 0xae0c
 #define MEM_BASE 0xaf80
 #define MEM_EJ_BASE 0xafa0
+#define MEM_OST_REMOVE_FAIL 0xafa1
+#define MEM_OST_ADD_SUCCESS 0xafa2
+#define MEM_OST_ADD_FAIL 0xafa3
 
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
@@ -87,6 +90,7 @@ typedef struct PIIX4PMState {
     uint8_t s4_val;
 } PIIX4PMState;
 
+static int piix4_dimm_revert(DeviceState *qdev, DimmDevice *dev, int add);
 static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s);
 
 #define ACPI_ENABLE 0xf1
@@ -531,6 +535,15 @@ static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
         case MEM_EJ_BASE:
             dimm_notify(val, DIMM_REMOVE_SUCCESS);
             break;
+        case MEM_OST_REMOVE_FAIL:
+            dimm_notify(val, DIMM_REMOVE_FAIL);
+            break;
+        case MEM_OST_ADD_SUCCESS:
+            dimm_notify(val, DIMM_ADD_SUCCESS);
+            break;
+        case MEM_OST_ADD_FAIL:
+            dimm_notify(val, DIMM_ADD_FAIL);
+            break;
         default:
             acpi_gpe_ioport_writeb(&s->ar, addr, val);
     }
@@ -604,13 +617,16 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 
     register_ioport_read(MEM_BASE, DIMM_BITMAP_BYTES, 1,  gpe_readb, s);
     register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_REMOVE_FAIL, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADD_SUCCESS, 1, 1,  gpe_writeb, s);
+    register_ioport_write(MEM_OST_ADD_FAIL, 1, 1,  gpe_writeb, s);
 
     for(i = 0; i < DIMM_BITMAP_BYTES; i++) {
         s->gperegs.mems_sts[i] = 0;
     }
 
     pci_bus_hotplug(bus, piix4_device_hotplug, &s->dev.qdev);
-    dimm_bus_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
+    dimm_bus_hotplug(piix4_dimm_hotplug, piix4_dimm_revert, &s->dev.qdev);
 }
 
 static void enable_device(PIIX4PMState *s, int slot)
@@ -653,6 +669,23 @@ static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
         disable_mem_device(s, slot->idx);
     }
     pm_update_sci(s);
+    return 0;
+}
+
+static int piix4_dimm_revert(DeviceState *qdev, DimmDevice *dev, int add)
+{
+    PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
+    PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
+    struct gpe_regs *g = &s->gperegs;
+    DimmDevice *slot = DIMM(dev);
+    int idx = slot->idx;
+
+    if (add) {
+        g->mems_sts[idx/8] &= ~(1 << (idx%8));
+    }
+    else {
+        g->mems_sts[idx/8] |= (1 << (idx%8));
+    }
     return 0;
 }
 
