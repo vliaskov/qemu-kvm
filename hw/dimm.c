@@ -182,6 +182,26 @@ static DimmDevice *dimm_find_from_idx(uint32_t idx)
     return NULL;
 }
 
+void dimm_state_sync(void)
+{
+    DimmBus *bus = main_memory_bus;
+    DimmDevice *slot;
+
+    /* if a hot-remove operation is pending on reset, it means the hot-remove
+     * operation has failed, but the guest hasn't notified us e.g. because the
+     * guest does not provide _OST notifications. The device is still present on
+     * the dimmbus, but the qemu and Seabios dimm bitmaps show this device as
+     * unplugged. To avoid this inconsistency, we set the dimm bits to active
+     * i.e. hot-plugged for each dimm present on the dimmbus.
+     */
+    QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
+        if (slot->pending == DIMM_REMOVE_PENDING) {
+            if (bus->dimm_revert)
+                bus->dimm_revert(bus->dimm_hotplug_qdev, slot, 0);
+        }
+    }
+}
+
 /* used to create a dimm device, only on incoming migration of a hotplugged
  * RAMBlock
  */

@@ -373,6 +373,7 @@ static void piix4_reset(void *opaque)
         pci_conf[0x5B] = 0x02;
     }
     piix4_update_hotplug(s);
+    dimm_state_sync();
 }
 
 static void piix4_powerdown(void *opaque, int irq, int power_failing)
