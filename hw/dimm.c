@@ -319,6 +319,9 @@ void dimm_notify(uint32_t idx, uint32_t event)
             qdev_simple_unplug_cb((DeviceState*)s);
             QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
             break;
+        case DIMM_OSPM_POWEROFF:
+            if (bus->dimm_revert)
+                bus->dimm_revert(bus->dimm_hotplug_qdev, s, 1);
         default:
             g_free(result);
             break;
