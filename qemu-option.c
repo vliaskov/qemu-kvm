@@ -185,7 +185,7 @@ static void parse_option_bool(const char *name, const char *value, bool *ret,
     }
 }
 
-static void parse_option_number(const char *name, const char *value,
+void parse_option_number(const char *name, const char *value,
                                 uint64_t *ret, Error **errp)
 {
     char *postfix;
