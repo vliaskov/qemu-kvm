@@ -156,5 +156,7 @@ int qemu_opts_foreach(QemuOptsList *list, qemu_opts_loopfunc func, void *opaque,
                       int abort_on_failure);
 void parse_option_size(const char *name, const char *value,
                               uint64_t *ret, Error **errp);
+void parse_option_number(const char *name, const char *value,
+                                uint64_t *ret, Error **errp);
 
 #endif
