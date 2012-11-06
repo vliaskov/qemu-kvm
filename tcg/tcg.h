@@ -79,6 +79,7 @@ typedef uint64_t TCGRegSet;
 #define TCG_TARGET_HAS_nand_i64         0
 #define TCG_TARGET_HAS_nor_i64          0
 #define TCG_TARGET_HAS_deposit_i64      0
+#define TCG_TARGET_HAS_movcond_i64      0
 #endif
 
 #ifndef TCG_TARGET_deposit_i32_valid
@@ -252,31 +253,47 @@ typedef int TCGv_i64;
 #define TCGV_UNUSED_I64(x) x = MAKE_TCGV_I64(-1)
 
 /* call flags */
-/* A pure function only reads its arguments and TCG global variables
-   and cannot raise exceptions. Hence a call to a pure function can be
-   safely suppressed if the return value is not used. */
-#define TCG_CALL_PURE           0x0010 
-/* A const function only reads its arguments and does not use TCG
-   global variables. Hence a call to such a function does not
-   save TCG global variables back to their canonical location. */
-#define TCG_CALL_CONST          0x0020
+/* Helper does not read globals (either directly or through an exception). It
+   implies TCG_CALL_NO_WRITE_GLOBALS. */
+#define TCG_CALL_NO_READ_GLOBALS    0x0010
+/* Helper does not write globals */
+#define TCG_CALL_NO_WRITE_GLOBALS   0x0020
+/* Helper can be safely suppressed if the return value is not used. */
+#define TCG_CALL_NO_SIDE_EFFECTS    0x0040
+
+/* convenience version of most used call flags */
+#define TCG_CALL_NO_RWG         TCG_CALL_NO_READ_GLOBALS
+#define TCG_CALL_NO_WG          TCG_CALL_NO_WRITE_GLOBALS
+#define TCG_CALL_NO_SE          TCG_CALL_NO_SIDE_EFFECTS
+#define TCG_CALL_NO_RWG_SE      (TCG_CALL_NO_RWG | TCG_CALL_NO_SE)
+#define TCG_CALL_NO_WG_SE       (TCG_CALL_NO_WG | TCG_CALL_NO_SE)
 
 /* used to align parameters */
 #define TCG_CALL_DUMMY_TCGV     MAKE_TCGV_I32(-1)
 #define TCG_CALL_DUMMY_ARG      ((TCGArg)(-1))
 
+/* Conditions.  Note that these are layed out for easy manipulation by
+   the the functions below:
+     bit 0 is used for inverting;
+     bit 1 is signed,
+     bit 2 is unsigned,
+     bit 3 is used with bit 0 for swapping signed/unsigned.  */
 typedef enum {
-    TCG_COND_EQ,
-    TCG_COND_NE,
-    TCG_COND_LT,
-    TCG_COND_GE,
-    TCG_COND_LE,
-    TCG_COND_GT,
+    /* non-signed */
+    TCG_COND_NEVER  = 0 | 0 | 0 | 0,
+    TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
+    TCG_COND_EQ     = 8 | 0 | 0 | 0,
+    TCG_COND_NE     = 8 | 0 | 0 | 1,
+    /* signed */
+    TCG_COND_LT     = 0 | 0 | 2 | 0,
+    TCG_COND_GE     = 0 | 0 | 2 | 1,
+    TCG_COND_LE     = 8 | 0 | 2 | 0,
+    TCG_COND_GT     = 8 | 0 | 2 | 1,
     /* unsigned */
-    TCG_COND_LTU,
-    TCG_COND_GEU,
-    TCG_COND_LEU,
-    TCG_COND_GTU,
+    TCG_COND_LTU    = 0 | 4 | 0 | 0,
+    TCG_COND_GEU    = 0 | 4 | 0 | 1,
+    TCG_COND_LEU    = 8 | 4 | 0 | 0,
+    TCG_COND_GTU    = 8 | 4 | 0 | 1,
 } TCGCond;
 
 /* Invert the sense of the comparison.  */
@@ -288,13 +305,34 @@ static inline TCGCond tcg_invert_cond(TCGCond c)
 /* Swap the operands in a comparison.  */
 static inline TCGCond tcg_swap_cond(TCGCond c)
 {
-    int mask = (c < TCG_COND_LT ? 0 : c < TCG_COND_LTU ? 7 : 15);
-    return (TCGCond)(c ^ mask);
+    return c & 6 ? (TCGCond)(c ^ 9) : c;
 }
 
+/* Create an "unsigned" version of a "signed" comparison.  */
 static inline TCGCond tcg_unsigned_cond(TCGCond c)
 {
-    return (c >= TCG_COND_LT && c <= TCG_COND_GT ? c + 4 : c);
+    return c & 2 ? (TCGCond)(c ^ 6) : c;
+}
+
+/* Must a comparison be considered unsigned?  */
+static inline bool is_unsigned_cond(TCGCond c)
+{
+    return (c & 4) != 0;
+}
+
+/* Create a "high" version of a double-word comparison.
+   This removes equality from a LTE or GTE comparison.  */
+static inline TCGCond tcg_high_cond(TCGCond c)
+{
+    switch (c) {
+    case TCG_COND_GE:
+    case TCG_COND_LE:
+    case TCG_COND_GEU:
+    case TCG_COND_LEU:
+        return (TCGCond)(c ^ 8);
+    default:
+        return c;
+    }
 }
 
 #define TEMP_VAL_DEAD  0
@@ -335,7 +373,6 @@ struct TCGContext {
     TCGPool *pool_first, *pool_current, *pool_first_large;
     TCGLabel *labels;
     int nb_labels;
-    TCGTemp *temps; /* globals first, temps after */
     int nb_globals;
     int nb_temps;
     /* index of free temps, -1 if none */
@@ -343,13 +380,16 @@ struct TCGContext {
 
     /* goto_tb support */
     uint8_t *code_buf;
-    unsigned long *tb_next;
+    uintptr_t *tb_next;
     uint16_t *tb_next_offset;
     uint16_t *tb_jmp_offset; /* != NULL if USE_DIRECT_JUMP */
 
     /* liveness analysis */
     uint16_t *op_dead_args; /* for each operation, each bit tells if the
                                corresponding argument is dead */
+    uint8_t *op_sync_args;  /* for each operation, each bit tells if the
+                               corresponding output argument needs to be
+                               sync to memory. */
     
     /* tells in which temporary a given register is. It does not take
        into account fixed registers */
@@ -361,7 +401,7 @@ struct TCGContext {
     int frame_reg;
 
     uint8_t *code_ptr;
-    TCGTemp static_temps[TCG_MAX_TEMPS];
+    TCGTemp temps[TCG_MAX_TEMPS]; /* globals first, temps after */
 
     TCGHelperInfo *helpers;
     int nb_helpers;
@@ -389,6 +429,7 @@ struct TCGContext {
 
 #ifdef CONFIG_DEBUG_TCG
     int temps_in_use;
+    int goto_tb_issue_mask;
 #endif
 };
 
@@ -459,11 +500,6 @@ static inline TCGv_i64 tcg_temp_local_new_i64(void)
 void tcg_temp_free_i64(TCGv_i64 arg);
 char *tcg_get_arg_str_i64(TCGContext *s, char *buf, int buf_size, TCGv_i64 arg);
 
-static inline bool tcg_arg_is_local(TCGContext *s, TCGArg arg)
-{
-    return s->temps[arg].temp_local;
-}
-
 #if defined(CONFIG_DEBUG_TCG)
 /* If you call tcg_clear_temp_count() at the start of a section of
  * code which is not supposed to leak any TCG temporaries, then
@@ -500,8 +536,8 @@ enum {
     TCG_OPF_BB_END       = 0x01,
     /* Instruction clobbers call registers and potentially update globals.  */
     TCG_OPF_CALL_CLOBBER = 0x02,
-    /* Instruction has side effects: it cannot be removed
-       if its outputs are not used.  */
+    /* Instruction has side effects: it cannot be removed if its outputs
+       are not used, and might trigger exceptions.  */
     TCG_OPF_SIDE_EFFECTS = 0x04,
     /* Instruction operands are 64-bits (otherwise 32-bits).  */
     TCG_OPF_64BIT        = 0x08,
@@ -533,6 +569,15 @@ do {\
     fprintf(stderr, "%s:%d: tcg fatal error\n", __FILE__, __LINE__);\
     abort();\
 } while (0)
+
+#ifdef CONFIG_DEBUG_TCG
+# define tcg_debug_assert(X) do { assert(X); } while (0)
+#elif QEMU_GNUC_PREREQ(4, 5)
+# define tcg_debug_assert(X) \
+    do { if (!(X)) { __builtin_unreachable(); } } while (0)
+#else
+# define tcg_debug_assert(X) do { (void)(X); } while (0)
+#endif
 
 void tcg_add_target_add_op_defs(const TCGTargetOpDef *tdefs);
 
@@ -580,7 +625,7 @@ TCGv_i64 tcg_const_i64(int64_t val);
 TCGv_i32 tcg_const_local_i32(int32_t val);
 TCGv_i64 tcg_const_local_i64(int64_t val);
 
-extern uint8_t code_gen_prologue[];
+extern uint8_t *code_gen_prologue;
 
 /* TCG targets may use a different definition of tcg_qemu_tb_exec. */
 #if !defined(tcg_qemu_tb_exec)

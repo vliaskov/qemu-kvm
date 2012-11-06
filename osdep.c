@@ -88,7 +88,6 @@ static int qemu_dup_flags(int fd, int flags)
     int ret;
     int serrno;
     int dup_flags;
-    int setfl_flags;
 
 #ifdef F_DUPFD_CLOEXEC
     ret = fcntl(fd, F_DUPFD_CLOEXEC, 0);
@@ -113,16 +112,7 @@ static int qemu_dup_flags(int fd, int flags)
     }
 
     /* Set/unset flags that we can with fcntl */
-    setfl_flags = O_APPEND | O_ASYNC | O_NONBLOCK;
-#ifdef O_NOATIME
-    setfl_flags |= O_NOATIME;
-#endif
-#ifdef O_DIRECT
-    setfl_flags |= O_DIRECT;
-#endif
-    dup_flags &= ~setfl_flags;
-    dup_flags |= (flags & setfl_flags);
-    if (fcntl(ret, F_SETFL, dup_flags) == -1) {
+    if (fcntl(ret, F_SETFL, flags) == -1) {
         goto fail;
     }
 
@@ -143,6 +133,11 @@ fail:
     }
     errno = serrno;
     return -1;
+}
+
+static int qemu_parse_fdset(const char *param)
+{
+    return qemu_parse_fd(param);
 }
 #endif
 
@@ -404,3 +399,28 @@ bool fips_get_state(void)
 {
     return fips_enabled;
 }
+
+
+static int default_fdset_get_fd(int64_t fdset_id, int flags)
+{
+    return -1;
+}
+QEMU_WEAK_ALIAS(monitor_fdset_get_fd, default_fdset_get_fd);
+
+static int default_fdset_dup_fd_add(int64_t fdset_id, int dup_fd)
+{
+    return -1;
+}
+QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_add, default_fdset_dup_fd_add);
+
+static int default_fdset_dup_fd_remove(int dup_fd)
+{
+    return -1;
+}
+QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_remove, default_fdset_dup_fd_remove);
+
+static int default_fdset_dup_fd_find(int dup_fd)
+{
+    return -1;
+}
+QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_find, default_fdset_dup_fd_find);

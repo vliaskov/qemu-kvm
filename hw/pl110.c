@@ -239,7 +239,7 @@ static void pl110_update_display(void *opaque)
                                fn, s->palette,
                                &first, &last);
     if (first >= 0) {
-        dpy_update(s->ds, 0, first, s->cols, last - first + 1);
+        dpy_gfx_update(s->ds, 0, first, s->cols, last - first + 1);
     }
     s->invalidate = 0;
 }
@@ -305,7 +305,7 @@ static void pl110_update(pl110_state *s)
   /* TODO: Implement interrupts.  */
 }
 
-static uint64_t pl110_read(void *opaque, target_phys_addr_t offset,
+static uint64_t pl110_read(void *opaque, hwaddr offset,
                            unsigned size)
 {
     pl110_state *s = (pl110_state *)opaque;
@@ -349,12 +349,13 @@ static uint64_t pl110_read(void *opaque, target_phys_addr_t offset,
     case 12: /* LCDLPCURR */
         return s->lpbase;
     default:
-        hw_error("pl110_read: Bad offset %x\n", (int)offset);
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "pl110_read: Bad offset %x\n", (int)offset);
         return 0;
     }
 }
 
-static void pl110_write(void *opaque, target_phys_addr_t offset,
+static void pl110_write(void *opaque, hwaddr offset,
                         uint64_t val, unsigned size)
 {
     pl110_state *s = (pl110_state *)opaque;
@@ -417,7 +418,8 @@ static void pl110_write(void *opaque, target_phys_addr_t offset,
         pl110_update(s);
         break;
     default:
-        hw_error("pl110_write: Bad offset %x\n", (int)offset);
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "pl110_write: Bad offset %x\n", (int)offset);
     }
 }
 

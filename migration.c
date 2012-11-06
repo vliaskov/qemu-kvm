@@ -53,7 +53,7 @@ static NotifierList migration_state_notifiers =
    migrations at once.  For now we don't need to add
    dynamic creation of migration */
 
-static MigrationState *migrate_get_current(void)
+MigrationState *migrate_get_current(void)
 {
     static MigrationState current_migration = {
         .state = MIG_STATE_SETUP,
@@ -64,26 +64,23 @@ static MigrationState *migrate_get_current(void)
     return &current_migration;
 }
 
-int qemu_start_incoming_migration(const char *uri, Error **errp)
+void qemu_start_incoming_migration(const char *uri, Error **errp)
 {
     const char *p;
-    int ret;
 
     if (strstart(uri, "tcp:", &p))
-        ret = tcp_start_incoming_migration(p, errp);
+        tcp_start_incoming_migration(p, errp);
 #if !defined(WIN32)
     else if (strstart(uri, "exec:", &p))
-        ret =  exec_start_incoming_migration(p);
+        exec_start_incoming_migration(p, errp);
     else if (strstart(uri, "unix:", &p))
-        ret = unix_start_incoming_migration(p);
+        unix_start_incoming_migration(p, errp);
     else if (strstart(uri, "fd:", &p))
-        ret = fd_start_incoming_migration(p);
+        fd_start_incoming_migration(p, errp);
 #endif
     else {
-        fprintf(stderr, "unknown migration protocol: %s\n", uri);
-        ret = -EPROTONOSUPPORT;
+        error_setg(errp, "unknown migration protocol: %s\n", uri);
     }
-    return ret;
 }
 
 void process_incoming_migration(QEMUFile *f)
@@ -102,7 +99,7 @@ void process_incoming_migration(QEMUFile *f)
     if (autostart) {
         vm_start();
     } else {
-        runstate_set(RUN_STATE_PRELAUNCH);
+        runstate_set(RUN_STATE_PAUSED);
     }
 }
 
@@ -169,6 +166,8 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         info->has_total_time = true;
         info->total_time = qemu_get_clock_ms(rt_clock)
             - s->total_time;
+        info->has_expected_downtime = true;
+        info->expected_downtime = s->expected_downtime;
 
         info->has_ram = true;
         info->ram = g_malloc0(sizeof(*info->ram));
@@ -178,6 +177,8 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         info->ram->duplicate = dup_mig_pages_transferred();
         info->ram->normal = norm_mig_pages_transferred();
         info->ram->normal_bytes = norm_mig_bytes_transferred();
+        info->ram->dirty_pages_rate = s->dirty_pages_rate;
+
 
         if (blk_mig_active()) {
             info->has_disk = true;
@@ -195,6 +196,8 @@ MigrationInfo *qmp_query_migrate(Error **errp)
         info->has_status = true;
         info->status = g_strdup("completed");
         info->total_time = s->total_time;
+        info->has_downtime = true;
+        info->downtime = s->downtime;
 
         info->has_ram = true;
         info->ram = g_malloc0(sizeof(*info->ram));
@@ -240,7 +243,9 @@ static int migrate_fd_cleanup(MigrationState *s)
 {
     int ret = 0;
 
-    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+    if (s->fd != -1) {
+        qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+    }
 
     if (s->file) {
         DPRINTF("closing file\n");
@@ -279,18 +284,18 @@ static void migrate_fd_completed(MigrationState *s)
 static void migrate_fd_put_notify(void *opaque)
 {
     MigrationState *s = opaque;
+    int ret;
 
     qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
-    qemu_file_put_notify(s->file);
-    if (s->file && qemu_file_get_error(s->file)) {
+    ret = qemu_file_put_notify(s->file);
+    if (ret) {
         migrate_fd_error(s);
     }
 }
 
-static ssize_t migrate_fd_put_buffer(void *opaque, const void *data,
-                                     size_t size)
+ssize_t migrate_fd_put_buffer(MigrationState *s, const void *data,
+                              size_t size)
 {
-    MigrationState *s = opaque;
     ssize_t ret;
 
     if (s->state != MIG_STATE_ACTIVE) {
@@ -311,9 +316,8 @@ static ssize_t migrate_fd_put_buffer(void *opaque, const void *data,
     return ret;
 }
 
-static void migrate_fd_put_ready(void *opaque)
+void migrate_fd_put_ready(MigrationState *s)
 {
-    MigrationState *s = opaque;
     int ret;
 
     if (s->state != MIG_STATE_ACTIVE) {
@@ -327,8 +331,10 @@ static void migrate_fd_put_ready(void *opaque)
         migrate_fd_error(s);
     } else if (ret == 1) {
         int old_vm_running = runstate_is_running();
+        int64_t start_time, end_time;
 
         DPRINTF("done iterating\n");
+        start_time = qemu_get_clock_ms(rt_clock);
         qemu_system_wakeup_request(QEMU_WAKEUP_REASON_OTHER);
         vm_stop_force_state(RUN_STATE_FINISH_MIGRATE);
 
@@ -337,7 +343,9 @@ static void migrate_fd_put_ready(void *opaque)
         } else {
             migrate_fd_completed(s);
         }
-        s->total_time = qemu_get_clock_ms(rt_clock) - s->total_time;
+        end_time = qemu_get_clock_ms(rt_clock);
+        s->total_time = end_time - s->total_time;
+        s->downtime = end_time - start_time;
         if (s->state != MIG_STATE_COMPLETED) {
             if (old_vm_running) {
                 vm_start();
@@ -360,14 +368,13 @@ static void migrate_fd_cancel(MigrationState *s)
     migrate_fd_cleanup(s);
 }
 
-static void migrate_fd_wait_for_unfreeze(void *opaque)
+int migrate_fd_wait_for_unfreeze(MigrationState *s)
 {
-    MigrationState *s = opaque;
     int ret;
 
     DPRINTF("wait for unfreeze\n");
     if (s->state != MIG_STATE_ACTIVE)
-        return;
+        return -EINVAL;
 
     do {
         fd_set wfds;
@@ -379,14 +386,13 @@ static void migrate_fd_wait_for_unfreeze(void *opaque)
     } while (ret == -1 && (s->get_error(s)) == EINTR);
 
     if (ret == -1) {
-        qemu_file_set_error(s->file, -s->get_error(s));
+        return -s->get_error(s);
     }
+    return 0;
 }
 
-static int migrate_fd_close(void *opaque)
+int migrate_fd_close(MigrationState *s)
 {
-    MigrationState *s = opaque;
-
     qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
     return s->close(s);
 }
@@ -422,12 +428,7 @@ void migrate_fd_connect(MigrationState *s)
     int ret;
 
     s->state = MIG_STATE_ACTIVE;
-    s->file = qemu_fopen_ops_buffered(s,
-                                      s->bandwidth_limit,
-                                      migrate_fd_put_buffer,
-                                      migrate_fd_put_ready,
-                                      migrate_fd_wait_for_unfreeze,
-                                      migrate_fd_close);
+    s->file = qemu_fopen_ops_buffered(s);
 
     DPRINTF("beginning savevm\n");
     ret = qemu_savevm_state_begin(s->file, &s->params);
@@ -479,10 +480,10 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
 {
+    Error *local_err = NULL;
     MigrationState *s = migrate_get_current();
     MigrationParams params;
     const char *p;
-    int ret;
 
     params.blk = blk;
     params.shared = inc;
@@ -504,26 +505,23 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     s = migrate_init(&params);
 
     if (strstart(uri, "tcp:", &p)) {
-        ret = tcp_start_outgoing_migration(s, p, errp);
+        tcp_start_outgoing_migration(s, p, &local_err);
 #if !defined(WIN32)
     } else if (strstart(uri, "exec:", &p)) {
-        ret = exec_start_outgoing_migration(s, p);
+        exec_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "unix:", &p)) {
-        ret = unix_start_outgoing_migration(s, p);
+        unix_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "fd:", &p)) {
-        ret = fd_start_outgoing_migration(s, p);
+        fd_start_outgoing_migration(s, p, &local_err);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");
         return;
     }
 
-    if (ret < 0) {
-        if (!error_is_set(errp)) {
-            DPRINTF("migration failed: %s\n", strerror(-ret));
-            /* FIXME: we should return meaningful errors */
-            error_set(errp, QERR_UNDEFINED_ERROR);
-        }
+    if (local_err) {
+        migrate_fd_error(s);
+        error_propagate(errp, local_err);
         return;
     }
 

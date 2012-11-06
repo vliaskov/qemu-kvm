@@ -86,6 +86,7 @@
 #include "memory.h"
 #include "qmp-commands.h"
 #include "trace.h"
+#include "bitops.h"
 
 #define SELF_ANNOUNCE_ROUNDS 5
 
@@ -440,42 +441,29 @@ int qemu_file_get_error(QEMUFile *f)
     return f->last_error;
 }
 
-void qemu_file_set_error(QEMUFile *f, int ret)
+static void qemu_file_set_error(QEMUFile *f, int ret)
 {
     f->last_error = ret;
 }
 
-/** Sets last_error conditionally
- *
- * Sets last_error only if ret is negative _and_ no error
- * was set before.
- */
-static void qemu_file_set_if_error(QEMUFile *f, int ret)
-{
-    if (ret < 0 && !f->last_error) {
-        qemu_file_set_error(f, ret);
-    }
-}
-
 /** Flushes QEMUFile buffer
  *
- * In case of error, last_error is set.
  */
-void qemu_fflush(QEMUFile *f)
+static int qemu_fflush(QEMUFile *f)
 {
+    int ret = 0;
+
     if (!f->put_buffer)
-        return;
+        return 0;
 
     if (f->is_write && f->buf_index > 0) {
-        int len;
-
-        len = f->put_buffer(f->opaque, f->buf, f->buf_offset, f->buf_index);
-        if (len > 0)
+        ret = f->put_buffer(f->opaque, f->buf, f->buf_offset, f->buf_index);
+        if (ret >= 0) {
             f->buf_offset += f->buf_index;
-        else
-            qemu_file_set_error(f, -EINVAL);
+        }
         f->buf_index = 0;
     }
+    return ret;
 }
 
 static void qemu_fill_buffer(QEMUFile *f)
@@ -502,25 +490,9 @@ static void qemu_fill_buffer(QEMUFile *f)
         f->buf_size += len;
         f->buf_offset += len;
     } else if (len == 0) {
-        f->last_error = -EIO;
+        qemu_file_set_error(f, -EIO);
     } else if (len != -EAGAIN)
         qemu_file_set_error(f, len);
-}
-
-/** Calls close function and set last_error if needed
- *
- * Internal function. qemu_fflush() must be called before this.
- *
- * Returns f->close() return value, or 0 if close function is not set.
- */
-static int qemu_fclose_internal(QEMUFile *f)
-{
-    int ret = 0;
-    if (f->close) {
-        ret = f->close(f->opaque);
-        qemu_file_set_if_error(f, ret);
-    }
-    return ret;
 }
 
 /** Closes the file
@@ -534,8 +506,14 @@ static int qemu_fclose_internal(QEMUFile *f)
 int qemu_fclose(QEMUFile *f)
 {
     int ret;
-    qemu_fflush(f);
-    ret = qemu_fclose_internal(f);
+    ret = qemu_fflush(f);
+
+    if (f->close) {
+        int ret2 = f->close(f->opaque);
+        if (ret >= 0) {
+            ret = ret2;
+        }
+    }
     /* If any error was spotted before closing, we should report it
      * instead of the close() return value.
      */
@@ -546,22 +524,26 @@ int qemu_fclose(QEMUFile *f)
     return ret;
 }
 
-void qemu_file_put_notify(QEMUFile *f)
+int qemu_file_put_notify(QEMUFile *f)
 {
-    f->put_buffer(f->opaque, NULL, 0, 0);
+    return f->put_buffer(f->opaque, NULL, 0, 0);
 }
 
 void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, int size)
 {
     int l;
 
-    if (!f->last_error && f->is_write == 0 && f->buf_index > 0) {
+    if (f->last_error) {
+        return;
+    }
+
+    if (f->is_write == 0 && f->buf_index > 0) {
         fprintf(stderr,
                 "Attempted to write to buffer while read buffer is not empty\n");
         abort();
     }
 
-    while (!f->last_error && size > 0) {
+    while (size > 0) {
         l = IO_BUF_SIZE - f->buf_index;
         if (l > size)
             l = size;
@@ -570,14 +552,23 @@ void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, int size)
         f->buf_index += l;
         buf += l;
         size -= l;
-        if (f->buf_index >= IO_BUF_SIZE)
-            qemu_fflush(f);
+        if (f->buf_index >= IO_BUF_SIZE) {
+            int ret = qemu_fflush(f);
+            if (ret < 0) {
+                qemu_file_set_error(f, ret);
+                break;
+            }
+        }
     }
 }
 
 void qemu_put_byte(QEMUFile *f, int v)
 {
-    if (!f->last_error && f->is_write == 0 && f->buf_index > 0) {
+    if (f->last_error) {
+        return;
+    }
+
+    if (f->is_write == 0 && f->buf_index > 0) {
         fprintf(stderr,
                 "Attempted to write to buffer while read buffer is not empty\n");
         abort();
@@ -585,8 +576,12 @@ void qemu_put_byte(QEMUFile *f, int v)
 
     f->buf[f->buf_index++] = v;
     f->is_write = 1;
-    if (f->buf_index >= IO_BUF_SIZE)
-        qemu_fflush(f);
+    if (f->buf_index >= IO_BUF_SIZE) {
+        int ret = qemu_fflush(f);
+        if (ret < 0) {
+            qemu_file_set_error(f, ret);
+        }
+    }
 }
 
 static void qemu_file_skip(QEMUFile *f, int size)
@@ -671,30 +666,9 @@ int qemu_get_byte(QEMUFile *f)
     return result;
 }
 
-int64_t qemu_ftell(QEMUFile *f)
+static int64_t qemu_ftell(QEMUFile *f)
 {
     return f->buf_offset - f->buf_size + f->buf_index;
-}
-
-int64_t qemu_fseek(QEMUFile *f, int64_t pos, int whence)
-{
-    if (whence == SEEK_SET) {
-        /* nothing to do */
-    } else if (whence == SEEK_CUR) {
-        pos += qemu_ftell(f);
-    } else {
-        /* SEEK_END not supported */
-        return -1;
-    }
-    if (f->put_buffer) {
-        qemu_fflush(f);
-        f->buf_offset = pos;
-    } else {
-        f->buf_offset = pos;
-        f->buf_index = 0;
-        f->buf_size = 0;
-    }
-    return pos;
 }
 
 int qemu_file_rate_limit(QEMUFile *f)
@@ -1157,6 +1131,46 @@ const VMStateInfo vmstate_info_unused_buffer = {
     .name = "unused_buffer",
     .get  = get_unused_buffer,
     .put  = put_unused_buffer,
+};
+
+/* bitmaps (as defined by bitmap.h). Note that size here is the size
+ * of the bitmap in bits. The on-the-wire format of a bitmap is 64
+ * bit words with the bits in big endian order. The in-memory format
+ * is an array of 'unsigned long', which may be either 32 or 64 bits.
+ */
+/* This is the number of 64 bit words sent over the wire */
+#define BITS_TO_U64S(nr) DIV_ROUND_UP(nr, 64)
+static int get_bitmap(QEMUFile *f, void *pv, size_t size)
+{
+    unsigned long *bmp = pv;
+    int i, idx = 0;
+    for (i = 0; i < BITS_TO_U64S(size); i++) {
+        uint64_t w = qemu_get_be64(f);
+        bmp[idx++] = w;
+        if (sizeof(unsigned long) == 4 && idx < BITS_TO_LONGS(size)) {
+            bmp[idx++] = w >> 32;
+        }
+    }
+    return 0;
+}
+
+static void put_bitmap(QEMUFile *f, void *pv, size_t size)
+{
+    unsigned long *bmp = pv;
+    int i, idx = 0;
+    for (i = 0; i < BITS_TO_U64S(size); i++) {
+        uint64_t w = bmp[idx++];
+        if (sizeof(unsigned long) == 4 && idx < BITS_TO_LONGS(size)) {
+            w |= ((uint64_t)bmp[idx++]) << 32;
+        }
+        qemu_put_be64(f, w);
+    }
+}
+
+const VMStateInfo vmstate_info_bitmap = {
+    .name = "bitmap",
+    .get = get_bitmap,
+    .put = put_bitmap,
 };
 
 typedef struct CompatEntry {
@@ -2201,7 +2215,6 @@ void qmp_xen_save_devices_state(const char *filename, Error **errp)
  the_end:
     if (saved_vm_running)
         vm_start();
-    return;
 }
 
 int load_vmstate(const char *name)

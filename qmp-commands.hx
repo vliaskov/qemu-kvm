@@ -493,6 +493,30 @@ Example:
 EQMP
 
     {
+        .name       = "xen-set-global-dirty-log",
+        .args_type  = "enable:b",
+        .mhandler.cmd_new = qmp_marshal_input_xen_set_global_dirty_log,
+    },
+
+SQMP
+xen-set-global-dirty-log
+-------
+
+Enable or disable the global dirty log mode.
+
+Arguments:
+
+- "enable": Enable it or disable it.
+
+Example:
+
+-> { "execute": "xen-set-global-dirty-log",
+     "arguments": { "enable": true } }
+<- { "return": {} }
+
+EQMP
+
+    {
         .name       = "migrate",
         .args_type  = "detach:-d,blk:-b,inc:-i,uri:s",
         .mhandler.cmd_new = qmp_marshal_input_migrate,
@@ -787,8 +811,14 @@ EQMP
 
     {
         .name       = "block-stream",
-        .args_type  = "device:B,base:s?,speed:o?",
+        .args_type  = "device:B,base:s?,speed:o?,on-error:s?",
         .mhandler.cmd_new = qmp_marshal_input_block_stream,
+    },
+
+    {
+        .name       = "block-commit",
+        .args_type  = "device:B,base:s?,top:s,speed:o?",
+        .mhandler.cmd_new = qmp_marshal_input_block_commit,
     },
 
     {
@@ -799,8 +829,23 @@ EQMP
 
     {
         .name       = "block-job-cancel",
-        .args_type  = "device:B",
+        .args_type  = "device:B,force:b?",
         .mhandler.cmd_new = qmp_marshal_input_block_job_cancel,
+    },
+    {
+        .name       = "block-job-pause",
+        .args_type  = "device:B",
+        .mhandler.cmd_new = qmp_marshal_input_block_job_pause,
+    },
+    {
+        .name       = "block-job-resume",
+        .args_type  = "device:B",
+        .mhandler.cmd_new = qmp_marshal_input_block_job_resume,
+    },
+    {
+        .name       = "block-job-complete",
+        .args_type  = "device:B",
+        .mhandler.cmd_new = qmp_marshal_input_block_job_complete,
     },
     {
         .name       = "transaction",
@@ -886,6 +931,54 @@ Example:
                                                          "snapshot-file":
                                                         "/some/place/my-image",
                                                         "format": "qcow2" } }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "drive-mirror",
+        .args_type  = "sync:s,device:B,target:s,speed:i?,mode:s?,format:s?,"
+                      "on-source-error:s?,on-target-error:s?",
+        .mhandler.cmd_new = qmp_marshal_input_drive_mirror,
+    },
+
+SQMP
+drive-mirror
+------------
+
+Start mirroring a block device's writes to a new destination. target
+specifies the target of the new image. If the file exists, or if it is
+a device, it will be used as the new destination for writes. If it does not
+exist, a new file will be created. format specifies the format of the
+mirror image, default is to probe if mode='existing', else the format
+of the source.
+
+Arguments:
+
+- "device": device name to operate on (json-string)
+- "target": name of new image file (json-string)
+- "format": format of new image (json-string, optional)
+- "mode": how an image file should be created into the target
+  file/device (NewImageMode, optional, default 'absolute-paths')
+- "speed": maximum speed of the streaming job, in bytes per second
+  (json-int)
+- "sync": what parts of the disk image should be copied to the destination;
+  possibilities include "full" for all the disk, "top" for only the sectors
+  allocated in the topmost image, or "none" to only replicate new I/O
+  (MirrorSyncMode).
+- "on-source-error": the action to take on an error on the source
+  (BlockdevOnError, default 'report')
+- "on-target-error": the action to take on an error on the target
+  (BlockdevOnError, default 'report')
+
+
+
+Example:
+
+-> { "execute": "drive-mirror", "arguments": { "device": "ide-hd0",
+                                               "target": "/some/place/my-image",
+                                               "sync": "full",
+                                               "format": "qcow2" } }
 <- { "return": {} }
 
 EQMP
@@ -1231,10 +1324,7 @@ EQMP
     {
         .name       = "add_client",
         .args_type  = "protocol:s,fdname:s,skipauth:b?,tls:b?",
-        .params     = "protocol fdname skipauth tls",
-        .help       = "add a graphics client",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = add_graphics_client,
+        .mhandler.cmd_new = qmp_marshal_input_add_client,
     },
 
 SQMP
@@ -2267,6 +2357,11 @@ The main json-object contains the following:
 - "total-time": total amount of ms since migration started.  If
                 migration has ended, it returns the total migration
 		 time (json-int)
+- "downtime": only present when migration has finished correctly
+              total amount in ms for downtime that happened (json-int)
+- "expected-downtime": only present while migration is active
+                total amount in ms for downtime that was calculated on
+		the last bitmap round (json-int)
 - "ram": only present if "status" is "active", it is a json-object with the
   following RAM information (in bytes):
          - "transferred": amount transferred (json-int)
@@ -2304,6 +2399,7 @@ Examples:
           "remaining":123,
           "total":246,
           "total-time":12345,
+          "downtime":12345,
           "duplicate":123,
           "normal":123,
           "normal-bytes":123456
@@ -2327,6 +2423,7 @@ Examples:
             "remaining":123,
             "total":246,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":123,
             "normal":123,
             "normal-bytes":123456
@@ -2345,6 +2442,7 @@ Examples:
             "remaining":1053304,
             "transferred":3720,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":123,
             "normal":123,
             "normal-bytes":123456
@@ -2369,6 +2467,7 @@ Examples:
             "remaining":1053304,
             "transferred":3720,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":10,
             "normal":3333,
             "normal-bytes":3412992
@@ -2503,6 +2602,22 @@ EQMP
         .name       = "qom-get",
 	.args_type  = "path:s,property:s",
 	.mhandler.cmd_new = qmp_qom_get,
+    },
+
+    {
+        .name       = "nbd-server-start",
+        .args_type  = "addr:q",
+        .mhandler.cmd_new = qmp_marshal_input_nbd_server_start,
+    },
+    {
+        .name       = "nbd-server-add",
+        .args_type  = "device:B,writable:b?",
+        .mhandler.cmd_new = qmp_marshal_input_nbd_server_add,
+    },
+    {
+        .name       = "nbd-server-stop",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_nbd_server_stop,
     },
 
     {

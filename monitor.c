@@ -450,6 +450,8 @@ static const char *monitor_event_names[] = {
     [QEVENT_SPICE_DISCONNECTED] = "SPICE_DISCONNECTED",
     [QEVENT_BLOCK_JOB_COMPLETED] = "BLOCK_JOB_COMPLETED",
     [QEVENT_BLOCK_JOB_CANCELLED] = "BLOCK_JOB_CANCELLED",
+    [QEVENT_BLOCK_JOB_ERROR] = "BLOCK_JOB_ERROR",
+    [QEVENT_BLOCK_JOB_READY] = "BLOCK_JOB_READY",
     [QEVENT_DEVICE_TRAY_MOVED] = "DEVICE_TRAY_MOVED",
     [QEVENT_SUSPEND] = "SUSPEND",
     [QEVENT_SUSPEND_DISK] = "SUSPEND_DISK",
@@ -897,13 +899,7 @@ static void do_info_registers(Monitor *mon)
 {
     CPUArchState *env;
     env = mon_get_cpu();
-#ifdef TARGET_I386
-    cpu_dump_state(env, (FILE *)mon, monitor_fprintf,
-                   X86_DUMP_FPU);
-#else
-    cpu_dump_state(env, (FILE *)mon, monitor_fprintf,
-                   0);
-#endif
+    cpu_dump_state(env, (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
 }
 
 static void do_info_jit(Monitor *mon)
@@ -942,45 +938,6 @@ static void do_info_cpu_stats(Monitor *mon)
 static void do_trace_print_events(Monitor *mon)
 {
     trace_print_events((FILE *)mon, &monitor_fprintf);
-}
-
-static int add_graphics_client(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    const char *protocol  = qdict_get_str(qdict, "protocol");
-    const char *fdname = qdict_get_str(qdict, "fdname");
-    CharDriverState *s;
-
-    if (strcmp(protocol, "spice") == 0) {
-        int fd = monitor_get_fd(mon, fdname);
-        int skipauth = qdict_get_try_bool(qdict, "skipauth", 0);
-        int tls = qdict_get_try_bool(qdict, "tls", 0);
-        if (!using_spice) {
-            /* correct one? spice isn't a device ,,, */
-            qerror_report(QERR_DEVICE_NOT_ACTIVE, "spice");
-            return -1;
-        }
-        if (qemu_spice_display_add_client(fd, skipauth, tls) < 0) {
-            close(fd);
-        }
-        return 0;
-#ifdef CONFIG_VNC
-    } else if (strcmp(protocol, "vnc") == 0) {
-	int fd = monitor_get_fd(mon, fdname);
-        int skipauth = qdict_get_try_bool(qdict, "skipauth", 0);
-	vnc_display_add_client(NULL, fd, skipauth);
-	return 0;
-#endif
-    } else if ((s = qemu_chr_find(protocol)) != NULL) {
-	int fd = monitor_get_fd(mon, fdname);
-	if (qemu_chr_add_client(s, fd) < 0) {
-	    qerror_report(QERR_ADD_CLIENT_FAILED);
-	    return -1;
-	}
-	return 0;
-    }
-
-    qerror_report(QERR_INVALID_PARAMETER, "protocol");
-    return -1;
 }
 
 static int client_migrate_info(Monitor *mon, const QDict *qdict,
@@ -1103,7 +1060,7 @@ static void monitor_printc(Monitor *mon, int c)
 }
 
 static void memory_dump(Monitor *mon, int count, int format, int wsize,
-                        target_phys_addr_t addr, int is_physical)
+                        hwaddr addr, int is_physical)
 {
     CPUArchState *env;
     int l, line_size, i, max_digits, len;
@@ -1237,7 +1194,7 @@ static void do_physical_memory_dump(Monitor *mon, const QDict *qdict)
     int count = qdict_get_int(qdict, "count");
     int format = qdict_get_int(qdict, "format");
     int size = qdict_get_int(qdict, "size");
-    target_phys_addr_t addr = qdict_get_int(qdict, "addr");
+    hwaddr addr = qdict_get_int(qdict, "addr");
 
     memory_dump(mon, count, format, size, addr, 1);
 }
@@ -1245,21 +1202,21 @@ static void do_physical_memory_dump(Monitor *mon, const QDict *qdict)
 static void do_print(Monitor *mon, const QDict *qdict)
 {
     int format = qdict_get_int(qdict, "format");
-    target_phys_addr_t val = qdict_get_int(qdict, "val");
+    hwaddr val = qdict_get_int(qdict, "val");
 
     switch(format) {
     case 'o':
-        monitor_printf(mon, "%#" TARGET_PRIoPHYS, val);
+        monitor_printf(mon, "%#" HWADDR_PRIo, val);
         break;
     case 'x':
-        monitor_printf(mon, "%#" TARGET_PRIxPHYS, val);
+        monitor_printf(mon, "%#" HWADDR_PRIx, val);
         break;
     case 'u':
-        monitor_printf(mon, "%" TARGET_PRIuPHYS, val);
+        monitor_printf(mon, "%" HWADDR_PRIu, val);
         break;
     default:
     case 'd':
-        monitor_printf(mon, "%" TARGET_PRIdPHYS, val);
+        monitor_printf(mon, "%" HWADDR_PRId, val);
         break;
     case 'c':
         monitor_printc(mon, val);
@@ -1381,9 +1338,9 @@ static void do_boot_set(Monitor *mon, const QDict *qdict)
 }
 
 #if defined(TARGET_I386)
-static void print_pte(Monitor *mon, target_phys_addr_t addr,
-                      target_phys_addr_t pte,
-                      target_phys_addr_t mask)
+static void print_pte(Monitor *mon, hwaddr addr,
+                      hwaddr pte,
+                      hwaddr mask)
 {
 #ifdef TARGET_X86_64
     if (addr & (1ULL << 47)) {
@@ -1452,7 +1409,7 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
                     if (pde & PG_PSE_MASK) {
                         /* 2M pages with PAE, CR4.PSE is ignored */
                         print_pte(mon, (l1 << 30 ) + (l2 << 21), pde,
-                                  ~((target_phys_addr_t)(1 << 20) - 1));
+                                  ~((hwaddr)(1 << 20) - 1));
                     } else {
                         pt_addr = pde & 0x3fffffffff000ULL;
                         for (l3 = 0; l3 < 512; l3++) {
@@ -1462,7 +1419,7 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
                                 print_pte(mon, (l1 << 30 ) + (l2 << 21)
                                           + (l3 << 12),
                                           pte & ~PG_PSE_MASK,
-                                          ~(target_phys_addr_t)0xfff);
+                                          ~(hwaddr)0xfff);
                             }
                         }
                     }
@@ -1554,9 +1511,9 @@ static void tlb_info(Monitor *mon)
     }
 }
 
-static void mem_print(Monitor *mon, target_phys_addr_t *pstart,
+static void mem_print(Monitor *mon, hwaddr *pstart,
                       int *plast_prot,
-                      target_phys_addr_t end, int prot)
+                      hwaddr end, int prot)
 {
     int prot1;
     prot1 = *plast_prot;
@@ -1582,7 +1539,7 @@ static void mem_info_32(Monitor *mon, CPUArchState *env)
     unsigned int l1, l2;
     int prot, last_prot;
     uint32_t pgd, pde, pte;
-    target_phys_addr_t start, end;
+    hwaddr start, end;
 
     pgd = env->cr[3] & ~0xfff;
     last_prot = 0;
@@ -1615,7 +1572,7 @@ static void mem_info_32(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 32, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 32, 0);
 }
 
 static void mem_info_pae32(Monitor *mon, CPUArchState *env)
@@ -1624,7 +1581,7 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
     int prot, last_prot;
     uint64_t pdpe, pde, pte;
     uint64_t pdp_addr, pd_addr, pt_addr;
-    target_phys_addr_t start, end;
+    hwaddr start, end;
 
     pdp_addr = env->cr[3] & ~0x1f;
     last_prot = 0;
@@ -1670,7 +1627,7 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 32, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 32, 0);
 }
 
 
@@ -1749,7 +1706,7 @@ static void mem_info_64(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 48, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 48, 0);
 }
 #endif
 
@@ -2031,7 +1988,8 @@ static void do_acl_remove(Monitor *mon, const QDict *qdict)
 #if defined(TARGET_I386)
 static void do_inject_mce(Monitor *mon, const QDict *qdict)
 {
-    CPUArchState *cenv;
+    X86CPU *cpu;
+    CPUX86State *cenv;
     int cpu_index = qdict_get_int(qdict, "cpu_index");
     int bank = qdict_get_int(qdict, "bank");
     uint64_t status = qdict_get_int(qdict, "status");
@@ -2044,8 +2002,9 @@ static void do_inject_mce(Monitor *mon, const QDict *qdict)
         flags |= MCE_INJECT_BROADCAST;
     }
     for (cenv = first_cpu; cenv != NULL; cenv = cenv->next_cpu) {
+        cpu = x86_env_get_cpu(cenv);
         if (cenv->cpu_index == cpu_index) {
-            cpu_x86_inject_mce(mon, cenv, bank, status, mcg_status, addr, misc,
+            cpu_x86_inject_mce(mon, cpu, bank, status, mcg_status, addr, misc,
                                flags);
             break;
         }
@@ -2118,7 +2077,7 @@ static void do_loadvm(Monitor *mon, const QDict *qdict)
     }
 }
 
-int monitor_get_fd(Monitor *mon, const char *fdname)
+int monitor_get_fd(Monitor *mon, const char *fdname, Error **errp)
 {
     mon_fd_t *monfd;
 
@@ -2139,6 +2098,7 @@ int monitor_get_fd(Monitor *mon, const char *fdname)
         return fd;
     }
 
+    error_setg(errp, "File descriptor named '%s' has not been found", fdname);
     return -1;
 }
 
@@ -2148,8 +2108,9 @@ static void monitor_fdset_cleanup(MonFdset *mon_fdset)
     MonFdsetFd *mon_fdset_fd_next;
 
     QLIST_FOREACH_SAFE(mon_fdset_fd, &mon_fdset->fds, next, mon_fdset_fd_next) {
-        if (mon_fdset_fd->removed ||
-                (QLIST_EMPTY(&mon_fdset->dup_fds) && mon_refcount == 0)) {
+        if ((mon_fdset_fd->removed ||
+                (QLIST_EMPTY(&mon_fdset->dup_fds) && mon_refcount == 0)) &&
+                runstate_is_running()) {
             close(mon_fdset_fd->fd);
             g_free(mon_fdset_fd->opaque);
             QLIST_REMOVE(mon_fdset_fd, next);
@@ -2178,8 +2139,6 @@ AddfdInfo *qmp_add_fd(bool has_fdset_id, int64_t fdset_id, bool has_opaque,
 {
     int fd;
     Monitor *mon = cur_mon;
-    MonFdset *mon_fdset;
-    MonFdsetFd *mon_fdset_fd;
     AddfdInfo *fdinfo;
 
     fd = qemu_chr_fe_get_msgfd(mon->chr);
@@ -2188,57 +2147,11 @@ AddfdInfo *qmp_add_fd(bool has_fdset_id, int64_t fdset_id, bool has_opaque,
         goto error;
     }
 
-    if (has_fdset_id) {
-        QLIST_FOREACH(mon_fdset, &mon_fdsets, next) {
-            if (mon_fdset->id == fdset_id) {
-                break;
-            }
-        }
-        if (mon_fdset == NULL) {
-            error_set(errp, QERR_INVALID_PARAMETER_VALUE, "fdset-id",
-                      "an existing fdset-id");
-            goto error;
-        }
-    } else {
-        int64_t fdset_id_prev = -1;
-        MonFdset *mon_fdset_cur = QLIST_FIRST(&mon_fdsets);
-
-        /* Use first available fdset ID */
-        QLIST_FOREACH(mon_fdset, &mon_fdsets, next) {
-            mon_fdset_cur = mon_fdset;
-            if (fdset_id_prev == mon_fdset_cur->id - 1) {
-                fdset_id_prev = mon_fdset_cur->id;
-                continue;
-            }
-            break;
-        }
-
-        mon_fdset = g_malloc0(sizeof(*mon_fdset));
-        mon_fdset->id = fdset_id_prev + 1;
-
-        /* The fdset list is ordered by fdset ID */
-        if (mon_fdset->id == 0) {
-            QLIST_INSERT_HEAD(&mon_fdsets, mon_fdset, next);
-        } else if (mon_fdset->id < mon_fdset_cur->id) {
-            QLIST_INSERT_BEFORE(mon_fdset_cur, mon_fdset, next);
-        } else {
-            QLIST_INSERT_AFTER(mon_fdset_cur, mon_fdset, next);
-        }
+    fdinfo = monitor_fdset_add_fd(fd, has_fdset_id, fdset_id,
+                                  has_opaque, opaque, errp);
+    if (fdinfo) {
+        return fdinfo;
     }
-
-    mon_fdset_fd = g_malloc0(sizeof(*mon_fdset_fd));
-    mon_fdset_fd->fd = fd;
-    mon_fdset_fd->removed = false;
-    if (has_opaque) {
-        mon_fdset_fd->opaque = g_strdup(opaque);
-    }
-    QLIST_INSERT_HEAD(&mon_fdset->fds, mon_fdset_fd, next);
-
-    fdinfo = g_malloc0(sizeof(*fdinfo));
-    fdinfo->fdset_id = mon_fdset->id;
-    fdinfo->fd = mon_fdset_fd->fd;
-
-    return fdinfo;
 
 error:
     if (fd != -1) {
@@ -2322,6 +2235,87 @@ FdsetInfoList *qmp_query_fdsets(Error **errp)
     }
 
     return fdset_list;
+}
+
+AddfdInfo *monitor_fdset_add_fd(int fd, bool has_fdset_id, int64_t fdset_id,
+                                bool has_opaque, const char *opaque,
+                                Error **errp)
+{
+    MonFdset *mon_fdset = NULL;
+    MonFdsetFd *mon_fdset_fd;
+    AddfdInfo *fdinfo;
+
+    if (has_fdset_id) {
+        QLIST_FOREACH(mon_fdset, &mon_fdsets, next) {
+            /* Break if match found or match impossible due to ordering by ID */
+            if (fdset_id <= mon_fdset->id) {
+                if (fdset_id < mon_fdset->id) {
+                    mon_fdset = NULL;
+                }
+                break;
+            }
+        }
+    }
+
+    if (mon_fdset == NULL) {
+        int64_t fdset_id_prev = -1;
+        MonFdset *mon_fdset_cur = QLIST_FIRST(&mon_fdsets);
+
+        if (has_fdset_id) {
+            if (fdset_id < 0) {
+                error_set(errp, QERR_INVALID_PARAMETER_VALUE, "fdset-id",
+                          "a non-negative value");
+                return NULL;
+            }
+            /* Use specified fdset ID */
+            QLIST_FOREACH(mon_fdset, &mon_fdsets, next) {
+                mon_fdset_cur = mon_fdset;
+                if (fdset_id < mon_fdset_cur->id) {
+                    break;
+                }
+            }
+        } else {
+            /* Use first available fdset ID */
+            QLIST_FOREACH(mon_fdset, &mon_fdsets, next) {
+                mon_fdset_cur = mon_fdset;
+                if (fdset_id_prev == mon_fdset_cur->id - 1) {
+                    fdset_id_prev = mon_fdset_cur->id;
+                    continue;
+                }
+                break;
+            }
+        }
+
+        mon_fdset = g_malloc0(sizeof(*mon_fdset));
+        if (has_fdset_id) {
+            mon_fdset->id = fdset_id;
+        } else {
+            mon_fdset->id = fdset_id_prev + 1;
+        }
+
+        /* The fdset list is ordered by fdset ID */
+        if (!mon_fdset_cur) {
+            QLIST_INSERT_HEAD(&mon_fdsets, mon_fdset, next);
+        } else if (mon_fdset->id < mon_fdset_cur->id) {
+            QLIST_INSERT_BEFORE(mon_fdset_cur, mon_fdset, next);
+        } else {
+            QLIST_INSERT_AFTER(mon_fdset_cur, mon_fdset, next);
+        }
+    }
+
+    mon_fdset_fd = g_malloc0(sizeof(*mon_fdset_fd));
+    mon_fdset_fd->fd = fd;
+    mon_fdset_fd->removed = false;
+    if (has_opaque) {
+        mon_fdset_fd->opaque = g_strdup(opaque);
+    }
+    QLIST_INSERT_HEAD(&mon_fdset->fds, mon_fdset_fd, next);
+
+    fdinfo = g_malloc0(sizeof(*fdinfo));
+    fdinfo->fdset_id = mon_fdset->id;
+    fdinfo->fd = mon_fdset_fd->fd;
+
+    return fdinfo;
 }
 
 int monitor_fdset_get_fd(int64_t fdset_id, int flags)
@@ -2410,12 +2404,14 @@ int monitor_fdset_dup_fd_remove(int dup_fd)
 int monitor_handle_fd_param(Monitor *mon, const char *fdname)
 {
     int fd;
+    Error *local_err = NULL;
 
     if (!qemu_isdigit(fdname[0]) && mon) {
 
-        fd = monitor_get_fd(mon, fdname);
+        fd = monitor_get_fd(mon, fdname, &local_err);
         if (fd == -1) {
-            error_report("No file descriptor named %s found", fdname);
+            qerror_report_err(local_err);
+            error_free(local_err);
             return -1;
         }
     } else {
@@ -3259,11 +3255,7 @@ static int64_t expr_unary(Monitor *mon)
         break;
     default:
         errno = 0;
-#if TARGET_PHYS_ADDR_BITS > 32
         n = strtoull(pch, &p, 0);
-#else
-        n = strtoul(pch, &p, 0);
-#endif
         if (errno == ERANGE) {
             expr_error(mon, "number too large");
         }

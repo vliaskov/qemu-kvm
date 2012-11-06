@@ -383,7 +383,8 @@ static void rtc_update_timer(void *opaque)
     check_update_timer(s);
 }
 
-static void cmos_ioport_write(void *opaque, uint32_t addr, uint32_t data)
+static void cmos_ioport_write(void *opaque, hwaddr addr,
+                              uint64_t data, unsigned size)
 {
     RTCState *s = opaque;
 
@@ -399,6 +400,10 @@ static void cmos_ioport_write(void *opaque, uint32_t addr, uint32_t data)
             s->cmos_data[s->cmos_index] = data;
             check_update_timer(s);
             break;
+	case RTC_IBM_PS2_CENTURY_BYTE:
+            s->cmos_index = RTC_CENTURY;
+            /* fall through */
+        case RTC_CENTURY:
         case RTC_SECONDS:
         case RTC_MINUTES:
         case RTC_HOURS:
@@ -515,7 +520,9 @@ static void rtc_get_time(RTCState *s, struct tm *tm)
     tm->tm_wday = rtc_from_bcd(s, s->cmos_data[RTC_DAY_OF_WEEK]) - 1;
     tm->tm_mday = rtc_from_bcd(s, s->cmos_data[RTC_DAY_OF_MONTH]);
     tm->tm_mon = rtc_from_bcd(s, s->cmos_data[RTC_MONTH]) - 1;
-    tm->tm_year = rtc_from_bcd(s, s->cmos_data[RTC_YEAR]) + s->base_year - 1900;
+    tm->tm_year =
+        rtc_from_bcd(s, s->cmos_data[RTC_YEAR]) + s->base_year +
+        rtc_from_bcd(s, s->cmos_data[RTC_CENTURY]) * 100 - 1900;
 }
 
 static void rtc_set_time(RTCState *s)
@@ -548,10 +555,9 @@ static void rtc_set_cmos(RTCState *s, const struct tm *tm)
     s->cmos_data[RTC_DAY_OF_WEEK] = rtc_to_bcd(s, tm->tm_wday + 1);
     s->cmos_data[RTC_DAY_OF_MONTH] = rtc_to_bcd(s, tm->tm_mday);
     s->cmos_data[RTC_MONTH] = rtc_to_bcd(s, tm->tm_mon + 1);
-    year = (tm->tm_year - s->base_year) % 100;
-    if (year < 0)
-        year += 100;
-    s->cmos_data[RTC_YEAR] = rtc_to_bcd(s, year);
+    year = tm->tm_year + 1900 - s->base_year;
+    s->cmos_data[RTC_YEAR] = rtc_to_bcd(s, year % 100);
+    s->cmos_data[RTC_CENTURY] = rtc_to_bcd(s, year / 100);
 }
 
 static void rtc_update_time(RTCState *s)
@@ -590,7 +596,8 @@ static int update_in_progress(RTCState *s)
     return 0;
 }
 
-static uint32_t cmos_ioport_read(void *opaque, uint32_t addr)
+static uint64_t cmos_ioport_read(void *opaque, hwaddr addr,
+                                 unsigned size)
 {
     RTCState *s = opaque;
     int ret;
@@ -598,6 +605,10 @@ static uint32_t cmos_ioport_read(void *opaque, uint32_t addr)
         return 0xff;
     } else {
         switch(s->cmos_index) {
+	case RTC_IBM_PS2_CENTURY_BYTE:
+            s->cmos_index = RTC_CENTURY;
+            /* fall through */
+        case RTC_CENTURY:
         case RTC_SECONDS:
         case RTC_MINUTES:
         case RTC_HOURS:
@@ -661,15 +672,10 @@ void rtc_set_memory(ISADevice *dev, int addr, int val)
         s->cmos_data[addr] = val;
 }
 
-/* PC cmos mappings */
-#define REG_IBM_CENTURY_BYTE        0x32
-#define REG_IBM_PS2_CENTURY_BYTE    0x37
-
 static void rtc_set_date_from_host(ISADevice *dev)
 {
     RTCState *s = DO_UPCAST(RTCState, dev, dev);
     struct tm tm;
-    int val;
 
     qemu_get_timedate(&tm, 0);
 
@@ -679,10 +685,6 @@ static void rtc_set_date_from_host(ISADevice *dev)
 
     /* set the CMOS date */
     rtc_set_cmos(s, &tm);
-
-    val = rtc_to_bcd(s, (tm.tm_year / 100) + 19);
-    rtc_set_memory(dev, REG_IBM_CENTURY_BYTE, val);
-    rtc_set_memory(dev, REG_IBM_PS2_CENTURY_BYTE, val);
 }
 
 static int rtc_post_load(void *opaque, int version_id)
@@ -769,13 +771,14 @@ static void rtc_reset(void *opaque)
 #endif
 }
 
-static const MemoryRegionPortio cmos_portio[] = {
-    {0, 2, 1, .read = cmos_ioport_read, .write = cmos_ioport_write },
-    PORTIO_END_OF_LIST(),
-};
-
 static const MemoryRegionOps cmos_ops = {
-    .old_portio = cmos_portio
+    .read = cmos_ioport_read,
+    .write = cmos_ioport_write,
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+    .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
 static void rtc_get_date(Object *obj, Visitor *v, void *opaque,
@@ -806,6 +809,18 @@ static int rtc_initfn(ISADevice *dev)
     s->cmos_data[RTC_REG_B] = 0x02;
     s->cmos_data[RTC_REG_C] = 0x00;
     s->cmos_data[RTC_REG_D] = 0x80;
+
+    /* This is for historical reasons.  The default base year qdev property
+     * was set to 2000 for most machine types before the century byte was
+     * implemented.
+     *
+     * This if statement means that the century byte will be always 0
+     * (at least until 2079...) for base_year = 1980, but will be set
+     * correctly for base_year = 2000.
+     */
+    if (s->base_year == 2000) {
+        s->base_year = 0;
+    }
 
     rtc_set_date_from_host(dev);
 

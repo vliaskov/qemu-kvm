@@ -36,7 +36,7 @@
 
 typedef struct TCXState {
     SysBusDevice busdev;
-    target_phys_addr_t addr;
+    hwaddr addr;
     DisplayState *ds;
     uint8_t *vram;
     uint32_t *vram24, *cplane;
@@ -268,8 +268,8 @@ static void tcx_update_display(void *opaque)
         } else {
             if (y_start >= 0) {
                 /* flush to display */
-                dpy_update(ts->ds, 0, y_start,
-                           ts->width, y - y_start);
+                dpy_gfx_update(ts->ds, 0, y_start,
+                               ts->width, y - y_start);
                 y_start = -1;
             }
             d += dd * 4;
@@ -278,8 +278,8 @@ static void tcx_update_display(void *opaque)
     }
     if (y_start >= 0) {
         /* flush to display */
-        dpy_update(ts->ds, 0, y_start,
-                   ts->width, y - y_start);
+        dpy_gfx_update(ts->ds, 0, y_start,
+                       ts->width, y - y_start);
     }
     /* reset modified pages */
     if (page_max >= page_min) {
@@ -344,8 +344,8 @@ static void tcx24_update_display(void *opaque)
         } else {
             if (y_start >= 0) {
                 /* flush to display */
-                dpy_update(ts->ds, 0, y_start,
-                           ts->width, y - y_start);
+                dpy_gfx_update(ts->ds, 0, y_start,
+                               ts->width, y - y_start);
                 y_start = -1;
             }
             d += dd * 4;
@@ -356,8 +356,8 @@ static void tcx24_update_display(void *opaque)
     }
     if (y_start >= 0) {
         /* flush to display */
-        dpy_update(ts->ds, 0, y_start,
-                   ts->width, y - y_start);
+        dpy_gfx_update(ts->ds, 0, y_start,
+                       ts->width, y - y_start);
     }
     /* reset modified pages */
     if (page_max >= page_min) {
@@ -432,13 +432,13 @@ static void tcx_reset(DeviceState *d)
     s->dac_state = 0;
 }
 
-static uint64_t tcx_dac_readl(void *opaque, target_phys_addr_t addr,
+static uint64_t tcx_dac_readl(void *opaque, hwaddr addr,
                               unsigned size)
 {
     return 0;
 }
 
-static void tcx_dac_writel(void *opaque, target_phys_addr_t addr, uint64_t val,
+static void tcx_dac_writel(void *opaque, hwaddr addr, uint64_t val,
                            unsigned size)
 {
     TCXState *s = opaque;
@@ -472,7 +472,6 @@ static void tcx_dac_writel(void *opaque, target_phys_addr_t addr, uint64_t val,
     default:
         break;
     }
-    return;
 }
 
 static const MemoryRegionOps tcx_dac_ops = {
@@ -485,13 +484,13 @@ static const MemoryRegionOps tcx_dac_ops = {
     },
 };
 
-static uint64_t dummy_readl(void *opaque, target_phys_addr_t addr,
+static uint64_t dummy_readl(void *opaque, hwaddr addr,
                             unsigned size)
 {
     return 0;
 }
 
-static void dummy_writel(void *opaque, target_phys_addr_t addr,
+static void dummy_writel(void *opaque, hwaddr addr,
                          uint64_t val, unsigned size)
 {
 }

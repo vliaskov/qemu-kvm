@@ -1045,7 +1045,6 @@ static int usb_host_handle_control(USBDevice *dev, USBPacket *p,
 
     /* Note request is (bRequestType << 8) | bRequest */
     trace_usb_host_req_control(s->bus_num, s->addr, p, request, value, index);
-    assert(p->result == 0);
 
     switch (request) {
     case DeviceOutRequest | USB_REQ_SET_ADDRESS:
@@ -1074,6 +1073,7 @@ static int usb_host_handle_control(USBDevice *dev, USBPacket *p,
     }
 
     /* The rest are asynchronous */
+    assert(p && p->result == 0);
 
     if (length > sizeof(dev->data_buf)) {
         fprintf(stderr, "husb: ctrl buffer too small (%d > %zu)\n",
@@ -1224,7 +1224,8 @@ static int usb_linux_update_endp_table(USBHostDevice *s)
                 usb_ep_set_type(&s->dev, pid, ep, type);
                 usb_ep_set_ifnum(&s->dev, pid, ep, interface);
                 if ((s->options & (1 << USB_HOST_OPT_PIPELINE)) &&
-                    (type == USB_ENDPOINT_XFER_BULK)) {
+                    (type == USB_ENDPOINT_XFER_BULK) &&
+                    (pid == USB_TOKEN_OUT)) {
                     usb_ep_set_pipeline(&s->dev, pid, ep, true);
                 }
 

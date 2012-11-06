@@ -627,7 +627,7 @@ static void musb_packet(MUSBState *s, MUSBEndPoint *ep,
     dev = usb_find_device(&s->port, ep->faddr[idx]);
     uep = usb_ep_get(dev, pid, ep->type[idx] & 0xf);
     usb_packet_setup(&ep->packey[dir].p, pid, uep,
-                     (dev->addr << 16) | (uep->nr << 8) | pid);
+                     (dev->addr << 16) | (uep->nr << 8) | pid, false, true);
     usb_packet_addbuf(&ep->packey[dir].p, ep->buf[idx], len);
     ep->packey[dir].ep = ep;
     ep->packey[dir].dir = dir;
@@ -635,6 +635,7 @@ static void musb_packet(MUSBState *s, MUSBEndPoint *ep,
     ret = usb_handle_packet(dev, &ep->packey[dir].p);
 
     if (ret == USB_RET_ASYNC) {
+        usb_device_flush_ep_queue(dev, uep);
         ep->status[dir] = len;
         return;
     }
@@ -1236,7 +1237,7 @@ static void musb_ep_writeh(void *opaque, int ep, int addr, uint16_t value)
 }
 
 /* Generic control */
-static uint32_t musb_readb(void *opaque, target_phys_addr_t addr)
+static uint32_t musb_readb(void *opaque, hwaddr addr)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep, i;
@@ -1298,7 +1299,7 @@ static uint32_t musb_readb(void *opaque, target_phys_addr_t addr)
     };
 }
 
-static void musb_writeb(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void musb_writeb(void *opaque, hwaddr addr, uint32_t value)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep;
@@ -1385,7 +1386,7 @@ static void musb_writeb(void *opaque, target_phys_addr_t addr, uint32_t value)
     };
 }
 
-static uint32_t musb_readh(void *opaque, target_phys_addr_t addr)
+static uint32_t musb_readh(void *opaque, hwaddr addr)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep, i;
@@ -1439,7 +1440,7 @@ static uint32_t musb_readh(void *opaque, target_phys_addr_t addr)
     };
 }
 
-static void musb_writeh(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void musb_writeh(void *opaque, hwaddr addr, uint32_t value)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep;
@@ -1495,7 +1496,7 @@ static void musb_writeh(void *opaque, target_phys_addr_t addr, uint32_t value)
     };
 }
 
-static uint32_t musb_readw(void *opaque, target_phys_addr_t addr)
+static uint32_t musb_readw(void *opaque, hwaddr addr)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep;
@@ -1513,7 +1514,7 @@ static uint32_t musb_readw(void *opaque, target_phys_addr_t addr)
     };
 }
 
-static void musb_writew(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void musb_writew(void *opaque, hwaddr addr, uint32_t value)
 {
     MUSBState *s = (MUSBState *) opaque;
     int ep;

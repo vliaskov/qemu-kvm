@@ -34,7 +34,8 @@ ARCHLIST=$(cd "$linux/arch" && echo *)
 
 for arch in $ARCHLIST; do
     # Discard anything which isn't a KVM-supporting architecture
-    if ! [ -e "$linux/arch/$arch/include/asm/kvm.h" ]; then
+    if ! [ -e "$linux/arch/$arch/include/asm/kvm.h" ] &&
+        ! [ -e "$linux/arch/$arch/include/uapi/asm/kvm.h" ] ; then
         continue
     fi
 
@@ -57,7 +58,7 @@ done
 
 rm -rf "$output/linux-headers/linux"
 mkdir -p "$output/linux-headers/linux"
-for header in kvm.h kvm_para.h vhost.h virtio_config.h virtio_ring.h; do
+for header in kvm.h kvm_para.h vfio.h vhost.h virtio_config.h virtio_ring.h; do
     cp "$tmpdir/include/linux/$header" "$output/linux-headers/linux"
 done
 rm -rf "$output/linux-headers/asm-generic"
