@@ -40,6 +40,7 @@ static int q35_host_init(SysBusDevice *dev)
     PCIHostState *pci = FROM_SYSBUS(PCIHostState, dev);
     Q35PCIHost *s = Q35_HOST_DEVICE(&dev->qdev);
 
+    fprintf(stderr, "%s\n", __FUNCTION__);
     memory_region_init_io(&pci->conf_mem, &pci_host_conf_le_ops, pci,
                           "pci-conf-idx", 4);
     sysbus_add_io(dev, MCH_HOST_BRIDGE_CONFIG_ADDR, &pci->conf_mem);
@@ -241,7 +242,8 @@ static int mch_init(PCIDevice *d)
     int i;
     hwaddr pci_hole64_size;
     MCHPCIState *mch = MCH_PCI_DEVICE(d);
-
+    fprintf(stderr, "%s: below_4g: %lu above_4g: %lu\n", __FUNCTION__,
+            mch->below_4g_mem_size, mch->above_4g_mem_size);
     /* setup pci memory regions */
     memory_region_init_alias(&mch->pci_hole, "pci-hole",
                              mch->pci_address_space,

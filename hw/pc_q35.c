@@ -132,15 +132,20 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
         gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
     }
 
+
     /* create pci host bus */
     q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
 
+    fprintf(stderr, "%s: below_4g: %lu above_4g: %lu\n", __FUNCTION__,
+            q35_host->mch.below_4g_mem_size, q35_host->mch.above_4g_mem_size);
     q35_host->mch.ram_memory = ram_memory;
     q35_host->mch.pci_address_space = pci_memory;
     q35_host->mch.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();;
     q35_host->mch.below_4g_mem_size = below_4g_mem_size;
     q35_host->mch.above_4g_mem_size = above_4g_mem_size;
+    fprintf(stderr, "%s: below_4g: %lu above_4g: %lu\n", __FUNCTION__,
+            q35_host->mch.below_4g_mem_size, q35_host->mch.above_4g_mem_size);
     /* pci */
     qdev_init_nofail(DEVICE(q35_host));
     host_bus = q35_host->host.pci.bus;

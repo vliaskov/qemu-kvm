@@ -104,7 +104,7 @@ void qdev_set_parent_bus(DeviceState *dev, BusState *bus)
 DeviceState *qdev_create(BusState *bus, const char *name)
 {
     DeviceState *dev;
-
+    fprintf(stderr, "%s create device %s\n", __func__, name);
     dev = qdev_try_create(bus, name);
     if (!dev) {
         if (bus) {
