@@ -95,9 +95,9 @@ static void pc_init1(MemoryRegion *system_memory,
         kvmclock_create();
     }
 
-    if (ram_size >= 0xe0000000 ) {
-        above_4g_mem_size = ram_size - 0xe0000000;
-        below_4g_mem_size = 0xe0000000;
+    if (ram_size >= I440FX_PCI_HOLE_START ) {
+        above_4g_mem_size = ram_size - I440FX_PCI_HOLE_START;
+        below_4g_mem_size = I440FX_PCI_HOLE_START;
     } else {
         above_4g_mem_size = 0;
         below_4g_mem_size = ram_size;
@@ -138,8 +138,7 @@ static void pc_init1(MemoryRegion *system_memory,
         i440fx_host->mch.address_space_io = get_system_io();;
         i440fx_host->mch.below_4g_mem_size = below_4g_mem_size;
         i440fx_host->mch.above_4g_mem_size = above_4g_mem_size;
-        /*do memhotplug caluclations for chipset */
-
+        /*do memhotplug calculations for chipset */
 
         /*pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, &isa_bus, gsi,
           system_memory, system_io, ram_size,

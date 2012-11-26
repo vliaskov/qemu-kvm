@@ -34,6 +34,7 @@
  * Q35 host
  */
 
+
 static int q35_host_init(SysBusDevice *dev)
 {
     PCIBus *b;
@@ -54,6 +55,7 @@ static int q35_host_init(SysBusDevice *dev)
     if (pcie_host_init(&s->host) < 0) {
         return -1;
     }
+
     b = pci_bus_new(&s->host.pci.busdev.qdev, "pcie.0",
                     s->mch.pci_address_space, s->mch.address_space_io, 0);
     s->host.pci.bus = b;
@@ -262,6 +264,11 @@ static int mch_init(PCIDevice *d)
                                     0x100000000ULL + mch->above_4g_mem_size,
                                     &mch->pci_hole_64bit);
     }
+
+    //mch->dram_channel0 = dimm_bus_create(OBJECT(d), "membus.0", 4);
+    //mch->dram_channel1 = dimm_bus_create(OBJECT(d), "membus.1", 4);
+    //mch->pv_dram_channel = dimm_bus_create(OBJECT(d), "membus.pv", 0);
+
     /* smram */
     cpu_smm_register(&mch_set_smm, mch);
     memory_region_init_alias(&mch->smram_region, "smram-region",

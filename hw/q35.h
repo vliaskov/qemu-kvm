@@ -56,6 +56,11 @@ typedef struct MCHPCIState {
     uint8_t smm_enabled;
     ram_addr_t below_4g_mem_size;
     ram_addr_t above_4g_mem_size;
+    /* GMCH allows for 2 DRAM channels x 4 DRAM ranks each */
+    //DimmBus *dram_channel0;
+    //DimmBus *dram_channel1;
+    /* We also allow a paravirtual memory bus for more memory */
+    //DimmBus *pv_dram_channel;
 } MCHPCIState;
 
 typedef struct Q35PCIHost {
