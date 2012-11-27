@@ -2654,3 +2654,23 @@ EQMP
         .args_type  = "",
         .mhandler.cmd_new = qmp_marshal_input_query_target,
     },
+
+    {
+        .name       = "query-memory-total",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_memory_total
+    },
+SQMP
+query-memory-total
+----------
+
+Return total memory in bytes, including hotplugged dimms
+
+Example:
+
+-> { "execute": "query-memory-total" }
+<- {
+      "return": 1073741824
+   }
+
+EQMP
