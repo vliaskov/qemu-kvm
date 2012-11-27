@@ -1,0 +1,22 @@
+QEMU<->ACPI BIOS hotplug interface
+--------------------------------------
+This document describes the interface between QEMU and the ACPI BIOS for non-PCI
+space. For the PCI interface please look at docs/specs/acpi_pci_hotplug.txt
+
+QEMU<->ACPI BIOS memory hotplug interface
+--------------------------------------
+
+Memory Dimm status array (IO port 0xaf80-0xaf9f, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-plug notification pending. One bit per slot.
+
+Read by ACPI BIOS GPE.3 handler to notify OS of memory hot-add or hot-remove
+events.  Read-only.
+
+Memory Dimm ejection success notification (IO port 0xafa0, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-remove _EJ0 notification. Byte value indicates Dimm slot that was
+ejected.
+
+Written by ACPI memory device _EJ0 method to notify qemu of successfull
+hot-removal.  Write-only.
