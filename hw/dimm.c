@@ -120,6 +120,19 @@ static void dimm_populate(DimmDevice *s)
     s->mr = new;
 }
 
+static int dimm_depopulate(DeviceState *dev)
+{
+    DimmDevice *s = DIMM(dev);
+    assert(s);
+    fprintf(stderr, "%s called\n", __func__);
+    vmstate_unregister_ram(s->mr, NULL);
+    memory_region_del_subregion(get_system_memory(), s->mr);
+    memory_region_destroy(s->mr);
+    s->populated = false;
+    s->mr = NULL;
+    return 0;
+}
+
 void dimm_config_create(char *id, uint64_t size, const char *bus, uint64_t node,
         uint32_t dimm_idx, uint32_t populated)
 {
@@ -159,6 +172,11 @@ static void dimm_plug_device(DimmDevice *slot)
 
 static int dimm_unplug_device(DeviceState *qdev)
 {
+    DimmBus *bus = DIMM_BUS(qdev_get_parent_bus(qdev));
+
+    if (bus->dimm_hotplug) {
+        bus->dimm_hotplug(bus->dimm_hotplug_qdev, DIMM(qdev), 0);
+    }
     return 1;
 }
 
@@ -181,6 +199,21 @@ static DimmDevice *dimm_find_from_name(DimmBus *bus, const char *name)
     QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
         if (!strcmp(slot->qdev.id, name)) {
             return slot;
+        }
+    }
+    return NULL;
+}
+
+static DimmDevice *dimm_find_from_idx(uint32_t idx)
+{
+    DimmDevice *slot;
+    DimmBus *bus;
+
+    QLIST_FOREACH(bus, &memory_buses, next) {
+        QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
+            if (slot->idx == idx) {
+                return slot;
+            }
         }
     }
     return NULL;
@@ -275,6 +308,24 @@ static int dimm_init(DeviceState *s)
     return 0;
 }
 
+void dimm_notify(uint32_t idx, uint32_t event)
+{
+    DimmBus *bus;
+    DimmDevice *slot;
+
+    slot = dimm_find_from_idx(idx);
+    assert(slot != NULL);
+    bus = DIMM_BUS(qdev_get_parent_bus(&slot->qdev));
+
+    switch (event) {
+    case DIMM_REMOVE_SUCCESS:
+        qdev_unplug_complete((DeviceState *)slot, NULL);
+        QTAILQ_REMOVE(&bus->dimmlist, slot, nextdimm);
+        break;
+    default:
+        break;
+    }
+}
 
 static void dimm_class_init(ObjectClass *klass, void *data)
 {
@@ -283,6 +334,7 @@ static void dimm_class_init(ObjectClass *klass, void *data)
     dc->props = dimm_properties;
     dc->unplug = dimm_unplug_device;
     dc->init = dimm_init;
+    dc->exit = dimm_depopulate;
     dc->bus_type = TYPE_DIMM_BUS;
 }
 
