@@ -30,6 +30,9 @@
 #include "hw/hw.h"
 
 #include "qemu-timer.h"
+#ifdef CONFIG_POSIX
+#include <pthread.h>
+#endif
 
 #ifdef _WIN32
 #include <mmsystem.h>
@@ -742,6 +745,19 @@ static void quit_timers(void)
     t->stop(t);
 }
 
+#ifdef CONFIG_POSIX
+static void reinit_timers(void)
+{
+    struct qemu_alarm_timer *t = alarm_timer;
+    t->stop(t);
+    if (t->start(t)) {
+        fprintf(stderr, "Internal timer error: aborting\n");
+        exit(1);
+    }
+    qemu_rearm_alarm_timer(t);
+}
+#endif /* CONFIG_POSIX */
+
 int init_timer_alarm(void)
 {
     struct qemu_alarm_timer *t = NULL;
@@ -765,6 +781,9 @@ int init_timer_alarm(void)
     }
 
     atexit(quit_timers);
+#ifdef CONFIG_POSIX
+    pthread_atfork(NULL, NULL, reinit_timers);
+#endif
     alarm_timer = t;
     return 0;
 

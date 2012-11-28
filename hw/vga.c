@@ -1616,7 +1616,7 @@ void vga_invalidate_scanlines(VGACommonState *s, int y1, int y2)
     }
 }
 
-static void vga_sync_dirty_bitmap(VGACommonState *s)
+void vga_sync_dirty_bitmap(VGACommonState *s)
 {
     memory_region_sync_dirty_bitmap(&s->vram);
 }
@@ -2321,9 +2321,8 @@ static const MemoryRegionPortio vbe_portio_list[] = {
     { 0, 1, 2, .read = vbe_ioport_read_index, .write = vbe_ioport_write_index },
 # ifdef TARGET_I386
     { 1, 1, 2, .read = vbe_ioport_read_data, .write = vbe_ioport_write_data },
-# else
-    { 2, 1, 2, .read = vbe_ioport_read_data, .write = vbe_ioport_write_data },
 # endif
+    { 2, 1, 2, .read = vbe_ioport_read_data, .write = vbe_ioport_write_data },
     PORTIO_END_OF_LIST(),
 };
 

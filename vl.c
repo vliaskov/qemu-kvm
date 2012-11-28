@@ -168,6 +168,7 @@ int main(int argc, char **argv)
 #include "osdep.h"
 
 #include "ui/qemu-spice.h"
+#include "qapi/string-input-visitor.h"
 
 //#define DEBUG_NET
 //#define DEBUG_SLIRP
@@ -180,7 +181,7 @@ static const char *data_dir;
 const char *bios_name = NULL;
 enum vga_retrace_method vga_retrace_method = VGA_RETRACE_DUMB;
 DisplayType display_type = DT_DEFAULT;
-int display_remote = 0;
+static int display_remote;
 const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
 const char *mem_path = NULL;
@@ -214,7 +215,7 @@ const char *vnc_display;
 int acpi_enabled = 1;
 int no_hpet = 0;
 int fd_bootchk = 1;
-int no_reboot = 0;
+static int no_reboot;
 int no_shutdown = 0;
 int cursor_hide = 1;
 int graphic_rotate = 0;
@@ -242,7 +243,8 @@ struct FWBootEntry {
     char *suffix;
 };
 
-QTAILQ_HEAD(, FWBootEntry) fw_boot_order = QTAILQ_HEAD_INITIALIZER(fw_boot_order);
+static QTAILQ_HEAD(, FWBootEntry) fw_boot_order =
+    QTAILQ_HEAD_INITIALIZER(fw_boot_order);
 
 int nb_numa_nodes;
 uint64_t node_mem[MAX_NODES];
@@ -396,7 +398,7 @@ bool runstate_check(RunState state)
     return current_run_state == state;
 }
 
-void runstate_init(void)
+static void runstate_init(void)
 {
     const RunStateTransition *p;
 
@@ -1489,14 +1491,14 @@ int qemu_reset_requested_get(void)
     return reset_requested;
 }
 
-int qemu_shutdown_requested(void)
+static int qemu_shutdown_requested(void)
 {
     int r = shutdown_requested;
     shutdown_requested = 0;
     return r;
 }
 
-void qemu_kill_report(void)
+static void qemu_kill_report(void)
 {
     if (!qtest_enabled() && shutdown_signal != -1) {
         fprintf(stderr, "qemu: terminating on signal %d", shutdown_signal);
@@ -1512,7 +1514,7 @@ void qemu_kill_report(void)
     }
 }
 
-int qemu_reset_requested(void)
+static int qemu_reset_requested(void)
 {
     int r = reset_requested;
     reset_requested = 0;
@@ -1533,7 +1535,7 @@ static int qemu_wakeup_requested(void)
     return r;
 }
 
-int qemu_powerdown_requested(void)
+static int qemu_powerdown_requested(void)
 {
     int r = powerdown_requested;
     powerdown_requested = 0;
@@ -2159,7 +2161,9 @@ struct device_config {
     Location loc;
     QTAILQ_ENTRY(device_config) next;
 };
-QTAILQ_HEAD(, device_config) device_configs = QTAILQ_HEAD_INITIALIZER(device_configs);
+
+static QTAILQ_HEAD(, device_config) device_configs =
+    QTAILQ_HEAD_INITIALIZER(device_configs);
 
 static void add_device_config(int type, const char *cmdline)
 {
@@ -2471,6 +2475,53 @@ static void free_and_trace(gpointer mem)
 {
     trace_g_free(mem);
     free(mem);
+}
+
+static int object_set_property(const char *name, const char *value, void *opaque)
+{
+    Object *obj = OBJECT(opaque);
+    StringInputVisitor *siv;
+    Error *local_err = NULL;
+
+    if (strcmp(name, "qom-type") == 0 || strcmp(name, "id") == 0) {
+        return 0;
+    }
+
+    siv = string_input_visitor_new(value);
+    object_property_set(obj, string_input_get_visitor(siv), name, &local_err);
+    string_input_visitor_cleanup(siv);
+
+    if (local_err) {
+        qerror_report_err(local_err);
+        error_free(local_err);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int object_create(QemuOpts *opts, void *opaque)
+{
+    const char *type = qemu_opt_get(opts, "qom-type");
+    const char *id = qemu_opts_id(opts);
+    Object *obj;
+
+    g_assert(type != NULL);
+
+    if (id == NULL) {
+        qerror_report(QERR_MISSING_PARAMETER, "id");
+        return -1;
+    }
+
+    obj = object_new(type);
+    if (qemu_opt_foreach(opts, object_set_property, obj, 1) < 0) {
+        return -1;
+    }
+
+    object_property_add_child(container_get(object_get_root(), "/objects"),
+                              id, obj, NULL);
+
+    return 0;
 }
 
 int main(int argc, char **argv, char **envp)
@@ -3470,6 +3521,9 @@ int main(int argc, char **argv, char **envp)
                 exit(1);
 #endif
                 break;
+            case QEMU_OPTION_object:
+                opts = qemu_opts_parse(qemu_find_opts("object"), optarg, 1);
+                break;
             default:
                 os_parse_cmd_args(popt->index, optarg);
             }
@@ -3477,7 +3531,6 @@ int main(int argc, char **argv, char **envp)
     }
     loc_set_none();
 
-    qemu_init_cpu_loop();
     if (qemu_init_main_loop()) {
         fprintf(stderr, "qemu_init_main_loop failed\n");
         exit(1);
@@ -3504,6 +3557,11 @@ int main(int argc, char **argv, char **envp)
 
     if (machine->hw_version) {
         qemu_set_version(machine->hw_version);
+    }
+
+    if (qemu_opts_foreach(qemu_find_opts("object"),
+                          object_create, NULL, 0) != 0) {
+        exit(1);
     }
 
     /* Init CPU def lists, based on config
@@ -3616,11 +3674,6 @@ int main(int argc, char **argv, char **envp)
             add_device_config(DEV_VIRTCON, "vc:80Cx24C");
     }
 
-    if (init_timer_alarm() < 0) {
-        fprintf(stderr, "could not initialize alarm timer\n");
-        exit(1);
-    }
-
     socket_init();
 
     if (qemu_opts_foreach(qemu_find_opts("chardev"), chardev_init_func, NULL, 1) != 0)
@@ -3681,6 +3734,9 @@ int main(int argc, char **argv, char **envp)
     }
 
     os_set_line_buffering();
+
+    qemu_init_cpu_loop();
+    qemu_mutex_lock_iothread();
 
 #ifdef CONFIG_SPICE
     /* spice needs the timers to be initialized by this point */

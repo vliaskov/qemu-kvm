@@ -2013,7 +2013,6 @@ static void gen_logic_imm(CPUMIPSState *env, DisasContext *ctx, uint32_t opc,
                           int rt, int rs, int16_t imm)
 {
     target_ulong uimm;
-    const char *opn = "imm logic";
 
     if (rt == 0) {
         /* If no destination, treat it as a NOP. */
@@ -2027,29 +2026,34 @@ static void gen_logic_imm(CPUMIPSState *env, DisasContext *ctx, uint32_t opc,
             tcg_gen_andi_tl(cpu_gpr[rt], cpu_gpr[rs], uimm);
         else
             tcg_gen_movi_tl(cpu_gpr[rt], 0);
-        opn = "andi";
+        MIPS_DEBUG("andi %s, %s, " TARGET_FMT_lx, regnames[rt],
+                   regnames[rs], uimm);
         break;
     case OPC_ORI:
         if (rs != 0)
             tcg_gen_ori_tl(cpu_gpr[rt], cpu_gpr[rs], uimm);
         else
             tcg_gen_movi_tl(cpu_gpr[rt], uimm);
-        opn = "ori";
+        MIPS_DEBUG("ori %s, %s, " TARGET_FMT_lx, regnames[rt],
+                   regnames[rs], uimm);
         break;
     case OPC_XORI:
         if (likely(rs != 0))
             tcg_gen_xori_tl(cpu_gpr[rt], cpu_gpr[rs], uimm);
         else
             tcg_gen_movi_tl(cpu_gpr[rt], uimm);
-        opn = "xori";
+        MIPS_DEBUG("xori %s, %s, " TARGET_FMT_lx, regnames[rt],
+                   regnames[rs], uimm);
         break;
     case OPC_LUI:
         tcg_gen_movi_tl(cpu_gpr[rt], imm << 16);
-        opn = "lui";
+        MIPS_DEBUG("lui %s, " TARGET_FMT_lx, regnames[rt], uimm);
+        break;
+
+    default:
+        MIPS_DEBUG("Unknown logical immediate opcode %08x", opc);
         break;
     }
-    (void)opn; /* avoid a compiler warning */
-    MIPS_DEBUG("%s %s, %s, " TARGET_FMT_lx, opn, regnames[rt], regnames[rs], uimm);
 }
 
 /* Set on less than with immediate operand */
@@ -10381,7 +10385,7 @@ enum {
 
     /* bits 13..12 for 0x32 */
     MULT_ACC = 0x0,
-    MULTU_ACC = 0x0,
+    MULTU_ACC = 0x1,
 
     /* bits 15..12 for 0x2c */
     SEB = 0x2,
@@ -15509,7 +15513,7 @@ gen_intermediate_code_internal (CPUMIPSState *env, TranslationBlock *tb,
         qemu_log("search pc %d\n", search_pc);
 
     pc_start = tb->pc;
-    gen_opc_end = gen_opc_buf + OPC_MAX_SIZE;
+    gen_opc_end = tcg_ctx.gen_opc_buf + OPC_MAX_SIZE;
     ctx.pc = pc_start;
     ctx.saved_pc = -1;
     ctx.singlestep_enabled = env->singlestep_enabled;
@@ -15545,7 +15549,7 @@ gen_intermediate_code_internal (CPUMIPSState *env, TranslationBlock *tb,
         }
 
         if (search_pc) {
-            j = gen_opc_ptr - gen_opc_buf;
+            j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
             if (lj < j) {
                 lj++;
                 while (lj < j)
@@ -15593,8 +15597,9 @@ gen_intermediate_code_internal (CPUMIPSState *env, TranslationBlock *tb,
         if ((ctx.pc & (TARGET_PAGE_SIZE - 1)) == 0)
             break;
 
-        if (gen_opc_ptr >= gen_opc_end)
+        if (tcg_ctx.gen_opc_ptr >= gen_opc_end) {
             break;
+        }
 
         if (num_insns >= max_insns)
             break;
@@ -15626,9 +15631,9 @@ gen_intermediate_code_internal (CPUMIPSState *env, TranslationBlock *tb,
     }
 done_generating:
     gen_icount_end(tb, num_insns);
-    *gen_opc_ptr = INDEX_op_end;
+    *tcg_ctx.gen_opc_ptr = INDEX_op_end;
     if (search_pc) {
-        j = gen_opc_ptr - gen_opc_buf;
+        j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
         lj++;
         while (lj <= j)
             gen_opc_instr_start[lj++] = 0;
@@ -15640,7 +15645,7 @@ done_generating:
     LOG_DISAS("\n");
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("IN: %s\n", lookup_symbol(pc_start));
-        log_target_disas(pc_start, ctx.pc - pc_start, 0);
+        log_target_disas(env, pc_start, ctx.pc - pc_start, 0);
         qemu_log("\n");
     }
 #endif

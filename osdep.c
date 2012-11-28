@@ -400,27 +400,3 @@ bool fips_get_state(void)
     return fips_enabled;
 }
 
-
-static int default_fdset_get_fd(int64_t fdset_id, int flags)
-{
-    return -1;
-}
-QEMU_WEAK_ALIAS(monitor_fdset_get_fd, default_fdset_get_fd);
-
-static int default_fdset_dup_fd_add(int64_t fdset_id, int dup_fd)
-{
-    return -1;
-}
-QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_add, default_fdset_dup_fd_add);
-
-static int default_fdset_dup_fd_remove(int dup_fd)
-{
-    return -1;
-}
-QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_remove, default_fdset_dup_fd_remove);
-
-static int default_fdset_dup_fd_find(int dup_fd)
-{
-    return -1;
-}
-QEMU_WEAK_ALIAS(monitor_fdset_dup_fd_find, default_fdset_dup_fd_find);
