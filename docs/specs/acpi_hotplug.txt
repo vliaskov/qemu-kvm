@@ -20,3 +20,28 @@ ejected.
 
 Written by ACPI memory device _EJ0 method to notify qemu of successfull
 hot-removal.  Write-only.
+
+Memory Dimm ejection failure notification (IO port 0xafa1, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-remove _OST notification. Byte value indicates Dimm slot for which
+ejection failed.
+
+Written by ACPI memory device _OST method to notify qemu of failed
+hot-removal.  Write-only.
+
+Memory Dimm insertion success notification (IO port 0xafa2, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-remove _OST notification. Byte value indicates Dimm slot for which
+insertion succeeded.
+
+Written by ACPI memory device _OST method to notify qemu of failed
+hot-add.  Write-only.
+
+Memory Dimm insertion failure notification (IO port 0xafa3, 1-byte access):
+---------------------------------------------------------------
+Dimm hot-remove _OST notification. Byte value indicates Dimm slot for which
+insertion failed.
+
+Written by ACPI memory device _OST method to notify qemu of failed
+hot-add.  Write-only.
+

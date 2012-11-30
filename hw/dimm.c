@@ -150,7 +150,8 @@ void dimm_config_create(char *id, uint64_t size, const char *bus, uint64_t node,
     QTAILQ_INSERT_TAIL(&dimmconfig_list, dimm_cfg, nextdimmcfg);
 }
 
-void dimm_bus_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev)
+void dimm_bus_hotplug(dimm_hotplug_fn hotplug, dimm_hotplug_fn revert,
+        DeviceState *qdev)
 {
     DimmBus *bus;
     QLIST_FOREACH(bus, &memory_buses, next) {
@@ -158,6 +159,7 @@ void dimm_bus_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev)
         bus->qbus.allow_hotplug = 1;
         bus->dimm_hotplug_qdev = qdev;
         bus->dimm_hotplug = hotplug;
+        bus->dimm_revert = revert;
     }
 }
 
@@ -169,6 +171,7 @@ static void dimm_plug_device(DimmDevice *slot)
     if (bus->dimm_hotplug) {
         bus->dimm_hotplug(bus->dimm_hotplug_qdev, slot, 1);
     }
+    slot->pending = DIMM_ADD_PENDING;
 }
 
 static int dimm_unplug_device(DeviceState *qdev)
@@ -178,6 +181,7 @@ static int dimm_unplug_device(DeviceState *qdev)
     if (bus->dimm_hotplug) {
         bus->dimm_hotplug(bus->dimm_hotplug_qdev, DIMM(qdev), 0);
     }
+    DIMM(qdev)->pending = DIMM_REMOVE_PENDING;
     return 1;
 }
 
@@ -354,6 +358,7 @@ static int dimm_init(DeviceState *s)
     slot->start = slotcfg->start;
     slot->size = slotcfg->size;
     slot->node = slotcfg->node;
+    slot->pending = DIMM_NO_PENDING;
 
     QTAILQ_INSERT_TAIL(&bus->dimmlist, slot, nextdimm);
     dimm_plug_device(slot);
@@ -375,13 +380,34 @@ void dimm_notify(uint32_t idx, uint32_t event)
     result = g_malloc0(sizeof(*result));
     slotcfg = dimmcfg_find_from_name(bus, slot->qdev.id);
     result->dimmname = slotcfg->name;
+    result->ret = event;
 
     switch (event) {
     case DIMM_REMOVE_SUCCESS:
+        slot->pending = DIMM_NO_PENDING;
         qdev_unplug_complete((DeviceState *)slot, NULL);
         QTAILQ_REMOVE(&bus->dimmlist, slot, nextdimm);
         QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
         break;
+    case DIMM_REMOVE_FAIL:
+        slot->pending = DIMM_NO_PENDING;
+        if (bus->dimm_revert) {
+            bus->dimm_revert(bus->dimm_hotplug_qdev, slot, 0);
+        }
+        QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
+        break;
+    case DIMM_ADD_SUCCESS:
+        slot->pending = DIMM_NO_PENDING;
+        QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
+        break;
+    case DIMM_ADD_FAIL:
+        slot->pending = DIMM_NO_PENDING;
+        if (bus->dimm_revert) {
+            bus->dimm_revert(bus->dimm_hotplug_qdev, slot, 1);
+        }
+        qdev_unplug_complete((DeviceState *)slot, NULL);
+        QTAILQ_REMOVE(&bus->dimmlist, slot, nextdimm);
+        QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
     default:
         g_free(result);
         break;

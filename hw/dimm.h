@@ -18,6 +18,12 @@ typedef enum {
     DIMM_ADD_FAIL = 3
 } dimm_hp_result_code;
 
+typedef enum {
+    DIMM_NO_PENDING = 0,
+    DIMM_ADD_PENDING = 1,
+    DIMM_REMOVE_PENDING = 2,
+} dimm_hp_pending_code;
+
 #define TYPE_DIMM "dimm"
 #define DIMM(obj) \
     OBJECT_CHECK(DimmDevice, (obj), TYPE_DIMM)
@@ -43,6 +49,7 @@ struct DimmDevice {
     uint32_t node; /* numa node proximity */
     uint32_t populated; /* 1 means device has been hotplugged. Default is 0. */
     MemoryRegion *mr; /* MemoryRegion for this slot. !NULL only if populated */
+    dimm_hp_pending_code pending; /* pending hot operation for this dimm */
     QTAILQ_ENTRY(DimmDevice) nextdimm;
 };
 
@@ -67,7 +74,8 @@ typedef struct DimmBus {
     BusState qbus;
     DeviceState *dimm_hotplug_qdev;
     dimm_hotplug_fn dimm_hotplug;
-    //dimm_calcoffset_fn dimm_calcoffset;
+    dimm_hotplug_fn dimm_revert;
+    dimm_calcoffset_fn dimm_calcoffset;
     DimmConfiglist dimmconfig_list;
     QTAILQ_HEAD(Dimmlist, DimmDevice) dimmlist;
     QTAILQ_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
@@ -80,14 +88,14 @@ struct dimm_hp_result {
     QTAILQ_ENTRY(dimm_hp_result) next;
 };
 
-//void dimm_calc_offsets(dimm_calcoffset_fn calcfn);
-void dimm_bus_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
+void dimm_bus_hotplug(dimm_hotplug_fn hotplug, dimm_hotplug_fn revert,
+    DeviceState *qdev);
 void setup_fwcfg_hp_dimms(uint64_t *fw_cfg_slots);
 int dimm_add(char *id);
 DimmBus *dimm_bus_create(Object *parent, const char *name, uint32_t max_dimms,
     dimm_calcoffset_fn pmc_set_offset);
 void dimm_config_create(char *id, uint64_t size, const char *bus, uint64_t node,
-        uint32_t dimm_idx, uint32_t populated);
+    uint32_t dimm_idx, uint32_t populated);
 uint64_t get_hp_memory_total(void);
 void dimm_notify(uint32_t idx, uint32_t event);
 
