@@ -67,6 +67,7 @@ static void dimm_bus_initfn(Object *obj)
     DimmBus *bus = DIMM_BUS(obj);
     QTAILQ_INIT(&bus->dimmconfig_list);
     QTAILQ_INIT(&bus->dimmlist);
+    QTAILQ_INIT(&bus->dimm_hp_result_queue);
 }
 
 static const TypeInfo dimm_bus_info = {
@@ -279,6 +280,58 @@ DimmInfoList *qmp_query_dimm_info(Error **errp)
     return head;
 }
 
+MemHpInfoList *qmp_query_memory_hotplug(Error **errp)
+{
+    DimmBus *bus;
+    MemHpInfoList *head = NULL, *cur_item = NULL, *info;
+    struct dimm_hp_result *item, *nextitem;
+
+    QLIST_FOREACH(bus, &memory_buses, next) {
+        QTAILQ_FOREACH_SAFE(item, &bus->dimm_hp_result_queue, next, nextitem) {
+
+            info = g_malloc0(sizeof(*info));
+            info->value = g_malloc0(sizeof(*info->value));
+            info->value->dimm = g_malloc0(sizeof(char) * 32);
+            info->value->request = g_malloc0(sizeof(char) * 16);
+            info->value->result = g_malloc0(sizeof(char) * 16);
+            switch (item->ret) {
+                case DIMM_REMOVE_SUCCESS:
+                    strcpy(info->value->request, "hot-remove");
+                    strcpy(info->value->result, "success");
+                    break;
+                case DIMM_REMOVE_FAIL:
+                    strcpy(info->value->request, "hot-remove");
+                    strcpy(info->value->result, "failure");
+                    break;
+                case DIMM_ADD_SUCCESS:
+                    strcpy(info->value->request, "hot-add");
+                    strcpy(info->value->result, "success");
+                    break;
+                case DIMM_ADD_FAIL:
+                    strcpy(info->value->request, "hot-add");
+                    strcpy(info->value->result, "failure");
+                    break;
+                default:
+                    break;
+            }
+            strcpy(info->value->dimm, item->dimmname);
+            /* XXX: waiting for the qapi to support GSList */
+            if (!cur_item) {
+                head = cur_item = info;
+            } else {
+                cur_item->next = info;
+                cur_item = info;
+            }
+
+            /* hotplug notification copied to qmp list, delete original item */
+            QTAILQ_REMOVE(&bus->dimm_hp_result_queue, item, next);
+            g_free(item);
+        }
+    }
+
+    return head;
+}
+
 static int dimm_init(DeviceState *s)
 {
     DimmBus *bus = DIMM_BUS(qdev_get_parent_bus(s));
@@ -312,17 +365,25 @@ void dimm_notify(uint32_t idx, uint32_t event)
 {
     DimmBus *bus;
     DimmDevice *slot;
+    DimmConfig *slotcfg;
+    struct dimm_hp_result *result;
 
     slot = dimm_find_from_idx(idx);
     assert(slot != NULL);
     bus = DIMM_BUS(qdev_get_parent_bus(&slot->qdev));
 
+    result = g_malloc0(sizeof(*result));
+    slotcfg = dimmcfg_find_from_name(bus, slot->qdev.id);
+    result->dimmname = slotcfg->name;
+
     switch (event) {
     case DIMM_REMOVE_SUCCESS:
         qdev_unplug_complete((DeviceState *)slot, NULL);
         QTAILQ_REMOVE(&bus->dimmlist, slot, nextdimm);
+        QTAILQ_INSERT_TAIL(&bus->dimm_hp_result_queue, result, next);
         break;
     default:
+        g_free(result);
         break;
     }
 }
