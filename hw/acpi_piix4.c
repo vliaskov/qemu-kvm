@@ -48,6 +48,7 @@
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
 #define MEM_BASE 0xaf80
+#define MEM_EJ_BASE 0xafa0
 
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
@@ -570,8 +571,14 @@ static void gpe_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
     PIIX4PMState *s = opaque;
 
-    acpi_gpe_ioport_writeb(&s->ar, addr, val);
     pm_update_sci(s);
+    switch (addr) {
+    case MEM_EJ_BASE:
+        dimm_notify(val, DIMM_REMOVE_SUCCESS);
+        break;
+    default:
+        acpi_gpe_ioport_writeb(&s->ar, addr, val);
+    }
 
     PIIX4_DPRINTF("gpe write %x <== %d\n", addr, val);
 }
@@ -640,6 +647,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     register_ioport_read(PCI_RMV_BASE, 4, 4,  pcirmv_read, s);
 
     register_ioport_read(MEM_BASE, DIMM_BITMAP_BYTES, 1,  gpe_readb, s);
+    register_ioport_write(MEM_EJ_BASE, 1, 1,  gpe_writeb, s);
 
     for (i = 0; i < DIMM_BITMAP_BYTES; i++) {
         s->gperegs.mems_sts[i] = 0;
@@ -669,6 +677,14 @@ static void enable_mem_device(PIIX4PMState *s, int memdevice)
     g->mems_sts[memdevice/8] |= (1 << (memdevice%8));
 }
 
+static void disable_mem_device(PIIX4PMState *s, int memdevice)
+{
+    struct gpe_regs *g = &s->gperegs;
+    fprintf(stderr, "%s called\n", __func__);
+    s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
+    g->mems_sts[memdevice/8] &= ~(1 << (memdevice%8));
+}
+
 static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
         add)
 {
@@ -678,7 +694,9 @@ static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
 
     if (add) {
         enable_mem_device(s, slot->idx);
-    }
+    } else {
+        disable_mem_device(s, slot->idx);
+    }    
     pm_update_sci(s);
     return 0;
 }
