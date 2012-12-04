@@ -205,6 +205,7 @@ int bdrv_drop_intermediate(BlockDriverState *active, BlockDriverState *top,
 BlockDriverState *bdrv_find_overlay(BlockDriverState *active,
                                     BlockDriverState *bs);
 BlockDriverState *bdrv_find_base(BlockDriverState *bs);
+void bdrv_change_hostcache(BlockDriverState *bs, bool enable, Error **errp);
 
 
 typedef struct BdrvCheckResult {
