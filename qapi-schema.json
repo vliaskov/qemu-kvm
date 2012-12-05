@@ -2920,6 +2920,17 @@
 { 'command': 'query-target', 'returns': 'TargetInfo' }
 
 ##
+# @query-memory-total:
+#
+# Returns total memory in bytes, including hotplugged dimms
+#
+# Returns: int
+#
+# Since: 1.4
+##
+{ 'command': 'query-memory-total', 'returns': 'int' }
+
+##
 # @QKeyCode:
 #
 # An enumeration of key name.

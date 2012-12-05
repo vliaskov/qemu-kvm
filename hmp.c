@@ -628,6 +628,13 @@ void hmp_info_block_jobs(Monitor *mon)
     }
 }
 
+void hmp_info_memory_total(Monitor *mon)
+{
+    uint64_t ram_total;
+    ram_total = (uint64_t)qmp_query_memory_total(NULL);
+    monitor_printf(mon, "MemTotal: %lu \n", ram_total);
+}
+
 void hmp_quit(Monitor *mon, const QDict *qdict)
 {
     monitor_suspend(mon);
