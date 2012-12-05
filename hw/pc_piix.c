@@ -203,6 +203,7 @@ static void pc_init1(MemoryRegion *system_memory,
         i440fx_host->mch.above_4g_mem_size = above_4g_mem_size;
 
         qdev_init_nofail(DEVICE(i440fx_host));
+        bochs_meminfo_bios_init(fw_cfg);
         i440fx_state = &i440fx_host->mch;
         pci_bus = i440fx_host->parent_obj.bus;
         /* Xen supports additional interrupt routes from the PCI devices to

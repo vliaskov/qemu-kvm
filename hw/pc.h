@@ -182,5 +182,6 @@ void pc_system_firmware_init(MemoryRegion *rom_memory);
 #define E820_UNUSABLE   5
 
 int e820_add_entry(uint64_t, uint64_t, uint32_t);
+void bochs_meminfo_bios_init(void *fw_cfg);
 
 #endif
