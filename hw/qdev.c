@@ -99,6 +99,14 @@ void qdev_set_parent_bus(DeviceState *dev, BusState *bus)
     bus_add_child(bus, dev);
 }
 
+static void qdev_unset_parent(DeviceState *dev)
+{
+    BusState *b = dev->parent_bus;
+
+    object_unparent(OBJECT(dev));
+    bus_remove_child(b, dev);
+}
+
 /* Create a new device.  This only initializes the device state structure
    and allows properties to be set.  qdev_init should be called to
    initialize the actual device emulation.  */
@@ -186,6 +194,24 @@ void qdev_set_legacy_instance_id(DeviceState *dev, int alias_id,
     assert(dev->state == DEV_STATE_CREATED);
     dev->instance_id_alias = alias_id;
     dev->alias_required_for_version = required_for_version;
+}
+
+static int qdev_unmap(DeviceState *dev)
+{
+    DeviceClass *dc =  DEVICE_GET_CLASS(dev);
+    if (dc->unmap) {
+        dc->unmap(dev);
+    }
+    return 0;
+}
+
+void qdev_unplug_complete(DeviceState *dev, Error **errp)
+{
+    /* isolate from mem view */
+    qdev_unmap(dev);
+    /* isolate from device tree */
+    qdev_unset_parent(dev);
+    object_unref(OBJECT(dev));
 }
 
 void qdev_unplug(DeviceState *dev, Error **errp)
