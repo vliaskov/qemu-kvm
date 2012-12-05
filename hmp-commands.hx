@@ -1587,6 +1587,8 @@ show qdev device model list
 show roms
 @item info memory-total
 show memory-total
+@item info dimm
+show dimm
 @end table
 ETEXI
 
