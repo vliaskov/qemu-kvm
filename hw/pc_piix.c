@@ -159,9 +159,9 @@ static void pc_init1(MemoryRegion *system_memory,
         kvmclock_create();
     }
 
-    if (ram_size >= 0xe0000000 ) {
-        above_4g_mem_size = ram_size - 0xe0000000;
-        below_4g_mem_size = 0xe0000000;
+    if (ram_size >= I440FX_PCI_HOLE_START ) {
+        above_4g_mem_size = ram_size - I440FX_PCI_HOLE_START;
+        below_4g_mem_size = I440FX_PCI_HOLE_START;
     } else {
         above_4g_mem_size = 0;
         below_4g_mem_size = ram_size;

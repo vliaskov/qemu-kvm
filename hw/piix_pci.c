@@ -161,6 +161,29 @@ static const VMStateDescription vmstate_i440fx = {
     }
 };
 
+hwaddr i440fx_pmc_dimm_offset(DeviceState *dev, uint64_t size)
+{
+    PCII440FXState *d = I440FX_PCI_DEVICE(dev);
+    hwaddr ret;
+
+    if (d->above_4g_mem_size) {
+        ret = d->above_4g_mem_size;
+        d->above_4g_mem_size += size;
+    }
+    /* if dimm fits before pci hole, append it normally */
+    else if (d->below_4g_mem_size + size <= I440FX_PCI_HOLE_START) {
+        ret = d->below_4g_mem_size;
+        d->below_4g_mem_size += size;
+    }
+    /* otherwise place it above 4GB */
+    else {
+        ret = 0x100000000LL;
+        d->above_4g_mem_size += size;
+    }
+
+    return ret;
+}
+
 static void i440fx_pcihost_initfn(Object *obj)
 {
     I440FXState *s = I440FX_HOST_DEVICE(obj);
@@ -184,7 +207,7 @@ static int i440fx_pcihost_init(SysBusDevice *dev)
     sysbus_add_io(dev, 0xcfc, &pci->data_mem);
     sysbus_init_ioports(&pci->busdev, 0xcfc, 4);
 
-    b = pci_bus_new(&s->parent_obj.busdev.qdev, NULL, s->mch.pci_address_space,
+    b = pci_bus_new(&s->parent_obj.busdev.qdev, "pci.0", s->mch.pci_address_space,
                     s->mch.address_space_io, 0);
     s->parent_obj.bus = b;
     qdev_set_parent_bus(DEVICE(&s->mch), BUS(b));
@@ -204,6 +227,11 @@ static int i440fx_initfn(PCIDevice *dev)
     cpu_smm_register(&i440fx_set_smm, d);
     pci_hole64_size = (sizeof(hwaddr) == 4 ? 0 :
                        ((uint64_t)1 << 62));
+
+    d->dram_channel0 = dimm_bus_create(OBJECT(d), "membus.0", 8,
+            i440fx_pmc_dimm_offset);
+    d->pv_dram_channel = dimm_bus_create(OBJECT(d), "membus.pv", 0,
+            i440fx_pmc_dimm_offset);
     memory_region_init_alias(&d->pci_hole, "pci-hole", d->pci_address_space,
                              d->below_4g_mem_size,
                              0x100000000LL - d->below_4g_mem_size);
