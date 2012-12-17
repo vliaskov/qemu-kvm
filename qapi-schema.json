@@ -2914,6 +2914,32 @@
 { 'command': 'query-memory-total', 'returns': 'int' }
 
 ##
+# @DimmInfo:
+#
+# Information about status of a memory hotplug command
+#
+# @dimm: the Dimm associated with the result
+#
+# @result: the result of the hotplug command
+#
+# Since: 1.4
+#
+##
+{ 'type': 'DimmInfo',
+  'data': {'dimm': 'str', 'state': 'bool'} }
+
+##
+# @query-dimm-info:
+#
+# Returns total memory in bytes, including hotplugged dimms
+#
+# Returns: int
+#
+# Since: 1.4
+##
+{ 'command': 'query-dimm-info', 'returns': ['DimmInfo'] }
+
+##
 # @QKeyCode:
 #
 # An enumeration of key name.

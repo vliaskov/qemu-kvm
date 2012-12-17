@@ -635,6 +635,23 @@ void hmp_info_memory_total(Monitor *mon)
     monitor_printf(mon, "MemTotal: %lu\n", ram_total);
 }
 
+void hmp_info_dimm(Monitor *mon)
+{
+    DimmInfoList *info;
+    DimmInfoList *item;
+    DimmInfo *dimm;
+
+    info = qmp_query_dimm_info(NULL);
+    for (item = info; item; item = item->next) {
+        dimm = item->value;
+        monitor_printf(mon, "dimm %s : %s\n", dimm->dimm,
+                dimm->state ? "on" : "off");
+        dimm->dimm = NULL;
+    }
+
+    qapi_free_DimmInfoList(info);
+}
+
 void hmp_quit(Monitor *mon, const QDict *qdict)
 {
     monitor_suspend(mon);
