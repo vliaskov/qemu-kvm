@@ -126,6 +126,7 @@ int main(int argc, char **argv)
 #include "hw/xen.h"
 #include "hw/qdev.h"
 #include "hw/loader.h"
+#include "hw/dimm.h"
 #include "bt-host.h"
 #include "net.h"
 #include "net/slirp.h"
@@ -440,6 +441,14 @@ StatusInfo *qmp_query_status(Error **errp)
     info->status = current_run_state;
 
     return info;
+}
+
+int64_t qmp_query_memory_total(Error **errp)
+{
+    uint64_t info;
+    info = ram_size + get_hp_memory_total();
+
+    return (int64_t)info;
 }
 
 /***********************************************************/
