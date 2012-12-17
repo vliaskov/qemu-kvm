@@ -38,6 +38,7 @@ void hmp_info_pci(Monitor *mon);
 void hmp_info_block_jobs(Monitor *mon);
 void hmp_info_memory_total(Monitor *mon);
 void hmp_info_dimm(Monitor *mon);
+void hmp_info_memory_hotplug(Monitor *mon);
 void hmp_quit(Monitor *mon, const QDict *qdict);
 void hmp_stop(Monitor *mon, const QDict *qdict);
 void hmp_system_reset(Monitor *mon, const QDict *qdict);
