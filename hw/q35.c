@@ -236,12 +236,39 @@ static void mch_reset(DeviceState *qdev)
     mch_update(mch);
 }
 
+static hwaddr mch_dimm_offset(DeviceState *dev, uint64_t size)
+{
+    MCHPCIState *d = MCH_PCI_DEVICE(dev);
+    hwaddr ret;
+
+    /* if dimm fits before pci hole, append it normally */
+    if (d->below_4g_mem_size + size <= MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT) {
+        ret = d->below_4g_mem_size;
+        d->below_4g_mem_size += size;
+    }
+    /* otherwise place it above 4GB */
+    else {
+        ret = 0x100000000LL + d->above_4g_mem_size;
+        d->above_4g_mem_size += size;
+    }
+
+    return ret;
+}
+
 static int mch_init(PCIDevice *d)
 {
     int i;
     hwaddr pci_hole64_size;
     MCHPCIState *mch = MCH_PCI_DEVICE(d);
 
+    /* Initialize 2 GMC DRAM channels x 4 DRAM ranks each */
+    mch->dram_channel[0] = dimm_bus_create(OBJECT(d), "membus.0", 4,
+            mch_dimm_offset);
+    mch->dram_channel[1] = dimm_bus_create(OBJECT(d), "membus.1", 4,
+            mch_dimm_offset);
+    /* Initialize paravirtual memory bus */
+    mch->pv_dram_channel = dimm_bus_create(OBJECT(d), "membus.pv", 0,
+            mch_dimm_offset);
     /* setup pci memory regions */
     memory_region_init_alias(&mch->pci_hole, "pci-hole",
                              mch->pci_address_space,
