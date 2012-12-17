@@ -2743,6 +2743,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = do_trace_print_events,
     },
     {
+        .name       = "dimm",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show active and non active dimms",
+        .mhandler.info = hmp_info_dimm,
+    },
+    {
         .name       = NULL,
     },
 };

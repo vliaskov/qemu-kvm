@@ -174,6 +174,18 @@ static DimmConfig *dimmcfg_find_from_name(DimmBus *bus, const char *name)
     return NULL;
 }
 
+static DimmDevice *dimm_find_from_name(DimmBus *bus, const char *name)
+{
+    DimmDevice *slot;
+
+    QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
+        if (!strcmp(slot->qdev.id, name)) {
+            return slot;
+        }
+    }
+    return NULL;
+}
+
 void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots)
 {
     DimmConfig *slot;
@@ -201,6 +213,37 @@ uint64_t get_hp_memory_total(void)
         }
     }
     return info;
+}
+
+DimmInfoList *qmp_query_dimm_info(Error **errp)
+{
+    DimmBus *bus;
+    DimmConfig *slot;
+    DimmInfoList *head = NULL, *info, *cur_item = NULL;
+
+    QLIST_FOREACH(bus, &memory_buses, next) {
+        QTAILQ_FOREACH(slot, &bus->dimmconfig_list, nextdimmcfg) {
+
+            info = g_malloc0(sizeof(*info));
+            info->value = g_malloc0(sizeof(*info->value));
+            info->value->dimm = g_malloc0(sizeof(char) * 32);
+            strcpy(info->value->dimm, slot->name);
+            if (dimm_find_from_name(bus, slot->name)) {
+                info->value->state = 1;
+            } else {
+                info->value->state = 0;
+            }
+            /* XXX: waiting for the qapi to support GSList */
+            if (!cur_item) {
+                head = cur_item = info;
+            } else {
+                cur_item->next = info;
+                cur_item = info;
+            }
+        }
+    }
+
+    return head;
 }
 
 static int dimm_init(DeviceState *s)
