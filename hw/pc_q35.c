@@ -41,6 +41,7 @@
 #include "hw/ide/pci.h"
 #include "hw/ide/ahci.h"
 #include "hw/usb.h"
+#include "fw_cfg.h"
 
 /* ICH9 AHCI has 6 ports */
 #define MAX_SATA_PORTS     6
