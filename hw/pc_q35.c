@@ -87,6 +87,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     PCIDevice *ahci;
     qemu_irq *cmos_s3;
     void *fw_cfg = NULL;
+    uint64_t *pci_window_fw_cfg;
 
     pc_cpus_init(cpu_model);
 
@@ -139,6 +140,14 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     /* pci */
     qdev_init_nofail(DEVICE(q35_host));
     bochs_meminfo_bios_init(fw_cfg);
+
+    pci_window_fw_cfg = g_malloc0(2 * 8);
+    pci_window_fw_cfg[0] = cpu_to_le64(MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT);
+    pci_window_fw_cfg[1] = cpu_to_le64(0x100000000ULL +
+            q35_host->mch.above_4g_mem_size);
+    fw_cfg_add_bytes(fw_cfg, FW_CFG_PCI_WINDOW,
+                        (uint8_t *)pci_window_fw_cfg, 2 * 8);
+
     host_bus = q35_host->host.pci.bus;
     /* create ISA bus */
     lpc = pci_create_simple_multifunction(host_bus, PCI_DEVFN(ICH9_LPC_DEV,
