@@ -169,6 +169,7 @@ int main(int argc, char **argv)
 
 #include "ui/qemu-spice.h"
 #include "qapi/string-input-visitor.h"
+#include "hw/dimm.h"
 
 //#define DEBUG_NET
 //#define DEBUG_SLIRP
@@ -249,6 +250,7 @@ static QTAILQ_HEAD(, FWBootEntry) fw_boot_order =
 int nb_numa_nodes;
 uint64_t node_mem[MAX_NODES];
 unsigned long *node_cpumask[MAX_NODES];
+int nb_hp_dimms;
 
 uint8_t qemu_uuid[16];
 
@@ -2060,6 +2062,50 @@ static int chardev_init_func(QemuOpts *opts, void *opaque)
     return 0;
 }
 
+static int dimmcfg_init_func(QemuOpts *opts, void *opaque)
+{
+    const char *driver;
+    const char *id;
+    uint64_t node, size;
+    uint32_t populated;
+    const char *buf, *busbuf;
+
+    /* DimmDevice configuration needs to be known in order to initialize chipset
+     * with correct memory and pci ranges. But all devices are created after
+     * chipset / machine initialization. In * order to avoid this problem, we
+     * parse dimm information earlier into dimmcfg structs. */
+
+    driver = qemu_opt_get(opts, "driver");
+    if (!strcmp(driver, "dimm")) {
+
+        id = qemu_opts_id(opts);
+        buf = qemu_opt_get(opts, "size");
+        parse_option_size("size", buf, &size, NULL);
+        buf = qemu_opt_get(opts, "node");
+        parse_option_number("node", buf, &node, NULL);
+        busbuf = qemu_opt_get(opts, "bus");
+        buf = qemu_opt_get(opts, "populated");
+        if (!buf) {
+            populated = 0;
+        } else {
+            populated = strcmp(buf, "on") ? 0 : 1;
+        }
+
+        dimm_config_create((char *)id, size, busbuf ? busbuf : "membus.0",
+                node, nb_hp_dimms, populated);
+
+        /* if !populated, we just keep the config. The real device
+         * will be created in the future with a normal device_add
+         * command. */
+        if (!populated) {
+            qemu_opts_del(opts);
+        }
+        nb_hp_dimms++;
+    }
+
+    return 0;
+}
+
 #ifdef CONFIG_VIRTFS
 static int fsdev_init_func(QemuOpts *opts, void *opaque)
 {
@@ -3852,6 +3898,11 @@ int main(int argc, char **argv, char **envp)
     }
     qemu_add_globals();
 
+    /* init generic devices */
+    if (qemu_opts_foreach(qemu_find_opts("device"),
+           dimmcfg_init_func, NULL, 1) != 0) {
+        exit(1);
+    }
     qdev_machine_init();
 
     QEMUMachineInitArgs args = { .ram_size = ram_size,
