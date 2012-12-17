@@ -69,6 +69,7 @@ typedef struct DimmBus {
     dimm_hotplug_fn dimm_hotplug;
     DimmConfiglist dimmconfig_list;
     QTAILQ_HEAD(Dimmlist, DimmDevice) dimmlist;
+    QTAILQ_HEAD(dimm_hp_result_head, dimm_hp_result)  dimm_hp_result_queue;
     QLIST_ENTRY(DimmBus) next;
 } DimmBus;
 

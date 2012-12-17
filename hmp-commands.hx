@@ -1574,6 +1574,8 @@ show roms
 show memory-total
 @item info dimm
 show dimm
+@item info memory-hotplug
+show memory-hotplug
 @end table
 ETEXI
 

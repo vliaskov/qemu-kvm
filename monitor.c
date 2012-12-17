@@ -2715,6 +2715,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.info = hmp_info_memory_total,
     },
     {
+        .name       = "memory-hotplug",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show memory hotplug status",
+        .mhandler.info = hmp_info_memory_hotplug,
+    },
+    {
         .name       = "qtree",
         .args_type  = "",
         .params     = "",
