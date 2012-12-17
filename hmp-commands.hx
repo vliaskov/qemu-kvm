@@ -1570,6 +1570,8 @@ show device tree
 show qdev device model list
 @item info roms
 show roms
+@item info memory-total
+show memory-total
 @end table
 ETEXI
 
