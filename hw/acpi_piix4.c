@@ -29,6 +29,8 @@
 #include "ioport.h"
 #include "fw_cfg.h"
 #include "exec-memory.h"
+#include "sysbus.h"
+#include "dimm.h"
 
 //#define DEBUG
 
@@ -47,7 +49,9 @@
 #define PCI_DOWN_BASE 0xae04
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
+#define MEM_BASE 0xaf80
 
+#define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
 
 struct pci_status {
@@ -60,6 +64,7 @@ typedef struct PIIX4PMState {
     MemoryRegion io;
     MemoryRegion io_gpe;
     MemoryRegion io_pci;
+    MemoryRegion io_memhp;
     ACPIREGS ar;
 
     APMState apm;
@@ -74,6 +79,7 @@ typedef struct PIIX4PMState {
     Notifier powerdown_notifier;
 
     /* for pci hotplug */
+    struct gpe_regs gperegs;
     struct pci_status pci0_status;
     uint32_t pci0_hotplug_enable;
     uint32_t pci0_slot_device_present;
@@ -98,8 +104,8 @@ static void pm_update_sci(PIIX4PMState *s)
                    ACPI_BITMASK_POWER_BUTTON_ENABLE |
                    ACPI_BITMASK_GLOBAL_LOCK_ENABLE |
                    ACPI_BITMASK_TIMER_ENABLE)) != 0) ||
-        (((s->ar.gpe.sts[0] & s->ar.gpe.en[0])
-          & PIIX4_PCI_HOTPLUG_STATUS) != 0);
+        (((s->ar.gpe.sts[0] & s->ar.gpe.en[0]) &
+          (PIIX4_PCI_HOTPLUG_STATUS | PIIX4_MEM_HOTPLUG_STATUS)) != 0);
 
     qemu_set_irq(s->irq, sci_level);
     /* schedule a timer interruption if needed */
@@ -526,6 +532,29 @@ static const MemoryRegionOps piix4_gpe_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+static uint32_t memhp_readb(void *opaque, uint32_t addr)
+{
+    PIIX4PMState *s = opaque;
+    uint32_t val = 0;
+    struct gpe_regs *g = &s->gperegs;
+    if (addr < DIMM_BITMAP_BYTES) {
+        val = (uint32_t) g->mems_sts[addr];
+    }
+    PIIX4_DPRINTF(stderr, "memhp read %x == %x\n", addr, val);
+    return val;
+}
+
+static const MemoryRegionOps piix4_memhp_ops = {
+    .old_portio = (MemoryRegionPortio[]) {
+        {
+            .offset = 0,   .len = DIMM_BITMAP_BYTES, .size = 1,
+            .read = memhp_readb,
+        },
+        PORTIO_END_OF_LIST()
+    },
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
 static uint32_t pci_up_read(void *opaque, uint32_t addr)
 {
     PIIX4PMState *s = opaque;
@@ -592,9 +621,11 @@ static const MemoryRegionOps piix4_pci_ops = {
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
                                 PCIHotplugState state);
+static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int add);
 
 static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
 {
+    int i = 0;
     memory_region_init_io(&s->io_gpe, &piix4_gpe_ops, s, "apci-gpe0",
                           GPE_LEN);
     memory_region_add_subregion(get_system_io(), GPE_BASE, &s->io_gpe);
@@ -603,7 +634,16 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
                           PCI_HOTPLUG_SIZE);
     memory_region_add_subregion(get_system_io(), PCI_HOTPLUG_ADDR,
                                 &s->io_pci);
+    memory_region_init_io(&s->io_memhp, &piix4_memhp_ops, s, "apci-memhp0",
+                          DIMM_BITMAP_BYTES);
+    memory_region_add_subregion(get_system_io(), MEM_BASE, &s->io_memhp);
+
+    for (i = 0; i < DIMM_BITMAP_BYTES; i++) {
+        s->gperegs.mems_sts[i] = 0;
+    }
+
     pci_bus_hotplug(bus, piix4_device_hotplug, &s->dev.qdev);
+    dimm_bus_hotplug(piix4_dimm_hotplug, &s->dev.qdev);
 }
 
 static void enable_device(PIIX4PMState *s, int slot)
@@ -616,6 +656,27 @@ static void disable_device(PIIX4PMState *s, int slot)
 {
     s->ar.gpe.sts[0] |= PIIX4_PCI_HOTPLUG_STATUS;
     s->pci0_status.down |= (1U << slot);
+}
+
+static void enable_mem_device(PIIX4PMState *s, int memdevice)
+{
+    struct gpe_regs *g = &s->gperegs;
+    s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
+    g->mems_sts[memdevice/8] |= (1 << (memdevice%8));
+}
+
+static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
+        add)
+{
+    PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
+    PIIX4PMState *s = DO_UPCAST(PIIX4PMState, dev, pci_dev);
+    DimmDevice *slot = DIMM(dev);
+
+    if (add) {
+        enable_mem_device(s, slot->idx);
+    }
+    pm_update_sci(s);
+    return 0;
 }
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
