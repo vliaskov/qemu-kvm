@@ -51,6 +51,7 @@
 #include "exec-memory.h"
 #include "arch_init.h"
 #include "bitmap.h"
+#include "hw/dimm.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -582,8 +583,6 @@ static void *bochs_bios_init(void)
     void *fw_cfg;
     uint8_t *smbios_table;
     size_t smbios_len;
-    uint64_t *numa_fw_cfg;
-    int i, j;
     PortioList *bochs_bios_port_list = g_new(PortioList, 1);
 
     portio_list_init(bochs_bios_port_list, bochs_bios_portio_list,
@@ -607,11 +606,24 @@ static void *bochs_bios_init(void)
 
     fw_cfg_add_bytes(fw_cfg, FW_CFG_HPET, (uint8_t *)&hpet_cfg,
                      sizeof(struct hpet_fw_config));
+
+    return fw_cfg;
+}
+
+void bochs_meminfo_bios_init(void *fw_cfg)
+{
+    uint64_t *numa_fw_cfg;
+    uint64_t *hp_dimms_fw_cfg;
+    int i, j;
+
     /* allocate memory for the NUMA channel: one (64bit) word for the number
      * of nodes, one word for each VCPU->node and one word for each node to
      * hold the amount of memory.
+     * Finally one word for the number of hotplug memory slots and three words
+     * for each hotplug memory slot (start address, size and node proximity).
      */
-    numa_fw_cfg = g_malloc0((1 + max_cpus + nb_numa_nodes) * 8);
+    numa_fw_cfg = g_malloc0((2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms)
+            * 8);
     numa_fw_cfg[0] = cpu_to_le64(nb_numa_nodes);
     for (i = 0; i < max_cpus; i++) {
         for (j = 0; j < nb_numa_nodes; j++) {
@@ -624,10 +636,16 @@ static void *bochs_bios_init(void)
     for (i = 0; i < nb_numa_nodes; i++) {
         numa_fw_cfg[max_cpus + 1 + i] = cpu_to_le64(node_mem[i]);
     }
-    fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, (uint8_t *)numa_fw_cfg,
-                     (1 + max_cpus + nb_numa_nodes) * 8);
 
-    return fw_cfg;
+    numa_fw_cfg[1 + max_cpus + nb_numa_nodes] = cpu_to_le64(nb_hp_dimms);
+
+    hp_dimms_fw_cfg = numa_fw_cfg + 2 + max_cpus + nb_numa_nodes;
+    if (nb_hp_dimms) {
+        dimm_setup_fwcfg_layout(hp_dimms_fw_cfg);
+    }
+    fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, (uint8_t *)numa_fw_cfg,
+                     (2 + max_cpus + nb_numa_nodes + 3 * nb_hp_dimms) * 8);
+
 }
 
 static long get_file_size(FILE *f)
