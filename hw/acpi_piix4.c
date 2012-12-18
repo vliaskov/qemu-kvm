@@ -54,6 +54,7 @@
 #define MEM_OST_REMOVE_FAIL 0xafa1
 #define MEM_OST_ADD_SUCCESS 0xafa2
 #define MEM_OST_ADD_FAIL 0xafa3
+#define MEM_PS3 0xafa4
 
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
@@ -564,6 +565,9 @@ static void memhp_writeb(void *opaque, uint32_t addr, uint32_t val)
     case MEM_OST_ADD_FAIL - MEM_BASE:
         dimm_notify(val, DIMM_ADD_FAIL);
         break;
+    case MEM_PS3 - MEM_BASE:
+        dimm_notify(val, DIMM_OSPM_POWEROFF);
+        break;
     default:
         PIIX4_DPRINTF("memhp write invalid %x <== %d\n", addr, val);
     }
@@ -577,7 +581,7 @@ static const MemoryRegionOps piix4_memhp_ops = {
             .read = memhp_readb,
         },
         {
-            .offset = MEM_EJ_BASE - MEM_BASE, .len = 4,
+            .offset = MEM_EJ_BASE - MEM_BASE, .len = 5,
             .size = 1,
             .write = memhp_writeb,
         },
@@ -666,7 +670,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     memory_region_add_subregion(get_system_io(), PCI_HOTPLUG_ADDR,
                                 &s->io_pci);
     memory_region_init_io(&s->io_memhp, &piix4_memhp_ops, s, "apci-memhp0",
-                          DIMM_BITMAP_BYTES + 4);
+                          DIMM_BITMAP_BYTES + 5);
     memory_region_add_subregion(get_system_io(), MEM_BASE, &s->io_memhp);
 
     for (i = 0; i < DIMM_BITMAP_BYTES; i++) {
@@ -726,7 +730,6 @@ static int piix4_dimm_revert(DeviceState *qdev, DimmDevice *dev, int add)
     struct gpe_regs *g = &s->gperegs;
     DimmDevice *slot = DIMM(dev);
     int idx = slot->idx;
-
     if (add) {
         g->mems_sts[idx/8] &= ~(1 << (idx%8));
     } else {

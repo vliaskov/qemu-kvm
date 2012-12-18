@@ -29,6 +29,7 @@
 #define ICH9_MEM_OST_REMOVE_FAIL 0xafa1
 #define ICH9_MEM_OST_ADD_SUCCESS 0xafa2
 #define ICH9_MEM_OST_ADD_FAIL 0xafa3
+#define ICH9_MEM_PS3 0xafa4
 
 typedef struct ICH9LPCPMRegs {
     /*
