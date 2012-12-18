@@ -26,6 +26,9 @@
 #define ICH9_MEM_BASE    0xaf80
 #define ICH9_MEM_EJ_BASE    0xafa0
 #define ICH9_MEM_HOTPLUG_STATUS 8
+#define ICH9_MEM_OST_REMOVE_FAIL 0xafa1
+#define ICH9_MEM_OST_ADD_SUCCESS 0xafa2
+#define ICH9_MEM_OST_ADD_FAIL 0xafa3
 
 typedef struct ICH9LPCPMRegs {
     /*
