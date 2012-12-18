@@ -24,6 +24,7 @@
 #include "acpi.h"
 
 #define ICH9_MEM_BASE    0xaf80
+#define ICH9_MEM_EJ_BASE    0xafa0
 #define ICH9_MEM_HOTPLUG_STATUS 8
 
 typedef struct ICH9LPCPMRegs {
