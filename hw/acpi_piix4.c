@@ -50,6 +50,7 @@
 #define PCI_EJ_BASE 0xae08
 #define PCI_RMV_BASE 0xae0c
 #define MEM_BASE 0xaf80
+#define MEM_EJ_BASE 0xafa0
 
 #define PIIX4_MEM_HOTPLUG_STATUS 8
 #define PIIX4_PCI_HOTPLUG_STATUS 2
@@ -544,11 +545,28 @@ static uint32_t memhp_readb(void *opaque, uint32_t addr)
     return val;
 }
 
+static void memhp_writeb(void *opaque, uint32_t addr, uint32_t val)
+{
+    switch (addr) {
+    case MEM_EJ_BASE - MEM_BASE:
+        dimm_notify(val, DIMM_REMOVE_SUCCESS);
+        break;
+    default:
+        PIIX4_DPRINTF("memhp write invalid %x <== %d\n", addr, val);
+    }
+    PIIX4_DPRINTF("memhp write %x <== %d\n", addr, val);
+}
+
 static const MemoryRegionOps piix4_memhp_ops = {
     .old_portio = (MemoryRegionPortio[]) {
         {
             .offset = 0,   .len = DIMM_BITMAP_BYTES, .size = 1,
             .read = memhp_readb,
+        },
+        {
+            .offset = MEM_EJ_BASE - MEM_BASE, .len = 1,
+            .size = 1,
+            .write = memhp_writeb,
         },
         PORTIO_END_OF_LIST()
     },
@@ -635,7 +653,7 @@ static void piix4_acpi_system_hot_add_init(PCIBus *bus, PIIX4PMState *s)
     memory_region_add_subregion(get_system_io(), PCI_HOTPLUG_ADDR,
                                 &s->io_pci);
     memory_region_init_io(&s->io_memhp, &piix4_memhp_ops, s, "apci-memhp0",
-                          DIMM_BITMAP_BYTES);
+                          DIMM_BITMAP_BYTES + 1);
     memory_region_add_subregion(get_system_io(), MEM_BASE, &s->io_memhp);
 
     for (i = 0; i < DIMM_BITMAP_BYTES; i++) {
@@ -665,6 +683,13 @@ static void enable_mem_device(PIIX4PMState *s, int memdevice)
     g->mems_sts[memdevice/8] |= (1 << (memdevice%8));
 }
 
+static void disable_mem_device(PIIX4PMState *s, int memdevice)
+{
+    struct gpe_regs *g = &s->gperegs;
+    s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
+    g->mems_sts[memdevice/8] &= ~(1 << (memdevice%8));
+}
+
 static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
         add)
 {
@@ -674,6 +699,8 @@ static int piix4_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
 
     if (add) {
         enable_mem_device(s, slot->idx);
+    } else {
+        disable_mem_device(s, slot->idx);
     }
     pm_update_sci(s);
     return 0;
