@@ -161,14 +161,14 @@ ETEXI
 
 DEF("boot", HAS_ARG, QEMU_OPTION_boot,
     "-boot [order=drives][,once=drives][,menu=on|off]\n"
-    "      [,splash=sp_name][,splash-time=sp_time][,reboot-timeout=rb_time]\n"
+    "      [,splash=sp_name][,splash-time=sp_time][,reboot-timeout=rb_time][,strict=on|off]\n"
     "                'drives': floppy (a), hard disk (c), CD-ROM (d), network (n)\n"
     "                'sp_name': the file's name that would be passed to bios as logo picture, if menu=on\n"
     "                'sp_time': the period that splash picture last if menu=on, unit is ms\n"
     "                'rb_timeout': the timeout before guest reboot when boot failed, unit is ms\n",
     QEMU_ARCH_ALL)
 STEXI
-@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off][,splash=@var{sp_name}][,splash-time=@var{sp_time}][,reboot-timeout=@var{rb_timeout}]
+@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off][,splash=@var{sp_name}][,splash-time=@var{sp_time}][,reboot-timeout=@var{rb_timeout}][,strict=on|off]
 @findex -boot
 Specify boot order @var{drives} as a string of drive letters. Valid
 drive letters depend on the target achitecture. The x86 PC uses: a, b
@@ -191,6 +191,10 @@ A timeout could be passed to bios, guest will pause for @var{rb_timeout} ms
 when boot failed, then reboot. If @var{rb_timeout} is '-1', guest will not
 reboot, qemu passes '-1' to bios by default. Currently Seabios for X86
 system support it.
+
+Do strict boot via @option{strict=on} as far as firmware/BIOS
+supports it. This only effects when boot priority is changed by
+bootindex options. The default is non-strict boot.
 
 @example
 # try to boot from network first, then from hard disk
@@ -440,6 +444,8 @@ These options have the same definition as they have in @option{-hdachs}.
 @var{cache} is "none", "writeback", "unsafe", "directsync" or "writethrough" and controls how the host cache is used to access block data.
 @item aio=@var{aio}
 @var{aio} is "threads", or "native" and selects between pthread based disk I/O and native Linux AIO.
+@item discard=@var{discard}
+@var{discard} is one of "ignore" (or "off") or "unmap" (or "on") and controls whether @dfn{discard} (also known as @dfn{trim} or @dfn{unmap}) requests are ignored or passed to the filesystem.  Some machine types may not support discard requests.
 @item format=@var{format}
 Specify which disk @var{format} will be used rather than detecting
 the format.  Can be used to specifiy format=raw to avoid interpreting
@@ -1354,7 +1360,7 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "-net tap[,vlan=n][,name=str],ifname=name\n"
     "                connect the host TAP network interface to VLAN 'n'\n"
 #else
-    "-net tap[,vlan=n][,name=str][,fd=h][,ifname=name][,script=file][,downscript=dfile][,helper=helper][,sndbuf=nbytes][,vnet_hdr=on|off][,vhost=on|off][,vhostfd=h][,vhostforce=on|off]\n"
+    "-net tap[,vlan=n][,name=str][,fd=h][,fds=x:y:...:z][,ifname=name][,script=file][,downscript=dfile][,helper=helper][,sndbuf=nbytes][,vnet_hdr=on|off][,vhost=on|off][,vhostfd=h][,vhostfds=x:y:...:z][,vhostforce=on|off]\n"
     "                connect the host TAP network interface to VLAN 'n'\n"
     "                use network scripts 'file' (default=" DEFAULT_NETWORK_SCRIPT ")\n"
     "                to configure it and 'dfile' (default=" DEFAULT_NETWORK_DOWN_SCRIPT ")\n"
@@ -1363,6 +1369,7 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "                use network helper 'helper' (default=" DEFAULT_BRIDGE_HELPER ") to\n"
     "                configure it\n"
     "                use 'fd=h' to connect to an already opened TAP interface\n"
+    "                use 'fds=x:y:...:z' to connect to already opened multiqueue capable TAP interfaces\n"
     "                use 'sndbuf=nbytes' to limit the size of the send buffer (the\n"
     "                default is disabled 'sndbuf=0' to enable flow control set 'sndbuf=1048576')\n"
     "                use vnet_hdr=off to avoid enabling the IFF_VNET_HDR tap flag\n"
@@ -1371,6 +1378,7 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "                    (only has effect for virtio guests which use MSIX)\n"
     "                use vhostforce=on to force vhost on for non-MSIX virtio guests\n"
     "                use 'vhostfd=h' to connect to an already opened vhost net device\n"
+    "                use 'vhostfds=x:y:...:z to connect to multiple already opened vhost net devices\n"
     "-net bridge[,vlan=n][,name=str][,br=bridge][,helper=helper]\n"
     "                connects a host TAP network interface to a host bridge device 'br'\n"
     "                (default=" DEFAULT_BRIDGE_INTERFACE ") using the program 'helper'\n"
@@ -1404,7 +1412,8 @@ DEF("netdev", HAS_ARG, QEMU_OPTION_netdev,
 #ifdef CONFIG_VDE
     "vde|"
 #endif
-    "socket],id=str[,option][,option][,...]\n", QEMU_ARCH_ALL)
+    "socket|"
+    "hubport],id=str[,option][,option][,...]\n", QEMU_ARCH_ALL)
 STEXI
 @item -net nic[,vlan=@var{n}][,macaddr=@var{mac}][,model=@var{type}] [,name=@var{name}][,addr=@var{addr}][,vectors=@var{v}]
 @findex -net
@@ -1725,6 +1734,14 @@ vde_switch -F -sock /tmp/myswitch
 # launch QEMU instance
 qemu-system-i386 linux.img -net nic -net vde,sock=/tmp/myswitch
 @end example
+
+@item -netdev hubport,id=@var{id},hubid=@var{hubid}
+
+Create a hub port on QEMU "vlan" @var{hubid}.
+
+The hubport netdev lets you connect a NIC to a QEMU "vlan" instead of a single
+netdev.  @code{-net} and @code{-device} with parameter @option{vlan} create the
+required hub automatically.
 
 @item -net dump[,vlan=@var{n}][,file=@var{file}][,len=@var{len}]
 Dump network traffic on VLAN @var{n} to file @var{file} (@file{qemu-vlan0.pcap} by default).
@@ -2095,23 +2112,13 @@ QEMU supports using either local sheepdog devices or remote networked
 devices.
 
 Syntax for specifying a sheepdog device
-@table @list
-``sheepdog:<vdiname>''
-
-``sheepdog:<vdiname>:<snapid>''
-
-``sheepdog:<vdiname>:<tag>''
-
-``sheepdog:<host>:<port>:<vdiname>''
-
-``sheepdog:<host>:<port>:<vdiname>:<snapid>''
-
-``sheepdog:<host>:<port>:<vdiname>:<tag>''
-@end table
+@example
+sheepdog[+tcp|+unix]://[host:port]/vdiname[?socket=path][#snapid|#tag]
+@end example
 
 Example
 @example
-qemu-system-i386 --drive file=sheepdog:192.0.2.1:30000:MyVirtualMachine
+qemu-system-i386 --drive file=sheepdog://192.0.2.1:30000/MyVirtualMachine
 @end example
 
 See also @url{http://http://www.osrg.net/sheepdog/}.
@@ -2129,7 +2136,7 @@ gluster[+transport]://[server[:port]]/volname/image[?socket=...]
 
 Example
 @example
-qemu-system-x86_84 --drive file=gluster://192.0.2.1/testvol/a.img
+qemu-system-x86_64 --drive file=gluster://192.0.2.1/testvol/a.img
 @end example
 
 See also @url{http://www.gluster.org}.
@@ -2213,6 +2220,80 @@ STEXI
 @end table
 ETEXI
 DEFHEADING()
+
+#ifdef CONFIG_TPM
+DEFHEADING(TPM device options:)
+
+DEF("tpmdev", HAS_ARG, QEMU_OPTION_tpmdev, \
+    "-tpmdev passthrough,id=id[,path=path][,cancel-path=path]\n"
+    "                use path to provide path to a character device; default is /dev/tpm0\n"
+    "                use cancel-path to provide path to TPM's cancel sysfs entry; if\n"
+    "                not provided it will be searched for in /sys/class/misc/tpm?/device\n",
+    QEMU_ARCH_ALL)
+STEXI
+
+The general form of a TPM device option is:
+@table @option
+
+@item -tpmdev @var{backend} ,id=@var{id} [,@var{options}]
+@findex -tpmdev
+Backend type must be:
+@option{passthrough}.
+
+The specific backend type will determine the applicable options.
+The @code{-tpmdev} option requires a @code{-device} option.
+
+Options to each backend are described below.
+
+Use 'help' to print all available TPM backend types.
+@example
+qemu -tpmdev help
+@end example
+
+@item -tpmdev passthrough, id=@var{id}, path=@var{path}, cancel-path=@var{cancel-path}
+
+(Linux-host only) Enable access to the host's TPM using the passthrough
+driver.
+
+@option{path} specifies the path to the host's TPM device, i.e., on
+a Linux host this would be @code{/dev/tpm0}.
+@option{path} is optional and by default @code{/dev/tpm0} is used.
+
+@option{cancel-path} specifies the path to the host TPM device's sysfs
+entry allowing for cancellation of an ongoing TPM command.
+@option{cancel-path} is optional and by default QEMU will search for the
+sysfs entry to use.
+
+Some notes about using the host's TPM with the passthrough driver:
+
+The TPM device accessed by the passthrough driver must not be
+used by any other application on the host.
+
+Since the host's firmware (BIOS/UEFI) has already initialized the TPM,
+the VM's firmware (BIOS/UEFI) will not be able to initialize the
+TPM again and may therefore not show a TPM-specific menu that would
+otherwise allow the user to configure the TPM, e.g., allow the user to
+enable/disable or activate/deactivate the TPM.
+Further, if TPM ownership is released from within a VM then the host's TPM
+will get disabled and deactivated. To enable and activate the
+TPM again afterwards, the host has to be rebooted and the user is
+required to enter the firmware's menu to enable and activate the TPM.
+If the TPM is left disabled and/or deactivated most TPM commands will fail.
+
+To create a passthrough TPM use the following two options:
+@example
+-tpmdev passthrough,id=tpm0 -device tpm-tis,tpmdev=tpm0
+@end example
+Note that the @code{-tpmdev} id is @code{tpm0} and is referenced by
+@code{tpmdev=tpm0} in the device option.
+
+@end table
+
+ETEXI
+
+DEFHEADING()
+
+#endif
 
 DEFHEADING(Linux/Multiboot boot specific:)
 STEXI
@@ -2513,21 +2594,21 @@ Shorthand for -gdb tcp::1234, i.e. open a gdbserver on TCP port 1234
 ETEXI
 
 DEF("d", HAS_ARG, QEMU_OPTION_d, \
-    "-d item1,...    output log to /tmp/qemu.log (use '-d help' for a list of log items)\n",
+    "-d item1,...    enable logging of specified items (use '-d help' for a list of log items)\n",
     QEMU_ARCH_ALL)
 STEXI
-@item -d
+@item -d @var{item1}[,...]
 @findex -d
-Output log in /tmp/qemu.log
+Enable logging of specified items. Use '-d help' for a list of log items.
 ETEXI
 
 DEF("D", HAS_ARG, QEMU_OPTION_D, \
-    "-D logfile      output log to logfile (instead of the default /tmp/qemu.log)\n",
+    "-D logfile      output log to logfile (default stderr)\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -D @var{logfile}
 @findex -D
-Output log in @var{logfile} instead of /tmp/qemu.log
+Output log in @var{logfile} instead of to stderr
 ETEXI
 
 DEF("L", HAS_ARG, QEMU_OPTION_L, \

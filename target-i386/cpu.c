@@ -389,10 +389,15 @@ typedef struct x86_def_t {
           CPUID_VME, CPUID_DTS, CPUID_SS, CPUID_HT, CPUID_TM, CPUID_PBE */
 #define TCG_EXT_FEATURES (CPUID_EXT_SSE3 | CPUID_EXT_MONITOR | \
           CPUID_EXT_SSSE3 | CPUID_EXT_CX16 | CPUID_EXT_POPCNT | \
-          CPUID_EXT_HYPERVISOR)
+          CPUID_EXT_MOVBE | CPUID_EXT_HYPERVISOR)
           /* missing:
-          CPUID_EXT_DTES64, CPUID_EXT_DSCPL, CPUID_EXT_VMX, CPUID_EXT_EST,
-          CPUID_EXT_TM2, CPUID_EXT_XTPR, CPUID_EXT_PDCM, CPUID_EXT_XSAVE */
+          CPUID_EXT_PCLMULQDQ, CPUID_EXT_DTES64, CPUID_EXT_DSCPL,
+          CPUID_EXT_VMX, CPUID_EXT_SMX, CPUID_EXT_EST, CPUID_EXT_TM2,
+          CPUID_EXT_CID, CPUID_EXT_FMA, CPUID_EXT_XTPR, CPUID_EXT_PDCM,
+          CPUID_EXT_PCID, CPUID_EXT_DCA, CPUID_EXT_SSE41, CPUID_EXT_SSE42,
+          CPUID_EXT_X2APIC, CPUID_EXT_TSC_DEADLINE_TIMER, CPUID_EXT_AES,
+          CPUID_EXT_XSAVE, CPUID_EXT_OSXSAVE, CPUID_EXT_AVX,
+          CPUID_EXT_F16C, CPUID_EXT_RDRAND */
 #define TCG_EXT2_FEATURES ((TCG_FEATURES & CPUID_EXT2_AMD_ALIASES) | \
           CPUID_EXT2_NX | CPUID_EXT2_MMXEXT | CPUID_EXT2_RDTSCP | \
           CPUID_EXT2_3DNOW | CPUID_EXT2_3DNOWEXT)
@@ -401,7 +406,12 @@ typedef struct x86_def_t {
 #define TCG_EXT3_FEATURES (CPUID_EXT3_LAHF_LM | CPUID_EXT3_SVM | \
           CPUID_EXT3_CR8LEG | CPUID_EXT3_ABM | CPUID_EXT3_SSE4A)
 #define TCG_SVM_FEATURES 0
-#define TCG_7_0_EBX_FEATURES (CPUID_7_0_EBX_SMEP | CPUID_7_0_EBX_SMAP)
+#define TCG_7_0_EBX_FEATURES (CPUID_7_0_EBX_SMEP | CPUID_7_0_EBX_SMAP \
+          CPUID_7_0_EBX_BMI1 | CPUID_7_0_EBX_BMI2 | CPUID_7_0_EBX_ADX)
+          /* missing:
+          CPUID_7_0_EBX_FSGSBASE, CPUID_7_0_EBX_HLE, CPUID_7_0_EBX_AVX2,
+          CPUID_7_0_EBX_ERMS, CPUID_7_0_EBX_INVPCID, CPUID_7_0_EBX_RTM,
+          CPUID_7_0_EBX_RDSEED */
 
 /* built-in CPU model definitions
  */
@@ -2004,7 +2014,7 @@ static void x86_cpu_reset(CPUState *s)
         apic_designate_bsp(env->apic_state);
     }
 
-    env->halted = !cpu_is_bsp(cpu);
+    s->halted = !cpu_is_bsp(cpu);
 #endif
 }
 
@@ -2078,7 +2088,8 @@ static void x86_cpu_apic_init(X86CPU *cpu, Error **errp)
         /* NOTE: the APIC is directly connected to the CPU - it is not
            on the global memory bus. */
         /* XXX: what if the base changes? */
-        sysbus_mmio_map(SYS_BUS_DEVICE(env->apic_state), 0, MSI_ADDR_BASE);
+        sysbus_mmio_map_overlap(SYS_BUS_DEVICE(env->apic_state), 0,
+                                MSI_ADDR_BASE, 0x1000);
         apic_mapped = 1;
     }
 }
@@ -2239,6 +2250,9 @@ static void x86_cpu_common_class_init(ObjectClass *oc, void *data)
 
     xcc->parent_reset = cc->reset;
     cc->reset = x86_cpu_reset;
+
+    cc->do_interrupt = x86_cpu_do_interrupt;
+    cpu_class_set_vmsd(cc, &vmstate_x86_cpu);
 }
 
 static const TypeInfo x86_cpu_type_info = {

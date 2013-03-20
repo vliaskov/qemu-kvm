@@ -580,13 +580,13 @@ static const sparc_def_t sparc_defs[] = {
         .fpu_version = 4 << 17, /* FPU version 4 (Meiko) */
         .mmu_version = 0xf3000000,
         .mmu_bm = 0x00000000,
-        .mmu_ctpr_mask = 0x007ffff0,
-        .mmu_cxr_mask = 0x0000003f,
+        .mmu_ctpr_mask = 0xfffffffc,
+        .mmu_cxr_mask = 0x000000ff,
         .mmu_sfsr_mask = 0xffffffff,
         .mmu_trcr_mask = 0xffffffff,
         .nwindows = 8,
         .features = CPU_DEFAULT_FEATURES | CPU_FEATURE_TA0_SHUTDOWN |
-        CPU_FEATURE_ASR17 | CPU_FEATURE_CACHE_CTRL,
+        CPU_FEATURE_ASR17 | CPU_FEATURE_CACHE_CTRL | CPU_FEATURE_POWERDOWN,
     },
 #endif
 };
@@ -891,6 +891,8 @@ static void sparc_cpu_class_init(ObjectClass *oc, void *data)
 
     scc->parent_reset = cc->reset;
     cc->reset = sparc_cpu_reset;
+
+    cc->do_interrupt = sparc_cpu_do_interrupt;
 }
 
 static const TypeInfo sparc_cpu_type_info = {

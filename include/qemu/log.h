@@ -116,22 +116,18 @@ static inline void qemu_log_flush(void)
 /* Close the log file */
 static inline void qemu_log_close(void)
 {
-    fclose(qemu_logfile);
-    qemu_logfile = NULL;
+    if (qemu_logfile) {
+        if (qemu_logfile != stderr) {
+            fclose(qemu_logfile);
+        }
+        qemu_logfile = NULL;
+    }
 }
 
 /* Set up a new log file */
 static inline void qemu_log_set_file(FILE *f)
 {
     qemu_logfile = f;
-}
-
-/* Set up a new log file, only if none is set */
-static inline void qemu_log_try_set_file(FILE *f)
-{
-    if (!qemu_logfile) {
-        qemu_logfile = f;
-    }
 }
 
 /* define log items */

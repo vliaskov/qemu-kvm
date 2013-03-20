@@ -307,7 +307,6 @@ enum powerpc_input_t {
 #define PPC_INPUT(env) (env->bus_model)
 
 /*****************************************************************************/
-typedef struct ppc_def_t ppc_def_t;
 typedef struct opc_handler_t opc_handler_t;
 
 /*****************************************************************************/
@@ -330,6 +329,12 @@ struct ppc_spr_t {
     void (*hea_write)(void *opaque, int spr_num, int gpr_num);
 #endif
     const char *name;
+#ifdef CONFIG_KVM
+    /* We (ab)use the fact that all the SPRs will have ids for the
+     * ONE_REG interface will have KVM_REG_PPC to use 0 as meaning,
+     * don't sync this */
+    uint64_t one_reg_id;
+#endif
 };
 
 /* Altivec registers (128 bits) */
@@ -902,25 +907,6 @@ struct ppc_segment_page_sizes {
 /* The whole PowerPC CPU context */
 #define NB_MMU_MODES 3
 
-struct ppc_def_t {
-    const char *name;
-    uint32_t pvr;
-    uint32_t svr;
-    uint64_t insns_flags;
-    uint64_t insns_flags2;
-    uint64_t msr_mask;
-    powerpc_mmu_t   mmu_model;
-    powerpc_excp_t  excp_model;
-    powerpc_input_t bus_model;
-    uint32_t flags;
-    int bfd_mach;
-#if defined(TARGET_PPC64)
-    const struct ppc_segment_page_sizes *sps;
-#endif
-    void (*init_proc)(CPUPPCState *env);
-    int  (*check_pow)(CPUPPCState *env);
-};
-
 struct CPUPPCState {
     /* First are the most commonly used resources
      * during translated code execution
@@ -941,8 +927,11 @@ struct CPUPPCState {
     /* CFAR */
     target_ulong cfar;
 #endif
-    /* XER */
+    /* XER (with SO, OV, CA split out) */
     target_ulong xer;
+    target_ulong so;
+    target_ulong ov;
+    target_ulong ca;
     /* Reservation address */
     target_ulong reserve_addr;
     /* Reservation value */
@@ -1144,7 +1133,6 @@ int cpu_ppc_signal_handler (int host_signum, void *pinfo,
 int cpu_ppc_handle_mmu_fault (CPUPPCState *env, target_ulong address, int rw,
                               int mmu_idx);
 #define cpu_handle_mmu_fault cpu_ppc_handle_mmu_fault
-void do_interrupt (CPUPPCState *env);
 void ppc_hw_interrupt (CPUPPCState *env);
 
 #if !defined(CONFIG_USER_ONLY)
@@ -1268,9 +1256,9 @@ static inline void cpu_clone_regs(CPUPPCState *env, target_ulong newsp)
 #define XER_CA  29
 #define XER_CMP  8
 #define XER_BC   0
-#define xer_so  ((env->xer >> XER_SO)  &    1)
-#define xer_ov  ((env->xer >> XER_OV)  &    1)
-#define xer_ca  ((env->xer >> XER_CA)  &    1)
+#define xer_so  (env->so)
+#define xer_ov  (env->ov)
+#define xer_ca  (env->ca)
 #define xer_cmp ((env->xer >> XER_CMP) & 0xFF)
 #define xer_bc  ((env->xer >> XER_BC)  & 0x7F)
 
@@ -2087,6 +2075,19 @@ enum {
 
 /*****************************************************************************/
 
+static inline target_ulong cpu_read_xer(CPUPPCState *env)
+{
+    return env->xer | (env->so << XER_SO) | (env->ov << XER_OV) | (env->ca << XER_CA);
+}
+
+static inline void cpu_write_xer(CPUPPCState *env, target_ulong xer)
+{
+    env->so = (xer >> XER_SO) & 1;
+    env->ov = (xer >> XER_OV) & 1;
+    env->ca = (xer >> XER_CA) & 1;
+    env->xer = xer & ~((1u << XER_SO) | (1u << XER_OV) | (1u << XER_CA));
+}
+
 static inline void cpu_get_tb_cpu_state(CPUPPCState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
 {
@@ -2215,9 +2216,10 @@ extern void (*cpu_ppc_hypercall)(PowerPCCPU *);
 
 static inline bool cpu_has_work(CPUState *cpu)
 {
-    CPUPPCState *env = &POWERPC_CPU(cpu)->env;
+    PowerPCCPU *ppc_cpu = POWERPC_CPU(cpu);
+    CPUPPCState *env = &ppc_cpu->env;
 
-    return msr_ee && (env->interrupt_request & CPU_INTERRUPT_HARD);
+    return msr_ee && (cpu->interrupt_request & CPU_INTERRUPT_HARD);
 }
 
 #include "exec/exec-all.h"

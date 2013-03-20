@@ -74,5 +74,16 @@ static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
 
 #define ENV_GET_CPU(e) CPU(x86_env_get_cpu(e))
 
+#define ENV_OFFSET offsetof(X86CPU, env)
+
+#ifndef CONFIG_USER_ONLY
+extern const struct VMStateDescription vmstate_x86_cpu;
+#endif
+
+/**
+ * x86_cpu_do_interrupt:
+ * @cpu: vCPU the interrupt is to be handled by.
+ */
+void x86_cpu_do_interrupt(CPUState *cpu);
 
 #endif

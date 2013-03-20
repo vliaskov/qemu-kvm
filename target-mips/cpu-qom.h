@@ -72,5 +72,8 @@ static inline MIPSCPU *mips_env_get_cpu(CPUMIPSState *env)
 
 #define ENV_GET_CPU(e) CPU(mips_env_get_cpu(e))
 
+#define ENV_OFFSET offsetof(MIPSCPU, env)
+
+void mips_cpu_do_interrupt(CPUState *cpu);
 
 #endif
