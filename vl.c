@@ -642,7 +642,7 @@ void runstate_set(RunState new_state)
                 RunState_lookup[new_state]);
         abort();
     }
-
+    trace_runstate_set(new_state);
     current_run_state = new_state;
 }
 
@@ -660,6 +660,11 @@ StatusInfo *qmp_query_status(Error **errp)
     info->status = current_run_state;
 
     return info;
+}
+
+int64_t qmp_query_cpu_max(Error **errp)
+{
+    return current_machine->max_cpus;
 }
 
 /***********************************************************/
@@ -2936,6 +2941,8 @@ int main(int argc, char **argv, char **envp)
     nb_numa_nodes = 0;
     nb_nics = 0;
 
+    bdrv_init_with_whitelist();
+
     autostart= 1;
 
     /* first pass of option parsing */
@@ -4193,8 +4200,6 @@ int main(int argc, char **argv, char **envp)
     }
 
     cpu_exec_init_all();
-
-    bdrv_init_with_whitelist();
 
     blk_mig_init();
 

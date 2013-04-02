@@ -18,6 +18,10 @@
 #include "hw/virtio.h"
 #include "hw/pci/pci.h"
 
+#define TYPE_VIRTIO_BALLOON "virtio-balloon"
+#define VIRTIO_BALLOON(obj) \
+        OBJECT_CHECK(VirtIOBalloon, (obj), TYPE_VIRTIO_BALLOON)
+
 /* from Linux's linux/virtio_balloon.h */
 
 /* The ID for virtio_balloon */
@@ -53,7 +57,7 @@ typedef struct VirtIOBalloonStat {
 } QEMU_PACKED VirtIOBalloonStat;
 
 typedef struct VirtIOBalloon {
-    VirtIODevice vdev;
+    VirtIODevice parent_obj;
     VirtQueue *ivq, *dvq, *svq;
     uint32_t num_pages;
     uint32_t actual;
@@ -63,7 +67,6 @@ typedef struct VirtIOBalloon {
     QEMUTimer *stats_timer;
     int64_t stats_last_update;
     int64_t stats_poll_interval;
-    DeviceState *qdev;
 } VirtIOBalloon;
 
 #endif

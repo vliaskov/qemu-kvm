@@ -1123,7 +1123,7 @@ is a TCP port number, not a display number.
 @item websocket
 
 Opens an additional TCP listening port dedicated to VNC Websocket connections.
-By defintion the Websocket port is 5700+@var{display}. If @var{host} is
+By definition the Websocket port is 5700+@var{display}. If @var{host} is
 specified connections will only be allowed from this host.
 As an alternative the Websocket port could be specified by using
 @code{websocket}=@var{port}.
@@ -2241,7 +2241,8 @@ Backend type must be:
 @option{passthrough}.
 
 The specific backend type will determine the applicable options.
-The @code{-tpmdev} option requires a @code{-device} option.
+The @code{-tpmdev} option creates the TPM backend and requires a
+@code{-device} option that specifies the TPM frontend interface model.
 
 Options to each backend are described below.
 
