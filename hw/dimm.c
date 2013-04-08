@@ -223,6 +223,45 @@ static DimmDevice *dimm_find_from_idx(uint32_t idx)
     return NULL;
 }
 
+/* used to create a dimm device, only on incoming migration of a hotplugged
+ * RAMBlock
+ */
+int dimm_add(char *id)
+{
+    DimmConfig *slotcfg = NULL;
+    DimmBus *bus;
+    QemuOpts *devopts;
+    char buf[256];
+
+    if (!id) {
+        fprintf(stderr, "ERROR %s invalid id\n",__FUNCTION__);
+        return 1;
+    }
+
+    QLIST_FOREACH(bus, &memory_buses, next) {
+        slotcfg = dimmcfg_find_from_name(bus, id);
+        if (slotcfg) {
+            break;
+        }    
+    }
+
+    if (!slotcfg) {
+        fprintf(stderr, "%s no slot %s found\n", __FUNCTION__, id);
+        return 1;
+    }
+
+    devopts = qemu_opts_create(qemu_find_opts("device"), id, 0, NULL);
+    qemu_opt_set(devopts, "driver", "dimm");
+
+    snprintf(buf, sizeof(buf), "%lu", slotcfg->size);
+    qemu_opt_set(devopts, "size", buf);
+    snprintf(buf, sizeof(buf), "%u", slotcfg->node);
+    qemu_opt_set(devopts, "node", buf);
+    qdev_device_add(devopts);
+
+    return 0;
+}
+
 void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots)
 {
     DimmConfig *slot;

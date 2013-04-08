@@ -97,5 +97,6 @@ void dimm_config_create(char *id, uint64_t size, const char *bus, uint64_t node,
         uint32_t dimm_idx, uint32_t populated);
 uint64_t get_hp_memory_total(void);
 void dimm_notify(uint32_t idx, uint32_t event);
+int dimm_add(char *id);
 
 #endif
