@@ -51,6 +51,7 @@
 #include "exec/address-spaces.h"
 #include "sysemu/arch_init.h"
 #include "qemu/bitmap.h"
+#include "qemu/config-file.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -70,6 +71,8 @@
 #define FW_CFG_IRQ0_OVERRIDE (FW_CFG_ARCH_LOCAL + 2)
 #define FW_CFG_E820_TABLE (FW_CFG_ARCH_LOCAL + 3)
 #define FW_CFG_HPET (FW_CFG_ARCH_LOCAL + 4)
+
+#define IO_APIC_DEFAULT_ADDRESS 0xfec00000
 
 #define E820_NR_ENTRIES		16
 
@@ -888,7 +891,7 @@ void pc_cpus_init(const char *cpu_model)
 
 void pc_acpi_init(const char *default_dsdt)
 {
-    char *filename = NULL, *arg = NULL;
+    char *filename;
 
     if (acpi_tables != NULL) {
         /* manually set via -acpitable, leave it alone */
@@ -898,15 +901,26 @@ void pc_acpi_init(const char *default_dsdt)
     filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, default_dsdt);
     if (filename == NULL) {
         fprintf(stderr, "WARNING: failed to find %s\n", default_dsdt);
-        return;
-    }
+    } else {
+        char *arg;
+        QemuOpts *opts;
+        Error *err = NULL;
 
-    arg = g_strdup_printf("file=%s", filename);
-    if (acpi_table_add(arg) != 0) {
-        fprintf(stderr, "WARNING: failed to load %s\n", filename);
+        arg = g_strdup_printf("file=%s", filename);
+
+        /* creates a deep copy of "arg" */
+        opts = qemu_opts_parse(qemu_find_opts("acpi"), arg, 0);
+        g_assert(opts != NULL);
+
+        acpi_table_add(opts, &err);
+        if (err) {
+            fprintf(stderr, "WARNING: failed to load %s: %s\n", filename,
+                    error_get_pretty(err));
+            error_free(err);
+        }
+        g_free(arg);
+        g_free(filename);
     }
-    g_free(arg);
-    g_free(filename);
 }
 
 void *pc_memory_init(MemoryRegion *system_memory,
@@ -1158,7 +1172,7 @@ void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name)
     }
     qdev_init_nofail(dev);
     d = SYS_BUS_DEVICE(dev);
-    sysbus_mmio_map(d, 0, 0xfec00000);
+    sysbus_mmio_map(d, 0, IO_APIC_DEFAULT_ADDRESS);
 
     for (i = 0; i < IOAPIC_NUM_PINS; i++) {
         gsi_state->ioapic_irq[i] = qdev_get_gpio_in(dev, i);
