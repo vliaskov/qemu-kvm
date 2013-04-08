@@ -111,6 +111,15 @@ static void memhp_writeb(void *opaque, uint32_t addr, uint32_t val)
     case ICH9_MEM_EJ_BASE - ICH9_MEM_BASE:
         dimm_notify(val, DIMM_REMOVE_SUCCESS);
         break;
+    case ICH9_MEM_OST_REMOVE_FAIL - ICH9_MEM_BASE:
+        dimm_notify(val, DIMM_REMOVE_FAIL);
+        break;
+    case ICH9_MEM_OST_ADD_SUCCESS - ICH9_MEM_BASE:
+        dimm_notify(val, DIMM_ADD_SUCCESS);
+        break;
+    case ICH9_MEM_OST_ADD_FAIL - ICH9_MEM_BASE:
+        dimm_notify(val, DIMM_ADD_FAIL);
+        break;
     default:
         ICH9_DEBUG("memhp write invalid %x <== %d\n", addr, val);
     }
@@ -125,7 +134,7 @@ static const MemoryRegionOps ich9_memhp_ops = {
         },
         {
             .offset = ICH9_MEM_EJ_BASE - ICH9_MEM_BASE,
-            .len = 1, .size = 1,
+            .len = 4, .size = 1,
             .write = memhp_writeb,
         },
         PORTIO_END_OF_LIST()
@@ -274,6 +283,22 @@ static int ich9_dimm_hotplug(DeviceState *qdev, DimmDevice *dev, int
     return 0;
 }
 
+static int ich9_dimm_revert(DeviceState *qdev, DimmDevice *dev, int add)
+{
+    PCIDevice *pci_dev = DO_UPCAST(PCIDevice, qdev, qdev);
+    ICH9LPCState *s = DO_UPCAST(ICH9LPCState, d, pci_dev);
+    struct gpe_regs *g = &s->pm.gperegs;
+    DimmDevice *slot = DIMM(dev);
+    int idx = slot->idx;
+
+    if (add) {
+        g->mems_sts[idx/8] &= ~(1 << (idx%8));
+    } else {
+        g->mems_sts[idx/8] |= (1 << (idx%8));
+    }
+    return 0;
+}
+
 void ich9_pm_init(void *device, qemu_irq sci_irq, qemu_irq cmos_s3)
 {
     ICH9LPCState *lpc = (ICH9LPCState *)device;
@@ -296,10 +321,10 @@ void ich9_pm_init(void *device, qemu_irq sci_irq, qemu_irq cmos_s3)
     memory_region_add_subregion(&pm->io, ICH9_PMIO_SMI_EN, &pm->io_smi);
 
     memory_region_init_io(&pm->io_memhp, &ich9_memhp_ops, pm, "apci-memhp0",
-                          DIMM_BITMAP_BYTES + 1);
+                          DIMM_BITMAP_BYTES + 4);
     memory_region_add_subregion(get_system_io(), ICH9_MEM_BASE, &pm->io_memhp);
 
-    dimm_bus_hotplug(ich9_dimm_hotplug, &lpc->d.qdev);
+    dimm_bus_hotplug(ich9_dimm_hotplug, ich9_dimm_revert, &lpc->d.qdev);
 
     pm->irq = sci_irq;
     qemu_register_reset(pm_reset, pm);
