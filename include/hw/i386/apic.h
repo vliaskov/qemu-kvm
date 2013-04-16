@@ -26,6 +26,8 @@ void apic_designate_bsp(DeviceState *d);
 /* pc.c */
 DeviceState *cpu_get_current_apic(void);
 
+#define IO_APIC_DEFAULT_ADDRESS 0xfec00000
+
 /* cpu.c */
 bool cpu_is_bsp(X86CPU *cpu);
 
