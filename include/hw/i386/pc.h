@@ -8,6 +8,7 @@
 #include "hw/block/fdc.h"
 #include "net/net.h"
 #include "hw/i386/ioapic.h"
+#include "hw/nvram/fw_cfg.h"
 
 #include "qemu/range.h"
 
@@ -108,6 +109,7 @@ FWCfgState *pc_memory_init(MemoryRegion *system_memory,
                            MemoryRegion *rom_memory,
                            MemoryRegion **ram_memory,
                            PcGuestInfo *guest_info);
+
 qemu_irq *pc_allocate_cpu_irq(void);
 DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus);
 void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,

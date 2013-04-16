@@ -93,11 +93,6 @@ static void pc_init1(MemoryRegion *system_memory,
     FWCfgState *fw_cfg = NULL;
     PcGuestInfo *guest_info;
 
-    if (xen_enabled() && xen_hvm_init() != 0) {
-        fprintf(stderr, "xen hardware virtual machine initialisation failed\n");
-        exit(1);
-    }
-
     icc_bridge = qdev_create(NULL, TYPE_ICC_BRIDGE);
     object_property_add_child(qdev_get_machine(), "icc-bridge",
                               OBJECT(icc_bridge), NULL);
