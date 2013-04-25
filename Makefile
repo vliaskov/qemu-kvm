@@ -19,6 +19,12 @@ seems to have been used for an in-tree build. You can fix this by running \
 endif
 endif
 
+CONFIG_SOFTMMU := $(if $(filter %-softmmu,$(TARGET_DIRS)),y)
+CONFIG_USER_ONLY := $(if $(filter %-user,$(TARGET_DIRS)),y)
+CONFIG_ALL=y
+-include config-all-devices.mak
+-include config-all-disas.mak
+
 include $(SRC_PATH)/rules.mak
 config-host.mak: $(SRC_PATH)/configure
 	@echo $@ is out-of-date, running configure
@@ -76,7 +82,10 @@ config-all-devices.mak:
 	$(call quiet-command,echo '# no devices' > $@,"  GEN   $@")
 else
 config-all-devices.mak: $(SUBDIR_DEVICES_MAK)
-	$(call quiet-command,cat $(SUBDIR_DEVICES_MAK) | grep =y | sort -u > $@,"  GEN   $@")
+	$(call quiet-command, sed -n \
+             's|^\([^=]*\)=\(.*\)$$|\1:=$$(findstring y,$$(\1)\2)|p' \
+             $(SUBDIR_DEVICES_MAK) | sort -u > $@, \
+             "  GEN   $@")
 endif
 
 -include $(SUBDIR_DEVICES_MAK_DEP)
@@ -103,12 +112,6 @@ endif
 
 defconfig:
 	rm -f config-all-devices.mak $(SUBDIR_DEVICES_MAK)
-
--include config-all-devices.mak
--include config-all-disas.mak
-CONFIG_SOFTMMU := $(if $(filter %-softmmu,$(TARGET_DIRS)),y)
-CONFIG_USER_ONLY := $(if $(filter %-user,$(TARGET_DIRS)),y)
-CONFIG_ALL=y
 
 ifneq ($(wildcard config-host.mak),)
 include $(SRC_PATH)/Makefile.objs
@@ -142,6 +145,15 @@ pixman/Makefile: $(SRC_PATH)/pixman/configure
 $(SRC_PATH)/pixman/configure:
 	(cd $(SRC_PATH)/pixman; autoreconf -v --install)
 
+DTC_MAKE_ARGS=-I$(SRC_PATH)/dtc VPATH=$(SRC_PATH)/dtc -C dtc V="$(V)" LIBFDT_srcdir=$(SRC_PATH)/dtc/libfdt
+DTC_CFLAGS=$(CFLAGS) $(extra_cflags) -I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
+
+subdir-dtc:dtc/libfdt dtc/tests
+	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CPPFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt,)
+
+dtc/%:
+	mkdir -p $@
+
 $(SUBDIR_RULES): libqemuutil.a libqemustub.a $(common-obj-y)
 
 ROMSUBDIR_RULES=$(patsubst %,romsubdir-%, $(ROMS))
@@ -154,11 +166,15 @@ recurse-all: $(SUBDIR_RULES) $(ROMSUBDIR_RULES)
 
 bt-host.o: QEMU_CFLAGS += $(BLUEZ_CFLAGS)
 
-version.o: $(SRC_PATH)/version.rc config-host.h
+version.o: $(SRC_PATH)/version.rc config-host.h | version.lo
 	$(call quiet-command,$(WINDRES) -I. -o $@ $<,"  RC    $(TARGET_DIR)$@")
+version.lo: $(SRC_PATH)/version.rc config-host.h
+	$(call quiet-command,$(LIBTOOL) --mode=compile --tag=RC $(WINDRES) -I. -o $@ $<,"lt RC   $(TARGET_DIR)$@")
 
 version-obj-$(CONFIG_WIN32) += version.o
-Makefile: $(version-obj-y)
+version-lobj-$(CONFIG_WIN32) += $(if $(LIBTOOL),version.lo)
+Makefile: $(version-obj-y) $(version-lobj-y)
+
 
 ######################################################################
 # Build libraries
@@ -259,6 +275,7 @@ distclean: clean
 	rm -rf $$d || exit 1 ; \
         done
 	if test -f pixman/config.log; then make -C pixman distclean; fi
+	if test -f dtc/version_gen.h; then make $(DTC_MAKE_ARGS) clean; fi
 
 KEYMAPS=da     en-gb  et  fr     fr-ch  is  lt  modifiers  no  pt-br  sv \
 ar      de     en-us  fi  fr-be  hr     it  lv  nl         pl  ru     th \
@@ -272,6 +289,8 @@ acpi-dsdt.aml q35-acpi-dsdt.aml \
 ppc_rom.bin openbios-sparc32 openbios-sparc64 openbios-ppc \
 pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
 pxe-pcnet.rom pxe-rtl8139.rom pxe-virtio.rom \
+efi-e1000.rom efi-eepro100.rom efi-ne2k_pci.rom \
+efi-pcnet.rom efi-rtl8139.rom efi-virtio.rom \
 qemu-icon.bmp \
 bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
 multiboot.bin linuxboot.bin kvmvapic.bin \

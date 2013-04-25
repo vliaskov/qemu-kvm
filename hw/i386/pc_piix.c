@@ -25,8 +25,8 @@
 #include <glib.h>
 
 #include "hw/hw.h"
-#include "hw/pc.h"
-#include "hw/apic.h"
+#include "hw/i386/pc.h"
+#include "hw/i386/apic.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_ids.h"
 #include "hw/usb.h"
@@ -39,10 +39,11 @@
 #include "hw/sysbus.h"
 #include "sysemu/arch_init.h"
 #include "sysemu/blockdev.h"
-#include "hw/smbus.h"
-#include "hw/xen.h"
+#include "hw/i2c/smbus.h"
+#include "hw/xen/xen.h"
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
+#include "hw/acpi/acpi.h"
 #include "cpu.h"
 #ifdef CONFIG_XEN
 #  include <xen/hvm/hvm_info_table.h>
@@ -234,17 +235,34 @@ static void pc_init_pci(QEMUMachineInitArgs *args)
              initrd_filename, cpu_model, 1, 1);
 }
 
-static void pc_init_pci_1_3(QEMUMachineInitArgs *args)
+static void pc_init_pci_1_4(QEMUMachineInitArgs *args)
 {
-    enable_compat_apic_id_mode();
+    pc_sysfw_flash_vs_rom_bug_compatible = true;
     pc_init_pci(args);
 }
 
-/* PC machine init function for pc-0.14 to pc-1.2 */
+static void pc_init_pci_1_3(QEMUMachineInitArgs *args)
+{
+    enable_compat_apic_id_mode();
+    pc_sysfw_flash_vs_rom_bug_compatible = true;
+    pc_init_pci(args);
+}
+
+/* PC machine init function for pc-1.1 to pc-1.2 */
 static void pc_init_pci_1_2(QEMUMachineInitArgs *args)
 {
     disable_kvm_pv_eoi();
-    pc_init_pci_1_3(args);
+    enable_compat_apic_id_mode();
+    pc_sysfw_flash_vs_rom_bug_compatible = true;
+    pc_init_pci(args);
+}
+
+/* PC machine init function for pc-0.14 to pc-1.0 */
+static void pc_init_pci_1_0(QEMUMachineInitArgs *args)
+{
+    disable_kvm_pv_eoi();
+    enable_compat_apic_id_mode();
+    pc_init_pci(args);
 }
 
 /* PC init function for pc-0.10 to pc-0.13, and reused by xenfv */
@@ -308,7 +326,7 @@ static QEMUMachine pc_i440fx_machine_v1_5 = {
 static QEMUMachine pc_i440fx_machine_v1_4 = {
     .name = "pc-i440fx-1.4",
     .desc = "Standard PC (i440FX + PIIX, 1996)",
-    .init = pc_init_pci,
+    .init = pc_init_pci_1_4,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         PC_COMPAT_1_4,
@@ -460,7 +478,7 @@ static QEMUMachine pc_machine_v1_1 = {
 static QEMUMachine pc_machine_v1_0 = {
     .name = "pc-1.0",
     .desc = "Standard PC",
-    .init = pc_init_pci_1_2,
+    .init = pc_init_pci_1_0,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         PC_COMPAT_1_0,
@@ -476,7 +494,7 @@ static QEMUMachine pc_machine_v1_0 = {
 static QEMUMachine pc_machine_v0_15 = {
     .name = "pc-0.15",
     .desc = "Standard PC",
-    .init = pc_init_pci_1_2,
+    .init = pc_init_pci_1_0,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         PC_COMPAT_0_15,
@@ -509,7 +527,7 @@ static QEMUMachine pc_machine_v0_15 = {
 static QEMUMachine pc_machine_v0_14 = {
     .name = "pc-0.14",
     .desc = "Standard PC",
-    .init = pc_init_pci_1_2,
+    .init = pc_init_pci_1_0,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         PC_COMPAT_0_14, 

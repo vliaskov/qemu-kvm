@@ -22,10 +22,10 @@
  * THE SOFTWARE.
  */
 #include "hw/hw.h"
-#include "hw/ppc.h"
-#include "hw/ppc405.h"
-#include "hw/nvram.h"
-#include "hw/flash.h"
+#include "hw/ppc/ppc.h"
+#include "ppc405.h"
+#include "hw/timer/m48t59.h"
+#include "hw/block/flash.h"
 #include "sysemu/sysemu.h"
 #include "block/block.h"
 #include "hw/boards.h"
@@ -337,7 +337,7 @@ static void ref405ep_init(QEMUMachineInitArgs *args)
         if (kernel_cmdline != NULL) {
             len = strlen(kernel_cmdline);
             bdloc -= ((len + 255) & ~255);
-            cpu_physical_memory_write(bdloc, (void *)kernel_cmdline, len + 1);
+            cpu_physical_memory_write(bdloc, kernel_cmdline, len + 1);
             env->gpr[6] = bdloc;
             env->gpr[7] = bdloc + len;
         } else {

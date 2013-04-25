@@ -29,32 +29,21 @@
  */
 #include "hw/hw.h"
 #include "sysemu/arch_init.h"
-#include "hw/smbus.h"
+#include "hw/i2c/smbus.h"
 #include "hw/boards.h"
-#include "hw/mc146818rtc.h"
-#include "hw/xen.h"
+#include "hw/timer/mc146818rtc.h"
+#include "hw/xen/xen.h"
 #include "sysemu/kvm.h"
 #include "hw/kvm/clock.h"
-#include "hw/q35.h"
+#include "hw/pci-host/q35.h"
 #include "exec/address-spaces.h"
-#include "hw/ich9.h"
+#include "hw/i386/ich9.h"
 #include "hw/ide/pci.h"
 #include "hw/ide/ahci.h"
 #include "hw/usb.h"
 
 /* ICH9 AHCI has 6 ports */
 #define MAX_SATA_PORTS     6
-
-/* set CMOS shutdown status register (index 0xF) as S3_resume(0xFE)
- *    BIOS will read it and start S3 resume at POST Entry */
-static void pc_cmos_set_s3_resume(void *opaque, int irq, int level)
-{
-    ISADevice *s = opaque;
-
-    if (level) {
-        rtc_set_memory(s, 0xF, 0xFE);
-    }
-}
 
 /* PC hardware initialisation */
 static void pc_q35_init(QEMUMachineInitArgs *args)
@@ -84,7 +73,6 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     int i;
     ICH9LPCState *ich9_lpc;
     PCIDevice *ahci;
-    qemu_irq *cmos_s3;
 
     pc_cpus_init(cpu_model);
     pc_acpi_init("q35-acpi-dsdt.aml");
@@ -175,8 +163,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, false);
 
     /* connect pm stuff to lpc */
-    cmos_s3 = qemu_allocate_irqs(pc_cmos_set_s3_resume, rtc_state, 1);
-    ich9_lpc_pm_init(lpc, *cmos_s3);
+    ich9_lpc_pm_init(lpc);
 
     /* ahci and SATA device, for q35 1 ahci controller is built-in */
     ahci = pci_create_simple_multifunction(host_bus,
@@ -209,6 +196,12 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     }
 }
 
+static void pc_q35_init_1_4(QEMUMachineInitArgs *args)
+{
+    pc_sysfw_flash_vs_rom_bug_compatible = true;
+    pc_q35_init(args);
+}
+
 static QEMUMachine pc_q35_machine_v1_5 = {
     .name = "pc-q35-1.5",
     .alias = "q35",
@@ -221,7 +214,7 @@ static QEMUMachine pc_q35_machine_v1_5 = {
 static QEMUMachine pc_q35_machine_v1_4 = {
     .name = "pc-q35-1.4",
     .desc = "Standard PC (Q35 + ICH9, 2009)",
-    .init = pc_q35_init,
+    .init = pc_q35_init_1_4,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         PC_COMPAT_1_4,

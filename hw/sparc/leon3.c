@@ -24,7 +24,7 @@
 #include "hw/hw.h"
 #include "qemu/timer.h"
 #include "hw/ptimer.h"
-#include "char/char.h"
+#include "sysemu/char.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
 #include "hw/loader.h"
@@ -32,7 +32,7 @@
 #include "trace.h"
 #include "exec/address-spaces.h"
 
-#include "hw/grlib.h"
+#include "hw/sparc/grlib.h"
 
 /* Default system clock.  */
 #define CPU_CLK (40 * 1000 * 1000)

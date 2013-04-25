@@ -442,6 +442,9 @@ int64_t pow2floor(int64_t value);
 int uleb128_encode_small(uint8_t *out, uint32_t n);
 int uleb128_decode_small(const uint8_t *in, uint32_t *n);
 
+/* unicode.c */
+int mod_utf8_codepoint(const char *s, size_t n, char **end);
+
 /*
  * Hexdump a buffer to a file. An optional string prefix is added to every line
  */
@@ -478,5 +481,10 @@ can_use_buffer_find_nonzero_offset(const void *buf, size_t len)
             && ((uintptr_t) buf) % sizeof(VECTYPE) == 0);
 }
 size_t buffer_find_nonzero_offset(const void *buf, size_t len);
+
+/*
+ * helper to parse debug environment variables
+ */
+int parse_debug_env(const char *name, int max, int initial);
 
 #endif

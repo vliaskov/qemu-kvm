@@ -24,8 +24,8 @@
 
 #include "hw/sysbus.h"
 #include "hw/hw.h"
-#include "hw/serial.h"
-#include "hw/flash.h"
+#include "hw/char/serial.h"
+#include "hw/block/flash.h"
 #include "sysemu/sysemu.h"
 #include "hw/devices.h"
 #include "hw/boards.h"
@@ -35,9 +35,9 @@
 #include "qemu/log.h"
 #include "exec/address-spaces.h"
 
-#include "hw/ppc.h"
-#include "hw/ppc4xx.h"
-#include "hw/ppc405.h"
+#include "hw/ppc/ppc.h"
+#include "hw/ppc/ppc4xx.h"
+#include "ppc405.h"
 
 #include "sysemu/blockdev.h"
 #include "hw/xilinx.h"
@@ -161,7 +161,7 @@ static int xilinx_load_device_tree(hwaddr addr,
     r = qemu_devtree_setprop_string(fdt, "/chosen", "bootargs", kernel_cmdline);
     if (r < 0)
         fprintf(stderr, "couldn't set /chosen/bootargs\n");
-    cpu_physical_memory_write (addr, (void *)fdt, fdt_size);
+    cpu_physical_memory_write(addr, fdt, fdt_size);
 #else
     /* We lack libfdt so we cannot manipulate the fdt. Just pass on the blob
        to the kernel.  */
