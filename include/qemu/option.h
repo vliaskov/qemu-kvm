@@ -77,6 +77,8 @@ QEMUOptionParameter *parse_option_parameters(const char *param,
     QEMUOptionParameter *list, QEMUOptionParameter *dest);
 void parse_option_size(const char *name, const char *value,
                               uint64_t *ret, Error **errp);
+void parse_option_number(const char *name, const char *value,
+                                uint64_t *ret, Error **errp);
 void free_option_parameters(QEMUOptionParameter *list);
 void print_option_parameters(QEMUOptionParameter *list);
 void print_option_help(QEMUOptionParameter *list);
