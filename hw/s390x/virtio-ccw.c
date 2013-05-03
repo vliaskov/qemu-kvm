@@ -742,10 +742,16 @@ static void virtio_ccw_notify(DeviceState *d, uint16_t vector)
     }
 
     if (vector < VIRTIO_PCI_QUEUE_MAX) {
+        if (!dev->indicators) {
+            return;
+        }
         indicators = ldq_phys(dev->indicators);
         indicators |= 1ULL << vector;
         stq_phys(dev->indicators, indicators);
     } else {
+        if (!dev->indicators2) {
+            return;
+        }
         vector = 0;
         indicators = ldq_phys(dev->indicators2);
         indicators |= 1ULL << vector;
@@ -1089,7 +1095,9 @@ static void virtio_ccw_register(void)
     type_register_static(&virtio_ccw_net);
     type_register_static(&virtio_ccw_balloon);
     type_register_static(&virtio_ccw_scsi);
+#ifdef CONFIG_VHOST_SCSI
     type_register_static(&vhost_ccw_scsi);
+#endif
     type_register_static(&virtio_ccw_rng);
     type_register_static(&virtual_css_bridge_info);
 }

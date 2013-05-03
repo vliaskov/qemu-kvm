@@ -2,6 +2,7 @@
 #define CONSOLE_H
 
 #include "ui/qemu-pixman.h"
+#include "qom/object.h"
 #include "qapi/qmp/qdict.h"
 #include "qemu/notify.h"
 #include "monitor/monitor.h"
@@ -92,6 +93,20 @@ void do_mouse_set(Monitor *mon, const QDict *qdict);
 void kbd_put_keysym(int keysym);
 
 /* consoles */
+
+#define TYPE_QEMU_CONSOLE "qemu-console"
+#define QEMU_CONSOLE(obj) \
+    OBJECT_CHECK(QemuConsole, (obj), TYPE_QEMU_CONSOLE)
+#define QEMU_CONSOLE_GET_CLASS(obj) \
+    OBJECT_GET_CLASS(QemuConsoleClass, (obj), TYPE_QEMU_CONSOLE)
+#define QEMU_CONSOLE_CLASS(klass) \
+    OBJECT_CLASS_CHECK(QemuConsoleClass, (klass), TYPE_QEMU_CONSOLE)
+
+typedef struct QemuConsoleClass QemuConsoleClass;
+
+struct QemuConsoleClass {
+    ObjectClass parent_class;
+};
 
 #define QEMU_BIG_ENDIAN_FLAG    0x01
 #define QEMU_ALLOCATED_FLAG     0x02
@@ -193,8 +208,7 @@ static inline int is_buffer_shared(DisplaySurface *surface)
     return !(surface->flags & QEMU_ALLOCATED_FLAG);
 }
 
-void register_displaychangelistener(DisplayState *ds,
-                                    DisplayChangeListener *dcl);
+void register_displaychangelistener(DisplayChangeListener *dcl);
 void update_displaychangelistener(DisplayChangeListener *dcl,
                                   uint64_t interval);
 void unregister_displaychangelistener(DisplayChangeListener *dcl);
@@ -263,7 +277,8 @@ typedef struct GraphicHwOps {
     void (*update_interval)(void *opaque, uint64_t interval);
 } GraphicHwOps;
 
-QemuConsole *graphic_console_init(const GraphicHwOps *ops,
+QemuConsole *graphic_console_init(DeviceState *dev,
+                                  const GraphicHwOps *ops,
                                   void *opaque);
 
 void graphic_hw_update(QemuConsole *con);
@@ -271,6 +286,7 @@ void graphic_hw_invalidate(QemuConsole *con);
 void graphic_hw_text_update(QemuConsole *con, console_ch_t *chardata);
 
 QemuConsole *qemu_console_lookup_by_index(unsigned int index);
+QemuConsole *qemu_console_lookup_by_device(DeviceState *dev);
 bool qemu_console_is_visible(QemuConsole *con);
 bool qemu_console_is_graphic(QemuConsole *con);
 bool qemu_console_is_fixedsize(QemuConsole *con);

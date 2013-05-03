@@ -146,10 +146,10 @@ $(SRC_PATH)/pixman/configure:
 	(cd $(SRC_PATH)/pixman; autoreconf -v --install)
 
 DTC_MAKE_ARGS=-I$(SRC_PATH)/dtc VPATH=$(SRC_PATH)/dtc -C dtc V="$(V)" LIBFDT_srcdir=$(SRC_PATH)/dtc/libfdt
-DTC_CFLAGS=$(CFLAGS) $(extra_cflags) -I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
+DTC_CFLAGS=$(CFLAGS) $(QEMU_CFLAGS) -I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
 
 subdir-dtc:dtc/libfdt dtc/tests
-	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CPPFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt,)
+	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt/libfdt.a,)
 
 dtc/%:
 	mkdir -p $@
@@ -167,13 +167,10 @@ recurse-all: $(SUBDIR_RULES) $(ROMSUBDIR_RULES)
 bt-host.o: QEMU_CFLAGS += $(BLUEZ_CFLAGS)
 
 version.o: $(SRC_PATH)/version.rc config-host.h | version.lo
-	$(call quiet-command,$(WINDRES) -I. -o $@ $<,"  RC    $(TARGET_DIR)$@")
 version.lo: $(SRC_PATH)/version.rc config-host.h
-	$(call quiet-command,$(LIBTOOL) --mode=compile --tag=RC $(WINDRES) -I. -o $@ $<,"lt RC   $(TARGET_DIR)$@")
 
 version-obj-$(CONFIG_WIN32) += version.o
-version-lobj-$(CONFIG_WIN32) += $(if $(LIBTOOL),version.lo)
-Makefile: $(version-obj-y) $(version-lobj-y)
+version-lobj-$(CONFIG_WIN32) += version.lo
 
 
 ######################################################################
@@ -295,6 +292,7 @@ qemu-icon.bmp \
 bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
 multiboot.bin linuxboot.bin kvmvapic.bin \
 s390-zipl.rom \
+s390-ccw.img \
 spapr-rtas.bin slof.bin \
 palcode-clipper
 else
