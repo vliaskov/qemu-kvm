@@ -260,6 +260,7 @@ static int mch_init(PCIDevice *d)
      */
     mch->guest_info->pci_info.w32.begin = MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT +
         MCH_HOST_BRIDGE_PCIEXBAR_MAX;
+    mch->guest_info->mcfg_base = MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT;
 
     /* setup pci memory regions */
     memory_region_init_alias(&mch->pci_hole, "pci-hole",

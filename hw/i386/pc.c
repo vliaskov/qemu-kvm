@@ -1012,6 +1012,27 @@ static void pc_fw_cfg_guest_info(PcGuestInfo *guest_info)
     fw_cfg_add_file(guest_info->fw_cfg, "etc/pci-info", info, sizeof *info);
 }
 
+static void pc_set_cpu_guest_info(CPUState *cpu, void *arg)
+{
+    PcGuestInfo *guest_info = arg;
+    CPUClass *klass = CPU_GET_CLASS(cpu);
+    uint64_t apic_id = klass->get_arch_id(cpu);
+    int j;
+
+    assert(apic_id <= MAX_CPUMASK_BITS);
+    assert(apic_id < guest_info->apic_id_limit);
+
+    set_bit(apic_id, guest_info->found_cpus);
+
+    for (j = 0; j < guest_info->numa_nodes; j++) {
+        assert(cpu->cpu_index < max_cpus);
+        if (test_bit(cpu->cpu_index, node_cpumask[j])) {
+            guest_info->node_cpu[apic_id] = cpu_to_le64(j);
+            break;
+        }
+    }
+}
+
 typedef struct PcGuestInfoState {
     PcGuestInfo info;
     Notifier machine_done;
@@ -1031,6 +1052,18 @@ PcGuestInfo *pc_guest_info_init(ram_addr_t below_4g_mem_size,
 {
     PcGuestInfoState *guest_info_state = g_malloc0(sizeof *guest_info_state);
     PcGuestInfo *guest_info = &guest_info_state->info;
+
+    guest_info->ram_size = below_4g_mem_size + above_4g_mem_size;
+    guest_info->apic_id_limit = pc_apic_id_limit(max_cpus);
+    guest_info->apic_xrupt_override = kvm_allows_irq0_override();
+    guest_info->numa_nodes = nb_numa_nodes;
+    guest_info->node_mem = g_memdup(node_mem, guest_info->numa_nodes *
+                                    sizeof *guest_info->node_mem);
+    guest_info->node_cpu = g_malloc0(guest_info->apic_id_limit *
+                                     sizeof *guest_info->node_mem);
+
+    memset(&guest_info->found_cpus, 0, sizeof guest_info->found_cpus);
+    qemu_for_each_cpu(pc_set_cpu_guest_info, guest_info);
 
     guest_info->pci_info.w32.end = IO_APIC_DEFAULT_ADDRESS;
     if (sizeof(hwaddr) == 4) {
@@ -1204,7 +1237,8 @@ static const MemoryRegionOps ioportF0_io_ops = {
 void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
                           ISADevice **rtc_state,
                           ISADevice **floppy,
-                          bool no_vmport)
+                          bool no_vmport,
+                          PcGuestInfo *guest_info)
 {
     int i;
     DriveInfo *fd[MAX_FD];
@@ -1230,7 +1264,10 @@ void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
      * Without KVM_CAP_PIT_STATE2, we cannot switch off the in-kernel PIT
      * when the HPET wants to take over. Thus we have to disable the latter.
      */
-    if (!no_hpet && (!kvm_irqchip_in_kernel() || kvm_has_pit_state2())) {
+    guest_info->has_hpet = !no_hpet &&
+        (!kvm_irqchip_in_kernel() || kvm_has_pit_state2());
+
+    if (guest_info->has_hpet) {
         hpet = sysbus_try_create_simple("hpet", HPET_BASE, NULL);
 
         if (hpet) {

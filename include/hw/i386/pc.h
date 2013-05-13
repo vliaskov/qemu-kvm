@@ -10,6 +10,9 @@
 #include "hw/i386/ioapic.h"
 
 #include "qemu/range.h"
+#include "qemu/bitmap.h"
+#include "sysemu/sysemu.h"
+#include "hw/pci/pci.h"
 
 /* PC-style peripherals (also used by other machines).  */
 
@@ -18,9 +21,34 @@ typedef struct PcPciInfo {
     Range w64;
 } PcPciInfo;
 
+/* Matches the value hard-coded in BIOS */
+#define PC_GUEST_PORT_ACPI_PM_BASE      0xb000
+
 struct PcGuestInfo {
     PcPciInfo pci_info;
     bool has_pci_info;
+    hwaddr ram_size;
+    unsigned apic_id_limit;
+    bool apic_xrupt_override;
+    bool has_hpet;
+    uint64_t numa_nodes;
+    uint64_t *node_mem;
+    uint64_t *node_cpu;
+    DECLARE_BITMAP(found_cpus, MAX_CPUMASK_BITS + 1);
+    bool s3_disabled;
+    bool s4_disabled;
+    uint8_t s4_val;
+    DECLARE_BITMAP(slot_hotplug_enable, PCI_SLOT_MAX);
+    uint16_t sci_int;
+    uint8_t acpi_enable_cmd;
+    uint8_t acpi_disable_cmd;
+    uint32_t gpe0_blk;
+    uint32_t gpe0_blk_len;
+    bool fix_rtc;
+    bool platform_timer;
+    uint64_t mcfg_base;
+    const unsigned char *dsdt_code;
+    unsigned dsdt_size;
     FWCfgState *fw_cfg;
 };
 
@@ -114,7 +142,8 @@ DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus);
 void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
                           ISADevice **rtc_state,
                           ISADevice **floppy,
-                          bool no_vmport);
+                          bool no_vmport,
+                          PcGuestInfo *guest_info);
 void pc_init_ne2k_isa(ISABus *bus, NICInfo *nd);
 void pc_cmos_init(ram_addr_t ram_size, ram_addr_t above_4g_mem_size,
                   const char *boot_device,
@@ -132,7 +161,8 @@ void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name);
 
 i2c_bus *piix4_pm_init(PCIBus *bus, int devfn, uint32_t smb_io_base,
                        qemu_irq sci_irq, qemu_irq smi_irq,
-                       int kvm_enabled, FWCfgState *fw_cfg);
+                       int kvm_enabled, FWCfgState *fw_cfg,
+                       PcGuestInfo *guest_info);
 void piix4_smbus_register_device(SMBusDevice *dev, uint8_t addr);
 
 /* hpet.c */

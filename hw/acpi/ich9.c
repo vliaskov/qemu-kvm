@@ -203,7 +203,7 @@ static void pm_powerdown_req(Notifier *n, void *opaque)
 }
 
 void ich9_pm_init(PCIDevice *lpc_pci, ICH9LPCPMRegs *pm,
-                  qemu_irq sci_irq)
+                  qemu_irq sci_irq, PcGuestInfo *guest_info)
 {
     memory_region_init(&pm->io, "ich9-pm", ICH9_PMIO_SIZE);
     memory_region_set_enabled(&pm->io, false);
@@ -218,6 +218,11 @@ void ich9_pm_init(PCIDevice *lpc_pci, ICH9LPCPMRegs *pm,
     memory_region_init_io(&pm->io_gpe, &ich9_gpe_ops, pm, "apci-gpe0",
                           ICH9_PMIO_GPE0_LEN);
     memory_region_add_subregion(&pm->io, ICH9_PMIO_GPE0_STS, &pm->io_gpe);
+
+    guest_info->gpe0_blk = PC_GUEST_PORT_ACPI_PM_BASE + ICH9_PMIO_GPE0_STS;
+    guest_info->gpe0_blk_len = ICH9_PMIO_GPE0_LEN;
+    guest_info->fix_rtc = true;
+    guest_info->platform_timer = false;
 
     memory_region_init_io(&pm->io_smi, &ich9_smi_ops, pm, "apci-smi",
                           8);

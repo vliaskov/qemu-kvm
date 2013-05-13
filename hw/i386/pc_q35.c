@@ -43,6 +43,8 @@
 #include "hw/usb.h"
 #include "hw/cpu/icc_bus.h"
 
+#include "hw/i386/q35-acpi-dsdt.hex"
+
 /* ICH9 AHCI has 6 ports */
 #define MAX_SATA_PORTS     6
 
@@ -109,6 +111,8 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
     guest_info->has_pci_info = has_pci_info;
+    guest_info->dsdt_code = Q35AcpiDsdtAmlCode;
+    guest_info->dsdt_size = sizeof Q35AcpiDsdtAmlCode;
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
@@ -175,10 +179,10 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     pc_register_ferr_irq(gsi[13]);
 
     /* init basic PC hardware */
-    pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, false);
+    pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, false, guest_info);
 
     /* connect pm stuff to lpc */
-    ich9_lpc_pm_init(lpc);
+    ich9_lpc_pm_init(lpc, guest_info);
 
     /* ahci and SATA device, for q35 1 ahci controller is built-in */
     ahci = pci_create_simple_multifunction(host_bus,

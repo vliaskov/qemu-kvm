@@ -94,6 +94,8 @@ typedef struct PIIX4PMState {
 
     CPUStatus gpe_cpu;
     Notifier cpu_added_notifier;
+
+    PcGuestInfo *guest_info;
 } PIIX4PMState;
 
 static void piix4_acpi_system_hot_add_init(MemoryRegion *parent,
@@ -380,6 +382,27 @@ static void piix4_pm_powerdown_req(Notifier *n, void *opaque)
     acpi_pm1_evt_power_down(&s->ar);
 }
 
+static void piix4_update_guest_info(PIIX4PMState *s)
+{
+    PCIDevice *dev = &s->dev;
+    BusState *bus = qdev_get_parent_bus(&dev->qdev);
+    BusChild *kid, *next;
+
+    memset(s->guest_info->slot_hotplug_enable, 0xff,
+           DIV_ROUND_UP(PCI_SLOT_MAX, BITS_PER_BYTE));
+
+    QTAILQ_FOREACH_SAFE(kid, &bus->children, sibling, next) {
+        DeviceState *qdev = kid->child;
+        PCIDevice *pdev = PCI_DEVICE(qdev);
+        PCIDeviceClass *pc = PCI_DEVICE_GET_CLASS(pdev);
+        int slot = PCI_SLOT(pdev->devfn);
+
+        if (pc->no_hotplug) {
+            clear_bit(slot, s->guest_info->slot_hotplug_enable);
+        }
+    }
+}
+
 static void piix4_pm_machine_ready(Notifier *n, void *opaque)
 {
     PIIX4PMState *s = container_of(n, PIIX4PMState, machine_ready);
@@ -391,6 +414,9 @@ static void piix4_pm_machine_ready(Notifier *n, void *opaque)
     pci_conf[0x67] = (isa_is_ioport_assigned(0x3f8) ? 0x08 : 0) |
 	(isa_is_ioport_assigned(0x2f8) ? 0x90 : 0);
 
+    if (s->guest_info) {
+        piix4_update_guest_info(s);
+    }
 }
 
 static int piix4_pm_initfn(PCIDevice *dev)
@@ -447,7 +473,8 @@ static int piix4_pm_initfn(PCIDevice *dev)
 
 i2c_bus *piix4_pm_init(PCIBus *bus, int devfn, uint32_t smb_io_base,
                        qemu_irq sci_irq, qemu_irq smi_irq,
-                       int kvm_enabled, FWCfgState *fw_cfg)
+                       int kvm_enabled, FWCfgState *fw_cfg,
+                       PcGuestInfo *guest_info)
 {
     PCIDevice *dev;
     PIIX4PMState *s;
@@ -468,6 +495,21 @@ i2c_bus *piix4_pm_init(PCIBus *bus, int devfn, uint32_t smb_io_base,
         suspend[4] = s->s4_val | ((!s->disable_s4) << 7);
 
         fw_cfg_add_file(fw_cfg, "etc/system-states", g_memdup(suspend, 6), 6);
+    }
+
+    if (guest_info) {
+        s->guest_info = guest_info;
+
+        guest_info->s3_disabled = s->disable_s3;
+        guest_info->s4_disabled = s->disable_s4;
+        guest_info->s4_val = s->s4_val;
+
+        guest_info->acpi_enable_cmd = ACPI_ENABLE;
+        guest_info->acpi_disable_cmd = ACPI_DISABLE;
+        guest_info->gpe0_blk = GPE_BASE;
+        guest_info->gpe0_blk_len = GPE_LEN;
+        guest_info->fix_rtc = false;
+        guest_info->platform_timer = true;
     }
 
     return s->smb.smbus;

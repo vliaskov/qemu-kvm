@@ -50,6 +50,8 @@
 #  include <xen/hvm/hvm_info_table.h>
 #endif
 
+#include "hw/i386/acpi-dsdt.hex"
+
 #define MAX_IDE_BUS 2
 
 static const int ide_iobase[MAX_IDE_BUS] = { 0x1f0, 0x170 };
@@ -122,6 +124,10 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
+
+    guest_info->dsdt_code = AcpiDsdtAmlCode;
+    guest_info->dsdt_size = sizeof AcpiDsdtAmlCode;
+
     guest_info->has_pci_info = has_pci_info;
 
     /* Set PCI window size the way seabios has always done it. */
@@ -190,7 +196,8 @@ static void pc_init1(MemoryRegion *system_memory,
     pc_vga_init(isa_bus, pci_enabled ? pci_bus : NULL);
 
     /* init basic PC hardware */
-    pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, xen_enabled());
+    pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, xen_enabled(),
+                         guest_info);
 
     pc_nic_init(isa_bus, pci_bus);
 
@@ -229,7 +236,9 @@ static void pc_init1(MemoryRegion *system_memory,
         /* TODO: Populate SPD eeprom data.  */
         smbus = piix4_pm_init(pci_bus, piix3_devfn + 3, 0xb100,
                               gsi[9], *smi_irq,
-                              kvm_enabled(), fw_cfg);
+                              kvm_enabled(), fw_cfg,
+                              guest_info);
+        guest_info->sci_int = 9;
         smbus_eeprom_init(smbus, 8, NULL, 0);
     }
 
