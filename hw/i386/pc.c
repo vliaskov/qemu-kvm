@@ -55,6 +55,7 @@
 #include "hw/acpi/acpi.h"
 #include "hw/cpu/icc_bus.h"
 #include "hw/boards.h"
+#include "hw/i386/acpi-build.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -1045,6 +1046,7 @@ void pc_guest_info_machine_done(Notifier *notifier, void *data)
                                                       PcGuestInfoState,
                                                       machine_done);
     pc_fw_cfg_guest_info(&guest_info_state->info);
+    acpi_setup(&guest_info_state->info);
 }
 
 PcGuestInfo *pc_guest_info_init(ram_addr_t below_4g_mem_size,
