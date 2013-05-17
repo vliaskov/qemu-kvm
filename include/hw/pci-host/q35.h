@@ -33,6 +33,7 @@
 #include "hw/acpi/acpi.h"
 #include "hw/acpi/ich9.h"
 #include "hw/pci-host/pam.h"
+#include "hw/mem-hotplug/dimm.h"
 
 #define TYPE_Q35_HOST_DEVICE "q35-pcihost"
 #define Q35_HOST_DEVICE(obj) \
@@ -55,6 +56,10 @@ typedef struct MCHPCIState {
     uint8_t smm_enabled;
     ram_addr_t below_4g_mem_size;
     ram_addr_t above_4g_mem_size;
+    /* GMCH allows for 2 DRAM channels x 4 DRAM ranks each */
+    DimmBus * dram_channel[2];
+    /* paravirtual memory bus */
+    DimmBus *pv_dram_channel;
 } MCHPCIState;
 
 typedef struct Q35PCIHost {
