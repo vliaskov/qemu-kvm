@@ -77,6 +77,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     ICH9LPCState *ich9_lpc;
     PCIDevice *ahci;
     DeviceState *icc_bridge;
+    void *fw_cfg = NULL;
 
     icc_bridge = qdev_create(NULL, TYPE_ICC_BRIDGE);
     object_property_add_child(qdev_get_machine(), "icc-bridge",
@@ -107,7 +108,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
-        pc_memory_init(get_system_memory(), kernel_filename, kernel_cmdline,
+        fw_cfg = pc_memory_init(get_system_memory(), kernel_filename, kernel_cmdline,
                        initrd_filename, below_4g_mem_size, above_4g_mem_size,
                        rom_memory, &ram_memory);
     }
@@ -133,6 +134,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     q35_host->mch.above_4g_mem_size = above_4g_mem_size;
     /* pci */
     qdev_init_nofail(DEVICE(q35_host));
+    bochs_srat_bios_init(fw_cfg);
     host_bus = q35_host->host.pci.bus;
     /* create ISA bus */
     lpc = pci_create_simple_multifunction(host_bus, PCI_DEVFN(ICH9_LPC_DEV,

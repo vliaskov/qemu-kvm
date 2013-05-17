@@ -1,0 +1,28 @@
+QEMU<->BIOS Paravirt Documentation
+--------------------------------------
+
+This document describes paravirt data structures passed from QEMU to BIOS.
+
+fw_cfg SRAT paravirt info
+--------------------
+The SRAT info passed from QEMU to BIOS has the following layout:
+
+-----------------------------------------------------------------------------------------------
+#nodes | cpu0_pxm | cpu1_pxm | ... | cpulast_pxm | node0_mem | node1_mem | ... | nodelast_mem
+
+-----------------------------------------------------------------------------------------------
+#dimms | dimm0_start | dimm0_sz | dimm0_pxm | ... | dimmlast_start | dimmlast_sz | dimmlast_pxm
+
+Entry 0 contains the number of numa nodes (nb_numa_nodes).
+
+Entries 1..max_cpus: The next max_cpus entries describe node proximity for each
+one of the vCPUs in the system.
+
+Entries max_cpus+1..max_cpus+nb_numa_nodes+1:  The next nb_numa_nodes entries
+describe the memory size for each one of the NUMA nodes in the system.
+
+Entry max_cpus+nb_numa_nodes+1 contains the number of memory dimms (nb_hp_dimms)
+
+The last 3 * nb_hp_dimms entries are organized in triplets: Each triplet contains
+the physical address offset, size (in bytes), and node proximity for the
+respective dimm.

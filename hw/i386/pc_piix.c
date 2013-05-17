@@ -151,6 +151,7 @@ static void pc_init1(MemoryRegion *system_memory,
         i440fx_host->mch.above_4g_mem_size = above_4g_mem_size;
 
         qdev_init_nofail(DEVICE(i440fx_host));
+        bochs_srat_bios_init(fw_cfg);
         i440fx_state = &i440fx_host->mch;
         phb = PCI_HOST_BRIDGE(i440fx_host);
         pci_bus = phb->bus;

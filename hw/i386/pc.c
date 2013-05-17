@@ -55,6 +55,7 @@
 #include "hw/acpi/acpi.h"
 #include "hw/cpu/icc_bus.h"
 #include "hw/boards.h"
+#include "hw/mem-hotplug/dimm.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -600,8 +601,6 @@ static void *bochs_bios_init(void)
     void *fw_cfg;
     uint8_t *smbios_table;
     size_t smbios_len;
-    uint64_t *numa_fw_cfg;
-    int i, j;
     unsigned int apic_id_limit = pc_apic_id_limit(max_cpus);
 
     fw_cfg = fw_cfg_init(BIOS_CFG_IOPORT, BIOS_CFG_IOPORT + 1, 0, 0);
@@ -634,11 +633,23 @@ static void *bochs_bios_init(void)
                      &e820_table, sizeof(e820_table));
 
     fw_cfg_add_bytes(fw_cfg, FW_CFG_HPET, &hpet_cfg, sizeof(hpet_cfg));
+
+    return fw_cfg;
+}
+
+void bochs_srat_bios_init(void *fw_cfg)
+{
+    uint64_t *numa_fw_cfg;
+    uint64_t *hp_dimms_fw_cfg;
+    int i, j;
+    unsigned int apic_id_limit = pc_apic_id_limit(max_cpus);
+
     /* allocate memory for the NUMA channel: one (64bit) word for the number
      * of nodes, one word for each VCPU->node and one word for each node to
      * hold the amount of memory.
      */
-    numa_fw_cfg = g_new0(uint64_t, 1 + apic_id_limit + nb_numa_nodes);
+    numa_fw_cfg = g_new0(uint64_t, 2 + apic_id_limit + nb_numa_nodes + 3 *
+            nb_hp_dimms);
     numa_fw_cfg[0] = cpu_to_le64(nb_numa_nodes);
     for (i = 0; i < max_cpus; i++) {
         unsigned int apic_id = x86_cpu_apic_id_from_index(i);
@@ -653,11 +664,17 @@ static void *bochs_bios_init(void)
     for (i = 0; i < nb_numa_nodes; i++) {
         numa_fw_cfg[apic_id_limit + 1 + i] = cpu_to_le64(node_mem[i]);
     }
-    fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, numa_fw_cfg,
-                     (1 + apic_id_limit + nb_numa_nodes) *
-                     sizeof(*numa_fw_cfg));
 
-    return fw_cfg;
+    numa_fw_cfg[1 + apic_id_limit + nb_numa_nodes] = cpu_to_le64(nb_hp_dimms);
+
+    hp_dimms_fw_cfg = numa_fw_cfg + 2 + max_cpus + nb_numa_nodes;
+    if (nb_hp_dimms) {
+        dimm_setup_fwcfg_layout(hp_dimms_fw_cfg);
+    }
+
+    fw_cfg_add_bytes(fw_cfg, FW_CFG_NUMA, numa_fw_cfg,
+                     (1 + apic_id_limit + nb_numa_nodes + 3 * nb_hp_dimms) *
+                     sizeof(*numa_fw_cfg));
 }
 
 static long get_file_size(FILE *f)
