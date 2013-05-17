@@ -49,6 +49,7 @@
 #ifdef CONFIG_XEN
 #  include <xen/hvm/hvm_info_table.h>
 #endif
+#include "hw/pci-host/piix_pci.h"
 
 #define MAX_IDE_BUS 2
 
@@ -90,6 +91,9 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *rom_memory;
     DeviceState *icc_bridge;
     void *fw_cfg = NULL;
+    I440FXState *i440fx_host;
+    PIIX3State *piix3;
+    PCIHostState *phb;
 
     icc_bridge = qdev_create(NULL, TYPE_ICC_BRIDGE);
     object_property_add_child(qdev_get_machine(), "icc-bridge",
@@ -137,15 +141,48 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     if (pci_enabled) {
-        pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, &isa_bus, gsi,
-                              system_memory, system_io, ram_size,
-                              below_4g_mem_size,
-                              0x100000000ULL - below_4g_mem_size,
-                              0x100000000ULL + above_4g_mem_size,
-                              (sizeof(hwaddr) == 4
-                               ? 0
-                               : ((uint64_t)1 << 62)),
-                              pci_memory, ram_memory);
+        i440fx_host = I440FX_HOST_DEVICE(qdev_create(NULL,
+                    TYPE_I440FX_HOST_DEVICE));
+        i440fx_host->mch.ram_memory = ram_memory;
+        i440fx_host->mch.pci_address_space = pci_memory;
+        i440fx_host->mch.system_memory = get_system_memory();
+        i440fx_host->mch.address_space_io = get_system_io();;
+        i440fx_host->mch.below_4g_mem_size = below_4g_mem_size;
+        i440fx_host->mch.above_4g_mem_size = above_4g_mem_size;
+
+        qdev_init_nofail(DEVICE(i440fx_host));
+        i440fx_state = &i440fx_host->mch;
+        phb = PCI_HOST_BRIDGE(i440fx_host);
+        pci_bus = phb->bus;
+        /* Xen supports additional interrupt routes from the PCI devices to
+         * the IOAPIC: the four pins of each PCI device on the bus are also
+         * connected to the IOAPIC directly.
+         * These additional routes can be discovered through ACPI. */
+        if (xen_enabled()) {
+            piix3 = DO_UPCAST(PIIX3State, dev,
+                    pci_create_simple_multifunction(pci_bus, -1, true,
+                        "PIIX3-xen"));
+            pci_bus_irqs(pci_bus, xen_piix3_set_irq, xen_pci_slot_get_pirq,
+                    piix3, XEN_PIIX_NUM_PIRQS);
+        } else {
+            piix3 = DO_UPCAST(PIIX3State, dev,
+                    pci_create_simple_multifunction(pci_bus, -1, true,
+                        "PIIX3"));
+            pci_bus_irqs(pci_bus, piix3_set_irq, pci_slot_get_pirq, piix3,
+                    PIIX_NUM_PIRQS);
+            pci_bus_set_route_irq_fn(pci_bus, piix3_route_intx_pin_to_irq);
+        }
+        piix3->pic = gsi;
+        isa_bus = DO_UPCAST(ISABus, qbus,
+                qdev_get_child_bus(&piix3->dev.qdev, "isa.0"));
+
+        piix3_devfn = piix3->dev.devfn;
+
+        ram_size = ram_size / 8 / 1024 / 1024;
+        if (ram_size > 255) {
+            ram_size = 255;
+        }
+        i440fx_state->dev.config[0x57] = ram_size;
     } else {
         pci_bus = NULL;
         i440fx_state = NULL;
@@ -167,7 +204,7 @@ static void pc_init1(MemoryRegion *system_memory,
         gsi_state->i8259_irq[i] = i8259[i];
     }
     if (pci_enabled) {
-        ioapic_init_gsi(gsi_state, "i440fx");
+        ioapic_init_gsi(gsi_state, NULL); /* should be TYPE_I440FX_HOST_DEVICE */
     }
     qdev_init_nofail(icc_bridge);
 
