@@ -42,6 +42,7 @@
 #include "hw/ide/ahci.h"
 #include "hw/usb.h"
 #include "hw/cpu/icc_bus.h"
+#include "hw/nvram/fw_cfg.h"
 
 /* ICH9 AHCI has 6 ports */
 #define MAX_SATA_PORTS     6
@@ -78,6 +79,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     PCIDevice *ahci;
     DeviceState *icc_bridge;
     void *fw_cfg = NULL;
+    uint64_t *pci_window_fw_cfg;
 
     icc_bridge = qdev_create(NULL, TYPE_ICC_BRIDGE);
     object_property_add_child(qdev_get_machine(), "icc-bridge",
@@ -135,6 +137,14 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     /* pci */
     qdev_init_nofail(DEVICE(q35_host));
     bochs_srat_bios_init(fw_cfg);
+
+    pci_window_fw_cfg = g_new0(uint64_t, 2);
+    pci_window_fw_cfg[0] = cpu_to_le64(MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT);
+    pci_window_fw_cfg[1] = cpu_to_le64(0x100000000ULL +
+            q35_host->mch.above_4g_mem_size);
+    fw_cfg_add_bytes(fw_cfg, FW_CFG_PCI_WINDOW,
+                        (uint8_t *)pci_window_fw_cfg, 2 * 8);
+
     host_bus = q35_host->host.pci.bus;
     /* create ISA bus */
     lpc = pci_create_simple_multifunction(host_bus, PCI_DEVFN(ICH9_LPC_DEV,

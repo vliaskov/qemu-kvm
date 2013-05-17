@@ -50,6 +50,7 @@
 #  include <xen/hvm/hvm_info_table.h>
 #endif
 #include "hw/pci-host/piix_pci.h"
+#include "hw/nvram/fw_cfg.h"
 
 #define MAX_IDE_BUS 2
 
@@ -91,6 +92,7 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *rom_memory;
     DeviceState *icc_bridge;
     void *fw_cfg = NULL;
+    uint64_t *pci_window_fw_cfg;
     I440FXState *i440fx_host;
     PIIX3State *piix3;
     PCIHostState *phb;
@@ -152,6 +154,14 @@ static void pc_init1(MemoryRegion *system_memory,
 
         qdev_init_nofail(DEVICE(i440fx_host));
         bochs_srat_bios_init(fw_cfg);
+
+        pci_window_fw_cfg = g_new0(uint64_t, 2);
+        pci_window_fw_cfg[0] = cpu_to_le64(i440fx_host->mch.below_4g_mem_size);
+        pci_window_fw_cfg[1] = cpu_to_le64(0x100000000ULL +
+                i440fx_host->mch.above_4g_mem_size);
+        fw_cfg_add_bytes(fw_cfg, FW_CFG_PCI_WINDOW,
+                            (uint8_t *)pci_window_fw_cfg, 2 * 8);
+
         i440fx_state = &i440fx_host->mch;
         phb = PCI_HOST_BRIDGE(i440fx_host);
         pci_bus = phb->bus;
