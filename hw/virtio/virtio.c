@@ -418,18 +418,95 @@ int virtqueue_avail_bytes(VirtQueue *vq, unsigned int in_bytes,
 }
 
 void virtqueue_map_sg(struct iovec *sg, hwaddr *addr,
-    size_t num_sg, int is_write)
+    unsigned int *num, int is_write)
 {
-    unsigned int i;
-    hwaddr len;
+    unsigned int i, j;
+    unsigned int num_sg = *num;
+    unsigned int aux_idx = num_sg, num_aux = 0, *map_aux = NULL;
+    hwaddr len, aux_len;
+    struct iovec tmp;
 
     for (i = 0; i < num_sg; i++) {
         len = sg[i].iov_len;
         sg[i].iov_base = cpu_physical_memory_map(addr[i], &len, is_write);
-        if (sg[i].iov_base == NULL || len != sg[i].iov_len) {
+        if (sg[i].iov_base == NULL) {
             error_report("virtio: trying to map MMIO memory");
             exit(1);
         }
+        if (unlikely(len != sg[i].iov_len)) {
+            /* This request straddles two ramblocks (because of memory hotplug).
+             * We split the original request into 2: 
+             *  - the original sg item with the length that was succesfully mapped
+             *  - the auxiliary sg item, which will map the remaining length at the
+             *    second ramblock/dimm
+            */
+            error_report("virtio: map %lx beyond one ramblock %p %lu != %lu sg_idx=%u num_sg=%u num_aux=%u\n",
+                    addr[i], sg[i].iov_base, len, sg[i].iov_len, i, num_sg,
+                    num_aux);
+            if (num_sg == VIRTQUEUE_MAX_SIZE) {
+                error_report("virtio: virtqueue full, auxiliary virtio cannot be added\n");
+                exit(1);
+            }
+            if (!num_aux)
+                map_aux = g_malloc(num_sg * sizeof(unsigned int));
+
+            sg[aux_idx].iov_len = sg[i].iov_len - len;
+            aux_len = sg[aux_idx].iov_len;
+            map_aux[num_aux] = i;
+            sg[i].iov_len = len;
+            sg[aux_idx].iov_base = cpu_physical_memory_map(addr[i] + len,
+                    &aux_len, is_write);
+
+            if (sg[aux_idx].iov_base == NULL || aux_len != sg[aux_idx].iov_len) {
+                error_report("virtio: addr %lx trying to map MMIO memory or second straddle %lu != %lu",
+                        addr[i] + len, len, sg[aux_idx].iov_len);
+                g_free(map_aux);
+                exit(1);
+            }
+            num_aux++;
+            aux_idx++;
+        }
+    }
+    if (unlikely(num_aux)) {
+        /* pair-up each auxiliary sg with its originating sg */
+        /* Example: Consider we have the following sg array with 4 initial
+         * elements 0..3, and 2 auiliary items: aux0 comes from splitting item0,
+         * and aux2 comes from splitting item 2. Initially all auxiliary items
+         * are appended to the end of the list.
+         *
+         * before: | 0 | 1 | 2 | 3 | aux0 | aux2 |
+         *
+         * after:  | 0 | aux0 | 1 | 2 | aux2 | 3 |
+         *
+         * In practice only one auxiliary sg item has been observed per
+         * VirtQueueElement, but the following code tries to handle the general
+         * case of having multiple auxiliary sgs.
+         * The reason for re-arranging as pairs is that we have observed I/O
+         * problems if we leave the auxiliary sg(s) at the end of the list.
+         * Also: in theory a single sg element might cross more than 1 ramblock
+         * boundary, but all practical sizes of sg items and dimms used so
+         * far in testing do not fall in this case. This may need to be fixed.
+        */
+        aux_idx = num_sg;
+        for (i = 0; i < num_aux; i++) {
+            memcpy(&tmp, &sg[aux_idx], sizeof(struct iovec));
+            /* shift auxiliary sgs left by one */
+            memmove(&sg[aux_idx], &sg[aux_idx + 1],
+                    (num_aux - i - 1) * sizeof(struct iovec));
+            /* shift all sgs right by one */
+            memmove(&sg[map_aux[i] + 2], &sg[map_aux[i] + 1],
+                    (num_sg + num_aux - map_aux[i] - 2) * sizeof(struct iovec));
+            /* copy current auxiliary sg next to originating sg */
+            memcpy(&sg[map_aux[i] + 1], &tmp, sizeof(struct iovec));
+
+            /* map needs to be updated */
+            for (j = i+1; j < num_aux; j++) {
+                map_aux[j]++;
+            }
+            aux_idx++;
+        }
+        g_free(map_aux);
+        *num = num_sg + num_aux;
     }
 }
 
@@ -493,8 +570,8 @@ int virtqueue_pop(VirtQueue *vq, VirtQueueElement *elem)
     } while ((i = virtqueue_next_desc(desc_pa, i, max)) != max);
 
     /* Now map what we have collected */
-    virtqueue_map_sg(elem->in_sg, elem->in_addr, elem->in_num, 1);
-    virtqueue_map_sg(elem->out_sg, elem->out_addr, elem->out_num, 0);
+    virtqueue_map_sg(elem->in_sg, elem->in_addr, &elem->in_num, 1);
+    virtqueue_map_sg(elem->out_sg, elem->out_addr, &elem->out_num, 0);
 
     elem->index = head;
 

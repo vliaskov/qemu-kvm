@@ -603,9 +603,9 @@ static int virtio_blk_load(QEMUFile *f, void *opaque, int version_id)
         s->rq = req;
 
         virtqueue_map_sg(req->elem.in_sg, req->elem.in_addr,
-            req->elem.in_num, 1);
+            &req->elem.in_num, 1);
         virtqueue_map_sg(req->elem.out_sg, req->elem.out_addr,
-            req->elem.out_num, 0);
+            &req->elem.out_num, 0);
     }
 
     return 0;
