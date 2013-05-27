@@ -1641,6 +1641,8 @@ show roms
 show memory-total
 @item info tpm
 show the TPM device
+@item info dimm
+show dimm
 @end table
 ETEXI
 
