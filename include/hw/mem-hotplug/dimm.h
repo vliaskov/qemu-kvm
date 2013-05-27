@@ -83,5 +83,6 @@ DimmBus *dimm_bus_create(Object *parent, const char *name, uint32_t max_dimms,
     dimm_calcoffset_fn pmc_set_offset);
 void dimm_config_create(char *id, uint64_t size, const char *bus, uint64_t node,
         uint32_t dimm_idx);
+uint64_t get_hp_memory_total(void);
 
 #endif

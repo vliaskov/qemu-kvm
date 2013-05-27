@@ -3587,3 +3587,14 @@
 ##
 {'command': 'query-command-line-options', 'data': { '*option': 'str' },
  'returns': ['CommandLineOptionInfo'] }
+# @query-memory-total:
+#
+# Returns total memory in bytes, including hotplugged dimms
+#
+# Returns: int
+#
+# Since: 1.6
+##
+{ 'command': 'query-memory-total', 'returns': 'int' }
+
+##

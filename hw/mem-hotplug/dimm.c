@@ -185,6 +185,20 @@ void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots)
     }
 }
 
+uint64_t get_hp_memory_total(void)
+{
+    DimmBus *bus;
+    DimmDevice *slot;
+    uint64_t info = 0;
+
+    QLIST_FOREACH(bus, &memory_buses, next) {
+        QTAILQ_FOREACH(slot, &bus->dimmlist, nextdimm) {
+            info += slot->size;
+        }
+    }
+    return info;
+}
+
 static int dimm_init(DeviceState *s)
 {
     DimmBus *bus = DIMM_BUS(qdev_get_parent_bus(s));

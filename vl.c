@@ -671,6 +671,14 @@ StatusInfo *qmp_query_status(Error **errp)
     return info;
 }
 
+int64_t qmp_query_memory_total(Error **errp)
+{
+    uint64_t info;
+    info = ram_size + get_hp_memory_total();
+
+    return (int64_t)info;
+}
+
 /***********************************************************/
 /* real time host monotonic timer */
 
