@@ -643,6 +643,10 @@ void acpi_setup(PcGuestInfo *guest_info)
         ACPI_BUILD_DPRINTF(3, "No fw cfg. Boiling out.\n");
     }
 
+    if (!guest_info->has_acpi_build) {
+        ACPI_BUILD_DPRINTF(3, "ACPI build disabled. Boiling out.\n");
+    }
+
     table_data = g_array_new(false, true /* clear */, 1);
     table_offsets = g_array_new(false, true /* clear */,
                                         sizeof(uint32_t));

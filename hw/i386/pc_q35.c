@@ -50,6 +50,7 @@
 
 static bool has_pvpanic = true;
 static bool has_pci_info = true;
+static bool has_acpi_build = true;
 
 /* PC hardware initialisation */
 static void pc_q35_init(QEMUMachineInitArgs *args)
@@ -111,6 +112,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
     guest_info->has_pci_info = has_pci_info;
+    guest_info->has_acpi_build = has_acpi_build;
     guest_info->dsdt_code = Q35AcpiDsdtAmlCode;
     guest_info->dsdt_size = sizeof Q35AcpiDsdtAmlCode;
 
@@ -221,6 +223,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 static void pc_q35_init_1_5(QEMUMachineInitArgs *args)
 {
     has_pci_info = false;
+    has_acpi_build = false;
     pc_q35_init(args);
 }
 

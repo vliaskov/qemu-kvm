@@ -50,6 +50,7 @@ struct PcGuestInfo {
     const unsigned char *dsdt_code;
     unsigned dsdt_size;
     FWCfgState *fw_cfg;
+    bool has_acpi_build;
 };
 
 /* parallel.c */

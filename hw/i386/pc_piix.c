@@ -60,6 +60,7 @@ static const int ide_irq[MAX_IDE_BUS] = { 14, 15 };
 
 static bool has_pvpanic = true;
 static bool has_pci_info = true;
+static bool has_acpi_build = true;
 
 /* PC hardware initialisation */
 static void pc_init1(MemoryRegion *system_memory,
@@ -125,6 +126,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
 
+    guest_info->has_acpi_build = has_acpi_build;
     guest_info->dsdt_code = AcpiDsdtAmlCode;
     guest_info->dsdt_size = sizeof AcpiDsdtAmlCode;
 
@@ -269,6 +271,7 @@ static void pc_init_pci(QEMUMachineInitArgs *args)
 static void pc_init_pci_1_5(QEMUMachineInitArgs *args)
 {
     has_pci_info = false;
+    has_acpi_build = false;
     pc_init_pci(args);
 }
 
