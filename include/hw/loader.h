@@ -27,7 +27,7 @@ void pstrcpy_targphys(const char *name,
 int rom_add_file(const char *file, const char *fw_dir,
                  hwaddr addr, int32_t bootindex);
 int rom_add_blob(const char *name, const void *blob, size_t len,
-                 hwaddr addr);
+                 hwaddr addr, MemoryRegion *mr);
 int rom_add_elf_program(const char *name, void *data, size_t datasize,
                         size_t romsize, hwaddr addr);
 int rom_load_all(void);
@@ -39,7 +39,7 @@ void do_info_roms(Monitor *mon, const QDict *qdict);
 #define rom_add_file_fixed(_f, _a, _i)          \
     rom_add_file(_f, NULL, _a, _i)
 #define rom_add_blob_fixed(_f, _b, _l, _a)      \
-    rom_add_blob(_f, _b, _l, _a)
+    rom_add_blob(_f, _b, _l, _a, NULL)
 
 #define PC_ROM_MIN_VGA     0xc0000
 #define PC_ROM_MIN_OPTION  0xc8000

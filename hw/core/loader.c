@@ -542,6 +542,7 @@ struct Rom {
     size_t datasize;
 
     uint8_t *data;
+    MemoryRegion *mr;
     int isrom;
     char *fw_dir;
     char *fw_file;
@@ -641,7 +642,7 @@ err:
 }
 
 int rom_add_blob(const char *name, const void *blob, size_t len,
-                 hwaddr addr)
+                 hwaddr addr, MemoryRegion *mr)
 {
     Rom *rom;
 
@@ -651,6 +652,11 @@ int rom_add_blob(const char *name, const void *blob, size_t len,
     rom->romsize  = len;
     rom->datasize = len;
     rom->data     = g_malloc0(rom->datasize);
+    rom->mr       = mr;
+    if (mr) {
+        assert(memory_region_is_ram(mr));
+        rom->isrom = memory_region_is_rom(mr);
+    }
     memcpy(rom->data, blob, len);
     rom_insert(rom);
     return 0;
@@ -697,7 +703,12 @@ static void rom_reset(void *unused)
         if (rom->data == NULL) {
             continue;
         }
-        cpu_physical_memory_write_rom(rom->addr, rom->data, rom->datasize);
+        if (rom->mr) {
+            void *host = memory_region_get_ram_ptr(rom->mr);
+            memcpy(host, rom->data, rom->datasize);
+        } else {
+            cpu_physical_memory_write_rom(rom->addr, rom->data, rom->datasize);
+        }
         if (rom->isrom) {
             /* rom needs to be written only once */
             g_free(rom->data);
@@ -713,6 +724,9 @@ int rom_load_all(void)
     Rom *rom;
 
     QTAILQ_FOREACH(rom, &roms, next) {
+        if (rom->mr) {
+            continue;
+        }
         if (rom->fw_file) {
             continue;
         }
@@ -746,6 +760,9 @@ static Rom *find_rom(hwaddr addr)
         if (rom->fw_file) {
             continue;
         }
+        if (rom->mr) {
+            continue;
+        }
         if (rom->addr > addr) {
             continue;
         }
@@ -771,6 +788,9 @@ int rom_copy(uint8_t *dest, hwaddr addr, size_t size)
 
     QTAILQ_FOREACH(rom, &roms, next) {
         if (rom->fw_file) {
+            continue;
+        }
+        if (rom->mr) {
             continue;
         }
         if (rom->addr + rom->romsize < addr) {
@@ -832,7 +852,13 @@ void do_info_roms(Monitor *mon, const QDict *qdict)
     Rom *rom;
 
     QTAILQ_FOREACH(rom, &roms, next) {
-        if (!rom->fw_file) {
+        if (rom->mr) {
+            monitor_printf(mon, "%s"
+                           " size=0x%06zx name=\"%s\"\n",
+                           rom->mr->name,
+                           rom->romsize,
+                           rom->name);
+        } else if (!rom->fw_file) {
             monitor_printf(mon, "addr=" TARGET_FMT_plx
                            " size=0x%06zx mem=%s name=\"%s\"\n",
                            rom->addr, rom->romsize,
