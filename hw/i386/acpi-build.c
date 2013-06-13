@@ -34,6 +34,7 @@
 #include "hw/acpi/acpi.h"
 #include "hw/nvram/fw_cfg.h"
 #include "hw/i386/bios-linker-loader.h"
+#include "hw/loader.h"
 
 #define ACPI_BUILD_APPNAME  "Bochs"
 #define ACPI_BUILD_APPNAME6 "BOCHS "
@@ -610,6 +611,28 @@ build_rsdp(GArray *linker, unsigned rsdt)
     return rsdp_table;
 }
 
+static void acpi_add_rom_blob(PcGuestInfo *guest_info, GArray *blob,
+                              const char *name, unsigned align)
+{
+    MemoryRegion *mr = g_malloc(sizeof(*mr));
+
+    /* Align size to multiple of given size. This reduces the chance
+     * we need to change size in the future (breaking cross version migration).
+     */
+    g_array_set_size(blob, (ROUND_UP(acpi_data_len(blob), align) +
+                            g_array_get_element_size(blob) - 1) /
+                             g_array_get_element_size(blob));
+    memory_region_init_ram_ptr(mr, "etc/blob-script",
+                               acpi_data_len(blob), blob->data);
+    memory_region_set_readonly(mr, true);
+    vmstate_register_ram_global(mr);
+    rom_add_blob(ACPI_BUILD_TABLE_FILE, blob->data, acpi_data_len(blob),
+                 -1, mr);
+
+    fw_cfg_add_file(guest_info->fw_cfg, name,
+                    blob->data, acpi_data_len(blob));
+}
+
 #define ACPI_MAX_ACPI_TABLES 20
 void acpi_setup(PcGuestInfo *guest_info)
 {
@@ -670,12 +693,18 @@ void acpi_setup(PcGuestInfo *guest_info)
     rsdp = build_rsdp(linker, rsdt);
 
     /* Now expose it all to Guest */
-    fw_cfg_add_file(guest_info->fw_cfg, ACPI_BUILD_TABLE_FILE,
-                    table_data->data, table_data->len);
+    acpi_add_rom_blob(guest_info, table_data,
+                      ACPI_BUILD_TABLE_FILE, 1 << 20);
+
+    acpi_add_rom_blob(guest_info, linker,
+                      "etc/linker-script", TARGET_PAGE_SIZE);
+
+    /*
+     * RSDP is small so it's easy to keep it immutable, no need to
+     * bother with ROM blobs.
+     */
     fw_cfg_add_file(guest_info->fw_cfg, ACPI_BUILD_RSDP_FILE,
                     rsdp->data, acpi_data_len(rsdp));
-    fw_cfg_add_file(guest_info->fw_cfg, "etc/linker-script",
-                    linker->data, acpi_data_len(linker));
 
     /* Cleanup GArray wrappers and memory if no longer used. */
     bios_linker_cleanup(linker);
