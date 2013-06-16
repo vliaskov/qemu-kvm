@@ -367,6 +367,10 @@ build_ssdt(GArray *table_data, GArray *linker,
         ssdt_ptr[acpi_pci64_valid[0]] = 0;
     }
 
+    if (!1 /* PV panic port enabled */) {
+        *(uint16_t *)(ssdt_ptr + *ssdt_isa_pest) = pvpanic_port;
+    }
+
     ssdt_ptr += sizeof(ssdp_misc_aml);
 
     /* build Scope(_SB_) header */
