@@ -49,6 +49,7 @@ struct PcGuestInfo {
     uint64_t mcfg_base;
     const unsigned char *dsdt_code;
     unsigned dsdt_size;
+    uint16_t pvpanic_port;
     FWCfgState *fw_cfg;
     bool has_acpi_build;
 };
@@ -225,7 +226,7 @@ static inline bool isa_ne2000_init(ISABus *bus, int base, int irq, NICInfo *nd)
 void pc_system_firmware_init(MemoryRegion *rom_memory);
 
 /* pvpanic.c */
-void pvpanic_init(ISABus *bus);
+void pvpanic_init(ISABus *bus, PcGuestInfo *guest_info);
 
 /* e820 types */
 #define E820_RAM        1

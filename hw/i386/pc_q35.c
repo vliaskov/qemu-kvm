@@ -216,7 +216,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     }
 
     if (has_pvpanic) {
-        pvpanic_init(isa_bus);
+        pvpanic_init(isa_bus, guest_info);
     }
 }
 

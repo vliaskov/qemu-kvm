@@ -249,7 +249,7 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     if (has_pvpanic) {
-        pvpanic_init(isa_bus);
+        pvpanic_init(isa_bus, guest_info);
     }
 }
 

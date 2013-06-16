@@ -111,15 +111,16 @@ static void pvpanic_fw_cfg(ISADevice *dev, FWCfgState *fw_cfg)
                     sizeof(*pvpanic_port));
 }
 
-void pvpanic_init(ISABus *bus)
+void pvpanic_init(ISABus *bus, PcGuestInfo *guest_info)
 {
     ISADevice *dev;
-    FWCfgState *fw_cfg = fw_cfg_find();
+    FWCfgState *fw_cfg = guest_info->fw_cfg;
     if (!fw_cfg) {
         return;
     }
     dev = isa_create_simple (bus, TYPE_ISA_PVPANIC_DEVICE);
     pvpanic_fw_cfg(dev, fw_cfg);
+    guest_info->pvpanic_port = s->ioport;
 }
 
 static Property pvpanic_isa_properties[] = {
