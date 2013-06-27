@@ -68,7 +68,6 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     BusState *idebus[MAX_SATA_PORTS];
     ISADevice *rtc_state;
     ISADevice *floppy;
-    MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
     MemoryRegion *ram_memory;
     GSIState *gsi_state;
@@ -92,6 +91,9 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     kvmclock_create();
 
+    /* create pci host bus */
+    q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
+
     if (ram_size >= 0xb0000000) {
         above_4g_mem_size = ram_size - 0xb0000000;
         below_4g_mem_size = 0xb0000000;
@@ -102,11 +104,8 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     /* pci enabled */
     if (pci_enabled) {
-        pci_memory = g_new(MemoryRegion, 1);
-        memory_region_init(pci_memory, "pci", INT64_MAX);
-        rom_memory = pci_memory;
+        rom_memory = &q35_host->pci_address_space;
     } else {
-        pci_memory = NULL;
         rom_memory = get_system_memory();
     }
 
@@ -133,11 +132,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
         gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
     }
 
-    /* create pci host bus */
-    q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
-
     q35_host->mch.ram_memory = ram_memory;
-    q35_host->mch.pci_address_space = pci_memory;
     q35_host->mch.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();
     q35_host->mch.below_4g_mem_size = below_4g_mem_size;

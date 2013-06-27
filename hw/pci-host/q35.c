@@ -36,8 +36,7 @@
 
 static int q35_host_init(SysBusDevice *dev)
 {
-    PCIBus *b;
-    PCIHostState *pci = FROM_SYSBUS(PCIHostState, dev);
+    PCIHostState *pci = PCI_HOST_BRIDGE(dev);
     Q35PCIHost *s = Q35_HOST_DEVICE(&dev->qdev);
 
     memory_region_init_io(&pci->conf_mem, &pci_host_conf_le_ops, pci,
@@ -53,11 +52,12 @@ static int q35_host_init(SysBusDevice *dev)
     if (pcie_host_init(&s->host) < 0) {
         return -1;
     }
-    b = pci_bus_new(&s->host.pci.busdev.qdev, "pcie.0",
+
+    s->mch.pci_address_space = &s->pci_address_space;
+    pci->bus = pci_bus_new(DEVICE(s), "pcie.0",
                     s->mch.pci_address_space, s->mch.address_space_io,
                     0, TYPE_PCIE_BUS);
-    s->host.pci.bus = b;
-    qdev_set_parent_bus(DEVICE(&s->mch), BUS(b));
+    qdev_set_parent_bus(DEVICE(&s->mch), BUS(pci->bus));
     qdev_init_nofail(DEVICE(&s->mch));
 
     return 0;
@@ -96,6 +96,8 @@ static void q35_host_initfn(Object *obj)
     object_property_add_child(OBJECT(s), "mch", OBJECT(&s->mch), NULL);
     qdev_prop_set_uint32(DEVICE(&s->mch), "addr", PCI_DEVFN(0, 0));
     qdev_prop_set_bit(DEVICE(&s->mch), "multifunction", false);
+
+    memory_region_init(&s->pci_address_space, "pci", INT64_MAX);
 }
 
 static const TypeInfo q35_host_info = {

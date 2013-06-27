@@ -61,6 +61,7 @@ typedef struct MCHPCIState {
 typedef struct Q35PCIHost {
     PCIExpressHost host;
     MCHPCIState mch;
+    MemoryRegion pci_address_space;
 } Q35PCIHost;
 
 #define Q35_MASK(bit, ms_bit, ls_bit) \
