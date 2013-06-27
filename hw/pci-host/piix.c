@@ -43,6 +43,9 @@
 #define XEN_PIIX_NUM_PIRQS      128ULL
 #define PIIX_PIRQC              0x60
 
+#define I440FX_PMC_PCI_HOLE       0xE0000000ULL
+#define I440FX_PMC_PCI_HOLE_END   0x100000000ULL
+
 /*
  * Reset Control Register: PCI-accessible ISA-Compatible Register at address
  * 0xcf9, provided by the PCI/ISA bridge (PIIX3 PCI function 0, 8086:7000).
@@ -93,10 +96,6 @@ struct I440FXPMCState {
     MemoryRegion smram_region;
     uint8_t smm_enabled;
     ram_addr_t ram_size;
-    hwaddr pci_hole_start;
-    hwaddr pci_hole_size;
-    hwaddr pci_hole64_start;
-    hwaddr pci_hole64_size;
 };
 
 #define TYPE_I440FX_DEVICE "i440FX"
@@ -247,21 +246,37 @@ static int i440fx_pmc_initfn(PCIDevice *dev)
 {
     I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
     ram_addr_t ram_size;
+    hwaddr pci_hole_start, pci_hole_size;
+    hwaddr pci_hole64_start, pci_hole64_size;
     int i;
 
     g_assert(d->system_memory != NULL);
     g_assert(d->pci_address_space != NULL);
     g_assert(d->ram_memory != NULL);
 
+    if(d->ram_size > I440FX_PMC_PCI_HOLE) {
+        pci_hole_start = I440FX_PMC_PCI_HOLE;
+    } else {
+        pci_hole_start = d->ram_size;
+    }
+    pci_hole_size = I440FX_PMC_PCI_HOLE_END - pci_hole_start;
+
+    pci_hole64_start = I440FX_PMC_PCI_HOLE_END + d->ram_size - pci_hole_start;
+    if (sizeof(hwaddr) == 4) {
+        pci_hole64_size = 0;
+    } else {
+        pci_hole64_size = (1ULL << 62);
+    }
+
     memory_region_init_alias(&d->pci_hole, "pci-hole", d->pci_address_space,
-                             d->pci_hole_start, d->pci_hole_size);
-    memory_region_add_subregion(d->system_memory, d->pci_hole_start,
+                             pci_hole_start, pci_hole_size);
+    memory_region_add_subregion(d->system_memory, pci_hole_start,
                                 &d->pci_hole);
     memory_region_init_alias(&d->pci_hole_64bit, "pci-hole64",
                              d->pci_address_space,
-                             d->pci_hole64_start, d->pci_hole64_size);
-    if (d->pci_hole64_size) {
-        memory_region_add_subregion(d->system_memory, d->pci_hole64_start,
+                             pci_hole64_start, pci_hole64_size);
+    if (pci_hole64_size) {
+        memory_region_add_subregion(d->system_memory, pci_hole64_start,
                                     &d->pci_hole_64bit);
     }
     memory_region_init_alias(&d->smram_region, "smram-region",
@@ -298,10 +313,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
                                   MemoryRegion *address_space_mem,
                                   MemoryRegion *address_space_io,
                                   ram_addr_t ram_size,
-                                  hwaddr pci_hole_start,
-                                  hwaddr pci_hole_size,
-                                  hwaddr pci_hole64_start,
-                                  hwaddr pci_hole64_size,
                                   MemoryRegion *pci_address_space,
                                   MemoryRegion *ram_memory)
 {
@@ -315,12 +326,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
 
     i440fx->address_space_io = address_space_io;
     i440fx->pci_address_space = pci_address_space;
-
-    /* FIXME these should be derived */
-    i440fx->pmc.pci_hole_start = pci_hole_start;
-    i440fx->pmc.pci_hole_size = pci_hole_size;
-    i440fx->pmc.pci_hole64_start = pci_hole64_start;
-    i440fx->pmc.pci_hole64_size = pci_hole64_size;
 
     f = &i440fx->pmc;
     f->ram_size = ram_size;
@@ -362,10 +367,6 @@ PCIBus *i440fx_init(int *piix3_devfn,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
-                    hwaddr pci_hole_start,
-                    hwaddr pci_hole_size,
-                    hwaddr pci_hole64_start,
-                    hwaddr pci_hole64_size,
                     MemoryRegion *pci_memory, MemoryRegion *ram_memory)
 
 {
@@ -374,8 +375,6 @@ PCIBus *i440fx_init(int *piix3_devfn,
     b = i440fx_common_init(TYPE_I440FX_PMC_DEVICE,
                            piix3_devfn, isa_bus, pic,
                            address_space_mem, address_space_io, ram_size,
-                           pci_hole_start, pci_hole_size,
-                           pci_hole64_start, pci_hole64_size,
                            pci_memory, ram_memory);
     return b;
 }
