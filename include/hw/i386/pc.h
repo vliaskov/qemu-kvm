@@ -50,6 +50,8 @@ typedef struct MemoryController {
     MemoryRegion ram;
     MemoryRegion ram_below_4g;
     MemoryRegion ram_above_4g;
+    hwaddr below_4g_mem_size;
+    hwaddr above_4g_mem_size;
 } MemoryController;
 
 void mc_update_pam(MemoryController *d);

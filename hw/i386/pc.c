@@ -1395,7 +1395,6 @@ static int memory_controller_init(PCIDevice *dev)
     MemoryController *m = MEMORY_CONTROLLER(dev);
     MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(dev);
     ram_addr_t ram_size;
-    hwaddr below_4g_mem_size, above_4g_mem_size;
     hwaddr pci_hole_start, pci_hole_size;
     hwaddr pci_hole64_start, pci_hole64_size;
     int i;
@@ -1403,11 +1402,11 @@ static int memory_controller_init(PCIDevice *dev)
     g_assert(m->system_memory != NULL);
 
     if(m->ram_size > c->pci_hole_start) {
-        below_4g_mem_size = c->pci_hole_start;
-        above_4g_mem_size = m->ram_size - c->pci_hole_start;
+        m->below_4g_mem_size = c->pci_hole_start;
+        m->above_4g_mem_size = m->ram_size - c->pci_hole_start;
     } else {
-        below_4g_mem_size = m->ram_size;
-        above_4g_mem_size = 0;
+        m->below_4g_mem_size = m->ram_size;
+        m->above_4g_mem_size = 0;
     }
 
     /* Allocate RAM.  We allocate it as a single memory region and use
@@ -1417,16 +1416,16 @@ static int memory_controller_init(PCIDevice *dev)
     memory_region_init_ram(&m->ram, "pc.ram", m->ram_size);
     vmstate_register_ram_global(&m->ram);
     memory_region_init_alias(&m->ram_below_4g, "ram-below-4g", &m->ram,
-                             0, below_4g_mem_size);
+                             0, m->below_4g_mem_size);
     memory_region_add_subregion(m->system_memory, 0, &m->ram_below_4g);
-    if (above_4g_mem_size > 0) {
+    if (m->above_4g_mem_size > 0) {
         memory_region_init_alias(&m->ram_above_4g, "ram-above-4g", &m->ram,
-                                 below_4g_mem_size, above_4g_mem_size);
+                                 m->below_4g_mem_size, m->above_4g_mem_size);
         memory_region_add_subregion(m->system_memory, c->pci_hole_end,
                                     &m->ram_above_4g);
     }
 
-    pci_hole_start = below_4g_mem_size;
+    pci_hole_start = m->below_4g_mem_size;
     pci_hole_size = c->pci_hole_end - pci_hole_start;
 
     pci_hole64_start = c->pci_hole_end + m->ram_size - pci_hole_start;
