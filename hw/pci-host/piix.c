@@ -86,19 +86,7 @@ typedef struct PIIX3State {
     OBJECT_CHECK(I440FXPMCState, (obj), TYPE_I440FX_PMC_DEVICE)
 
 struct I440FXPMCState {
-    PCIDevice dev;
-    MemoryRegion *system_memory;
-    MemoryRegion *pci_address_space;
-    MemoryRegion *ram_memory;
-    MemoryRegion pci_hole;
-    MemoryRegion pci_hole_64bit;
-    PAMMemoryRegion pam_regions[13];
-    MemoryRegion smram_region;
-    uint8_t smm_enabled;
-    ram_addr_t ram_size;
-    MemoryRegion ram;
-    MemoryRegion ram_below_4g;
-    MemoryRegion ram_above_4g;
+    MemoryController dev;
 };
 
 #define TYPE_I440FX_DEVICE "i440FX"
@@ -133,52 +121,32 @@ static int pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
     return (pci_intx + slot_addend) & 3;
 }
 
-static void i440fx_pmc_update_memory_mappings(I440FXPMCState *d)
+static void i440fx_pmc_reset(DeviceState *d)
 {
-    int i;
-
-    memory_region_transaction_begin();
-    for (i = 0; i < 13; i++) {
-        pam_update(&d->pam_regions[i], i,
-                   d->dev.config[I440FX_PAM + ((i + 1) / 2)]);
-    }
-    smram_update(&d->smram_region, d->dev.config[I440FX_SMRAM], d->smm_enabled);
-    memory_region_transaction_commit();
+    mc_update(MEMORY_CONTROLLER(d));
 }
-
-static void i440fx_set_smm(int val, void *arg)
-{
-    I440FXPMCState *d = arg;
-
-    memory_region_transaction_begin();
-    smram_set_smm(&d->smm_enabled, val, d->dev.config[I440FX_SMRAM],
-                  &d->smram_region);
-    memory_region_transaction_commit();
-}
-
 
 static void i440fx_write_config(PCIDevice *dev,
                                 uint32_t address, uint32_t val, int len)
 {
-    I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
-
     /* XXX: implement SMRAM.D_LOCK */
     pci_default_write_config(dev, address, val, len);
     if (ranges_overlap(address, len, I440FX_PAM, I440FX_PAM_SIZE) ||
         range_covers_byte(address, len, I440FX_SMRAM)) {
-        i440fx_pmc_update_memory_mappings(d);
+        mc_update(MEMORY_CONTROLLER(dev));
     }
 }
 
 static int i440fx_load_old(QEMUFile* f, void *opaque, int version_id)
 {
-    I440FXPMCState *d = opaque;
+    MemoryController *d = opaque;
     int ret, i;
 
     ret = pci_device_load(&d->dev, f);
     if (ret < 0)
         return ret;
-    i440fx_pmc_update_memory_mappings(d);
+
+    mc_update(MEMORY_CONTROLLER(d));
     qemu_get_8s(f, &d->smm_enabled);
 
     if (version_id == 2) {
@@ -192,9 +160,9 @@ static int i440fx_load_old(QEMUFile* f, void *opaque, int version_id)
 
 static int i440fx_post_load(void *opaque, int version_id)
 {
-    I440FXPMCState *d = opaque;
+    MemoryController *d = opaque;
 
-    i440fx_pmc_update_memory_mappings(d);
+    mc_update(d);
     return 0;
 }
 
@@ -206,8 +174,8 @@ static const VMStateDescription vmstate_i440fx_pmc = {
     .load_state_old = i440fx_load_old,
     .post_load = i440fx_post_load,
     .fields      = (VMStateField []) {
-        VMSTATE_PCI_DEVICE(dev, I440FXPMCState),
-        VMSTATE_UINT8(smm_enabled, I440FXPMCState),
+        VMSTATE_PCI_DEVICE(dev.dev, I440FXPMCState),
+        VMSTATE_UINT8(dev.smm_enabled, I440FXPMCState),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -230,7 +198,7 @@ static int i440fx_realize(SysBusDevice *dev)
     sysbus_add_io(dev, 0xcfc, &s->data_mem);
     sysbus_init_ioports(&s->busdev, 0xcfc, 4);
 
-    f->pmc.pci_address_space = &f->pci_address_space;
+    f->pmc.dev.pci_address_space = &f->pci_address_space;
 
     qdev_set_parent_bus(DEVICE(&f->pmc), BUS(s->bus));
     qdev_init_nofail(DEVICE(&f->pmc));
@@ -247,91 +215,6 @@ static void i440fx_initfn(Object *obj)
     qdev_prop_set_uint32(DEVICE(&f->pmc), "addr", PCI_DEVFN(0, 0));
 
     memory_region_init(&f->pci_address_space, "pci", INT64_MAX);
-}
-
-static int i440fx_pmc_initfn(PCIDevice *dev)
-{
-    I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
-    ram_addr_t ram_size;
-    hwaddr below_4g_mem_size, above_4g_mem_size;
-    hwaddr pci_hole_start, pci_hole_size;
-    hwaddr pci_hole64_start, pci_hole64_size;
-    int i;
-
-    g_assert(d->system_memory != NULL);
-
-    if(d->ram_size > I440FX_PMC_PCI_HOLE) {
-        below_4g_mem_size = I440FX_PMC_PCI_HOLE;
-        above_4g_mem_size = d->ram_size - I440FX_PMC_PCI_HOLE;
-    } else {
-        below_4g_mem_size = d->ram_size;
-        above_4g_mem_size = 0;
-    }
-
-    /* Allocate RAM.  We allocate it as a single memory region and use
-     * aliases to address portions of it, mostly for backwards compatibility
-     * with older qemus that used qemu_ram_alloc().
-     */
-    memory_region_init_ram(&d->ram, "pc.ram",
-                           below_4g_mem_size + above_4g_mem_size);
-    vmstate_register_ram_global(&d->ram);
-    memory_region_init_alias(&d->ram_below_4g, "ram-below-4g", &d->ram,
-                             0, below_4g_mem_size);
-    memory_region_add_subregion(d->system_memory, 0, &d->ram_below_4g);
-    if (above_4g_mem_size > 0) {
-        memory_region_init_alias(&d->ram_above_4g, "ram-above-4g", &d->ram,
-                                 below_4g_mem_size, above_4g_mem_size);
-        memory_region_add_subregion(d->system_memory, I440FX_PMC_PCI_HOLE_END,
-                                    &d->ram_above_4g);
-    }
-
-    pci_hole_start = below_4g_mem_size;
-    pci_hole_size = I440FX_PMC_PCI_HOLE_END - pci_hole_start;
-
-    pci_hole64_start = I440FX_PMC_PCI_HOLE_END + d->ram_size - pci_hole_start;
-    if (sizeof(hwaddr) == 4) {
-        pci_hole64_size = 0;
-    } else {
-        pci_hole64_size = (1ULL << 62);
-    }
-
-    memory_region_init_alias(&d->pci_hole, "pci-hole", d->pci_address_space,
-                             pci_hole_start, pci_hole_size);
-    memory_region_add_subregion(d->system_memory, pci_hole_start,
-                                &d->pci_hole);
-    memory_region_init_alias(&d->pci_hole_64bit, "pci-hole64",
-                             d->pci_address_space,
-                             pci_hole64_start, pci_hole64_size);
-    if (pci_hole64_size) {
-        memory_region_add_subregion(d->system_memory, pci_hole64_start,
-                                    &d->pci_hole_64bit);
-    }
-    memory_region_init_alias(&d->smram_region, "smram-region",
-                             d->pci_address_space, 0xa0000, 0x20000);
-    memory_region_add_subregion_overlap(d->system_memory, 0xa0000,
-                                        &d->smram_region, 1);
-    memory_region_set_enabled(&d->smram_region, false);
-
-    init_pam(d->ram_memory, d->system_memory, d->pci_address_space,
-             &d->pam_regions[0], PAM_BIOS_BASE, PAM_BIOS_SIZE);
-    for (i = 0; i < 12; ++i) {
-        init_pam(d->ram_memory, d->system_memory, d->pci_address_space,
-                 &d->pam_regions[i+1], PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE,
-                 PAM_EXPAN_SIZE);
-    }
-
-    ram_size = d->ram_size / 8 / 1024 / 1024;
-    if (ram_size > 255) {
-        ram_size = 255;
-    }
-    d->dev.config[0x57] = ram_size;
-
-    i440fx_pmc_update_memory_mappings(d);
-
-    d->dev.config[I440FX_SMRAM] = 0x02;
-
-    cpu_smm_register(&i440fx_set_smm, d);
-    return 0;
 }
 
 static PCIBus *i440fx_common_init(const char *device_name,
@@ -353,8 +236,8 @@ static PCIBus *i440fx_common_init(const char *device_name,
     i440fx->address_space_io = address_space_io;
 
     f = &i440fx->pmc;
-    f->ram_size = ram_size;
-    f->system_memory = address_space_mem;
+    f->dev.ram_size = ram_size;
+    f->dev.system_memory = address_space_mem;
 
     object_property_add_child(qdev_get_machine(), "i440fx",
                               OBJECT(i440fx), NULL);
@@ -675,22 +558,24 @@ static void i440fx_pmc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    MemoryControllerClass *mc = MEMORY_CONTROLLER_CLASS(klass);
 
-    k->no_hotplug = 1;
-    k->init = i440fx_pmc_initfn;
     k->config_write = i440fx_write_config;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_82441;
     k->revision = 0x02;
-    k->class_id = PCI_CLASS_BRIDGE_HOST;
-    dc->desc = "Host bridge";
-    dc->no_user = 1;
     dc->vmsd = &vmstate_i440fx_pmc;
+    dc->reset = i440fx_pmc_reset;
+
+    mc->pci_hole_start = 0xE0000000ULL;
+    mc->pci_hole_end = 0x100000000ULL;
+    mc->pam0 = I440FX_PAM;
+    mc->smram = I440FX_SMRAM;
 }
 
 static const TypeInfo i440fx_pmc_info = {
     .name          = TYPE_I440FX_PMC_DEVICE,
-    .parent        = TYPE_PCI_DEVICE,
+    .parent        = TYPE_MEMORY_CONTROLLER,
     .instance_size = sizeof(I440FXPMCState),
     .class_init    = i440fx_pmc_class_init,
 };
