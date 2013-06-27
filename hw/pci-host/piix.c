@@ -38,16 +38,6 @@
  * http://download.intel.com/design/chipsets/datashts/29054901.pdf
  */
 
-#define TYPE_I440FX_DEVICE "i440FX"
-#define I440FX_DEVICE(obj) \
-    OBJECT_CHECK(I440FXState, (obj), TYPE_I440FX_DEVICE)
-
-typedef struct I440FXState {
-    PCIHostState parent_obj;
-    MemoryRegion *address_space_io;
-    MemoryRegion *pci_address_space;
-} I440FXState;
-
 #define PIIX_NUM_PIC_IRQS       16      /* i8259 * 2 */
 #define PIIX_NUM_PIRQS          4ULL    /* PIRQ[A-D] */
 #define XEN_PIIX_NUM_PIRQS      128ULL
@@ -102,8 +92,25 @@ struct I440FXPMCState {
     PAMMemoryRegion pam_regions[13];
     MemoryRegion smram_region;
     uint8_t smm_enabled;
+    ram_addr_t ram_size;
+    hwaddr pci_hole_start;
+    hwaddr pci_hole_size;
+    hwaddr pci_hole64_start;
+    hwaddr pci_hole64_size;
 };
 
+#define TYPE_I440FX_DEVICE "i440FX"
+#define I440FX_DEVICE(obj) \
+    OBJECT_CHECK(I440FXState, (obj), TYPE_I440FX_DEVICE)
+
+typedef struct I440FXState {
+    PCIHostState parent_obj;
+    MemoryRegion *address_space_io;
+    MemoryRegion *pci_address_space;
+
+    PIIX3State piix3;
+    I440FXPMCState pmc;
+} I440FXState;
 
 #define I440FX_PAM      0x59
 #define I440FX_PAM_SIZE 7
@@ -221,16 +228,63 @@ static int i440fx_realize(SysBusDevice *dev)
     sysbus_add_io(dev, 0xcfc, &s->data_mem);
     sysbus_init_ioports(&s->busdev, 0xcfc, 4);
 
+    qdev_set_parent_bus(DEVICE(&f->pmc), BUS(s->bus));
+    qdev_init_nofail(DEVICE(&f->pmc));
+
     return 0;
 }
 
 static void i440fx_initfn(Object *obj)
 {
+    I440FXState *f = I440FX_DEVICE(obj);
+
+    object_initialize(&f->pmc, TYPE_I440FX_PMC_DEVICE);
+    object_property_add_child(obj, "pmc", OBJECT(&f->pmc), NULL);
+    qdev_prop_set_uint32(DEVICE(&f->pmc), "addr", PCI_DEVFN(0, 0));
 }
 
 static int i440fx_pmc_initfn(PCIDevice *dev)
 {
     I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
+    ram_addr_t ram_size;
+    int i;
+
+    g_assert(d->system_memory != NULL);
+    g_assert(d->pci_address_space != NULL);
+    g_assert(d->ram_memory != NULL);
+
+    memory_region_init_alias(&d->pci_hole, "pci-hole", d->pci_address_space,
+                             d->pci_hole_start, d->pci_hole_size);
+    memory_region_add_subregion(d->system_memory, d->pci_hole_start,
+                                &d->pci_hole);
+    memory_region_init_alias(&d->pci_hole_64bit, "pci-hole64",
+                             d->pci_address_space,
+                             d->pci_hole64_start, d->pci_hole64_size);
+    if (d->pci_hole64_size) {
+        memory_region_add_subregion(d->system_memory, d->pci_hole64_start,
+                                    &d->pci_hole_64bit);
+    }
+    memory_region_init_alias(&d->smram_region, "smram-region",
+                             d->pci_address_space, 0xa0000, 0x20000);
+    memory_region_add_subregion_overlap(d->system_memory, 0xa0000,
+                                        &d->smram_region, 1);
+    memory_region_set_enabled(&d->smram_region, false);
+
+    init_pam(d->ram_memory, d->system_memory, d->pci_address_space,
+             &d->pam_regions[0], PAM_BIOS_BASE, PAM_BIOS_SIZE);
+    for (i = 0; i < 12; ++i) {
+        init_pam(d->ram_memory, d->system_memory, d->pci_address_space,
+                 &d->pam_regions[i+1], PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE,
+                 PAM_EXPAN_SIZE);
+    }
+
+    ram_size = d->ram_size / 8 / 1024 / 1024;
+    if (ram_size > 255) {
+        ram_size = 255;
+    }
+    d->dev.config[0x57] = ram_size;
+
+    i440fx_pmc_update_memory_mappings(d);
 
     d->dev.config[I440FX_SMRAM] = 0x02;
 
@@ -251,12 +305,10 @@ static PCIBus *i440fx_common_init(const char *device_name,
                                   MemoryRegion *pci_address_space,
                                   MemoryRegion *ram_memory)
 {
-    PCIDevice *d;
     PCIHostState *s;
     PIIX3State *piix3;
     I440FXPMCState *f;
     I440FXState *i440fx;
-    unsigned i;
 
     i440fx = I440FX_DEVICE(object_new(TYPE_I440FX_DEVICE));
     s = PCI_HOST_BRIDGE(i440fx);
@@ -264,38 +316,22 @@ static PCIBus *i440fx_common_init(const char *device_name,
     i440fx->address_space_io = address_space_io;
     i440fx->pci_address_space = pci_address_space;
 
+    /* FIXME these should be derived */
+    i440fx->pmc.pci_hole_start = pci_hole_start;
+    i440fx->pmc.pci_hole_size = pci_hole_size;
+    i440fx->pmc.pci_hole64_start = pci_hole64_start;
+    i440fx->pmc.pci_hole64_size = pci_hole64_size;
+
+    f = &i440fx->pmc;
+    f->ram_size = ram_size;
+    f->system_memory = address_space_mem;
+    f->pci_address_space = pci_address_space;
+    f->ram_memory = ram_memory;
+
     object_property_add_child(qdev_get_machine(), "i440fx",
                               OBJECT(i440fx), NULL);
     qdev_set_parent_bus(DEVICE(i440fx), sysbus_get_default());
     qdev_init_nofail(DEVICE(i440fx));
-
-    d = pci_create_simple(s->bus, 0, device_name);
-    f = I440FX_PMC_DEVICE(d);
-    f->system_memory = address_space_mem;
-    f->pci_address_space = pci_address_space;
-    f->ram_memory = ram_memory;
-    memory_region_init_alias(&f->pci_hole, "pci-hole", f->pci_address_space,
-                             pci_hole_start, pci_hole_size);
-    memory_region_add_subregion(f->system_memory, pci_hole_start, &f->pci_hole);
-    memory_region_init_alias(&f->pci_hole_64bit, "pci-hole64",
-                             f->pci_address_space,
-                             pci_hole64_start, pci_hole64_size);
-    if (pci_hole64_size) {
-        memory_region_add_subregion(f->system_memory, pci_hole64_start,
-                                    &f->pci_hole_64bit);
-    }
-    memory_region_init_alias(&f->smram_region, "smram-region",
-                             f->pci_address_space, 0xa0000, 0x20000);
-    memory_region_add_subregion_overlap(f->system_memory, 0xa0000,
-                                        &f->smram_region, 1);
-    memory_region_set_enabled(&f->smram_region, false);
-    init_pam(f->ram_memory, f->system_memory, f->pci_address_space,
-             &f->pam_regions[0], PAM_BIOS_BASE, PAM_BIOS_SIZE);
-    for (i = 0; i < 12; ++i) {
-        init_pam(f->ram_memory, f->system_memory, f->pci_address_space,
-                 &f->pam_regions[i+1], PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE,
-                 PAM_EXPAN_SIZE);
-    }
 
     /* Xen supports additional interrupt routes from the PCI devices to
      * the IOAPIC: the four pins of each PCI device on the bus are also
@@ -317,13 +353,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
     *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(piix3), "isa.0"));
 
     *piix3_devfn = piix3->dev.devfn;
-
-    ram_size = ram_size / 8 / 1024 / 1024;
-    if (ram_size > 255)
-        ram_size = 255;
-    f->dev.config[0x57] = ram_size;
-
-    i440fx_pmc_update_memory_mappings(f);
 
     return s->bus;
 }
