@@ -354,7 +354,7 @@ build_ssdt(GArray *table_data, GArray *linker,
     *(uint32_t*)&ssdt_ptr[acpi_pci32_end[0]] =
         cpu_to_le32(guest_info->pci_info.w32.end - 1);
 
-    if (range_valid(&guest_info->pci_info.w64)) {
+    if (guest_info->pci_info.w64.end > guest_info->pci_info.w64.begin) {
         ssdt_ptr[acpi_pci64_valid[0]] = 1;
         *(uint64_t*)&ssdt_ptr[acpi_pci64_start[0]] =
             cpu_to_le64(guest_info->pci_info.w64.begin);
