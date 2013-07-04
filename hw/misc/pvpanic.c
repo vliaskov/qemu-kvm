@@ -101,14 +101,16 @@ static void pvpanic_isa_realizefn(DeviceState *dev, Error **errp)
     isa_register_ioport(d, &s->io, s->ioport);
 }
 
-static void pvpanic_fw_cfg(ISADevice *dev, FWCfgState *fw_cfg)
+static void pvpanic_guest_info(ISADevice *dev, PcGuestInfo *guest_info)
 {
     PVPanicState *s = ISA_PVPANIC_DEVICE(dev);
     uint16_t *pvpanic_port = g_malloc(sizeof(*pvpanic_port));
     *pvpanic_port = cpu_to_le16(s->ioport);
 
-    fw_cfg_add_file(fw_cfg, "etc/pvpanic-port", pvpanic_port,
+    fw_cfg_add_file(guest_info->fw_cfg, "etc/pvpanic-port", pvpanic_port,
                     sizeof(*pvpanic_port));
+
+    guest_info->pvpanic_port = s->ioport;
 }
 
 void pvpanic_init(ISABus *bus, PcGuestInfo *guest_info)
@@ -119,8 +121,7 @@ void pvpanic_init(ISABus *bus, PcGuestInfo *guest_info)
         return;
     }
     dev = isa_create_simple (bus, TYPE_ISA_PVPANIC_DEVICE);
-    pvpanic_fw_cfg(dev, fw_cfg);
-    guest_info->pvpanic_port = s->ioport;
+    pvpanic_guest_info(dev, guest_info);
 }
 
 static Property pvpanic_isa_properties[] = {
