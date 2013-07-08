@@ -644,10 +644,12 @@ void acpi_setup(PcGuestInfo *guest_info)
 
     if (!guest_info->fw_cfg) {
         ACPI_BUILD_DPRINTF(3, "No fw cfg. Boiling out.\n");
+        return;
     }
 
     if (!guest_info->has_acpi_build) {
         ACPI_BUILD_DPRINTF(3, "ACPI build disabled. Boiling out.\n");
+        return;
     }
 
     table_data = g_array_new(false, true /* clear */, 1);
