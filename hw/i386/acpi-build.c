@@ -625,7 +625,7 @@ static void acpi_add_rom_blob(PcGuestInfo *guest_info, GArray *blob,
     g_array_set_size(blob, (ROUND_UP(acpi_data_len(blob), align) +
                             g_array_get_element_size(blob) - 1) /
                              g_array_get_element_size(blob));
-    memory_region_init_ram_ptr(mr, "etc/blob-script",
+    memory_region_init_ram_ptr(mr, name,
                                acpi_data_len(blob), blob->data);
     memory_region_set_readonly(mr, true);
     vmstate_register_ram_global(mr);
