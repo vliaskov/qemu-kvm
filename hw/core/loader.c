@@ -743,8 +743,12 @@ int rom_load_all(void)
         rom->isrom = int128_nz(section.size) && memory_region_is_rom(section.mr);
     }
     qemu_register_reset(rom_reset, NULL);
-    roms_loaded = 1;
     return 0;
+}
+
+void rom_load_done(void)
+{
+    roms_loaded = 1;
 }
 
 void rom_set_fw(FWCfgState *f)
