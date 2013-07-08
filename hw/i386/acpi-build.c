@@ -701,7 +701,7 @@ void acpi_setup(PcGuestInfo *guest_info)
 
     /* Now expose it all to Guest */
     acpi_add_rom_blob(guest_info, table_data,
-                      ACPI_BUILD_TABLE_FILE, 1 << 20);
+                      ACPI_BUILD_TABLE_FILE, 0x10000);
 
     acpi_add_rom_blob(guest_info, linker,
                       "etc/linker-script", TARGET_PAGE_SIZE);
