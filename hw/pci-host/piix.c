@@ -96,6 +96,10 @@ struct I440FXPMCState {
     MemoryRegion smram_region;
     uint8_t smm_enabled;
     ram_addr_t ram_size;
+    MemoryRegion ram;
+    MemoryRegion ram_below_4g;
+    MemoryRegion ram_above_4g;
+
 };
 
 #define TYPE_I440FX_DEVICE "i440FX"
@@ -250,18 +254,39 @@ static int i440fx_pmc_initfn(PCIDevice *dev)
 {
     I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
     ram_addr_t ram_size;
+    hwaddr below_4g_mem_size, above_4g_mem_size;
     hwaddr pci_hole_start, pci_hole_size;
     hwaddr pci_hole64_start, pci_hole64_size;
     int i;
 
     g_assert(d->system_memory != NULL);
-    g_assert(d->ram_memory != NULL);
 
     if(d->ram_size > I440FX_PMC_PCI_HOLE) {
-        pci_hole_start = I440FX_PMC_PCI_HOLE;
+        below_4g_mem_size = I440FX_PMC_PCI_HOLE;
+        above_4g_mem_size = d->ram_size - I440FX_PMC_PCI_HOLE;
     } else {
-        pci_hole_start = d->ram_size;
+        below_4g_mem_size = d->ram_size;
+        above_4g_mem_size = 0;
     }
+
+    /* Allocate RAM.  We allocate it as a single memory region and use
+     * aliases to address portions of it, mostly for backwards compatibility
+     * with older qemus that used qemu_ram_alloc().
+     */
+    memory_region_init_ram(&d->ram, "pc.ram",
+                           below_4g_mem_size + above_4g_mem_size);
+    vmstate_register_ram_global(&d->ram);
+    memory_region_init_alias(&d->ram_below_4g, "ram-below-4g", &d->ram,
+                             0, below_4g_mem_size);
+    memory_region_add_subregion(d->system_memory, 0, &d->ram_below_4g);
+    if (above_4g_mem_size > 0) {
+        memory_region_init_alias(&d->ram_above_4g, "ram-above-4g", &d->ram,
+                                 below_4g_mem_size, above_4g_mem_size);
+        memory_region_add_subregion(d->system_memory, I440FX_PMC_PCI_HOLE_END,
+                                    &d->ram_above_4g);
+    }
+
+    pci_hole_start = below_4g_mem_size;
     pci_hole_size = I440FX_PMC_PCI_HOLE_END - pci_hole_start;
 
     pci_hole64_start = I440FX_PMC_PCI_HOLE_END + d->ram_size - pci_hole_start;
@@ -316,8 +341,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
                                   MemoryRegion *address_space_mem,
                                   MemoryRegion *address_space_io,
                                   ram_addr_t ram_size,
-                                  MemoryRegion **pci_address_space,
-                                  MemoryRegion *ram_memory)
+                                  MemoryRegion **pci_address_space)
 {
     PCIHostState *s;
     PIIX3State *piix3;
@@ -332,7 +356,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
     f = &i440fx->pmc;
     f->ram_size = ram_size;
     f->system_memory = address_space_mem;
-    f->ram_memory = ram_memory;
 
     object_property_add_child(qdev_get_machine(), "i440fx",
                               OBJECT(i440fx), NULL);
@@ -369,7 +392,7 @@ PCIBus *i440fx_init(int *piix3_devfn,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
-                    MemoryRegion **pci_memory, MemoryRegion *ram_memory)
+                    MemoryRegion **pci_memory)
 
 {
     PCIBus *b;
@@ -377,7 +400,7 @@ PCIBus *i440fx_init(int *piix3_devfn,
     b = i440fx_common_init(TYPE_I440FX_PMC_DEVICE,
                            piix3_devfn, isa_bus, pic,
                            address_space_mem, address_space_io, ram_size,
-                           pci_memory, ram_memory);
+                           pci_memory);
     return b;
 }
 
