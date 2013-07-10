@@ -99,7 +99,6 @@ struct I440FXPMCState {
     MemoryRegion ram;
     MemoryRegion ram_below_4g;
     MemoryRegion ram_above_4g;
-
 };
 
 #define TYPE_I440FX_DEVICE "i440FX"

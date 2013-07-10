@@ -13,7 +13,48 @@
 #include "qemu/bitmap.h"
 #include "sysemu/sysemu.h"
 #include "hw/pci/pci.h"
+#include "hw/pci-host/pam.h"
 
+#define TYPE_MEMORY_CONTROLLER "memory controller"
+#define MEMORY_CONTROLLER(obj) OBJECT_CHECK(MemoryController, (obj), TYPE_DEVICE)
+#define MEMORY_CONTROLLER_CLASS(klass) OBJECT_CLASS_CHECK(MemoryControllerClass, (klass), TYPE_MEMORY_CONTROLLER)
+#define MEMORY_CONTROLLER_GET_CLASS(obj) OBJECT_GET_CLASS(MemoryControllerClass, (obj), TYPE_MEMORY_CONTROLLER)
+
+typedef struct MemoryController MemoryController;
+typedef struct MemoryControllerClass MemoryControllerClass;
+
+typedef struct MemoryControllerClass {
+    PCIDeviceClass parent_class;
+
+    hwaddr pci_hole_start;
+    hwaddr pci_hole_end;
+    uint16_t pam0;
+    uint16_t smram;
+
+    void (*set_smm)(int val, void *arg);
+    void (*update)(MemoryController *m);
+} MemoryControllerClass;
+
+typedef struct MemoryController {
+    PCIDevice dev;
+    MemoryRegion *system_memory;
+    MemoryRegion *pci_address_space;
+    MemoryRegion *ram_memory;
+    MemoryRegion pci_hole;
+    MemoryRegion pci_hole_64bit;
+    PAMMemoryRegion pam_regions[13];
+    MemoryRegion smram_region;
+    uint8_t smm_enabled;
+    ram_addr_t ram_size;
+    MemoryRegion ram;
+    MemoryRegion ram_below_4g;
+    MemoryRegion ram_above_4g;
+} MemoryController;
+
+void mc_update_pam(MemoryController *d);
+void mc_update_smram(MemoryController *d);
+void mc_update(MemoryController *d);
+void mc_set_smm(int val, void *arg);
 /* PC-style peripherals (also used by other machines).  */
 
 typedef struct PcPciInfo {

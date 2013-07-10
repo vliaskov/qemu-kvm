@@ -1384,3 +1384,159 @@ void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name)
         gsi_state->ioapic_irq[i] = qdev_get_gpio_in(dev, i);
     }
 }
+
+void mc_update_pam(MemoryController *d)
+{
+    PCIDevice *pd = PCI_DEVICE(d);
+    MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(d);
+    int i;
+
+    memory_region_transaction_begin();
+    for (i = 0; i < 13; i++) {
+        pam_update(&d->pam_regions[i], i,
+                   pd->config[c->pam0 + ((i + 1) / 2)]);
+    }
+    memory_region_transaction_commit();
+}
+
+void mc_update_smram(MemoryController *d)
+{
+    PCIDevice *pd = PCI_DEVICE(d);
+    MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(d);
+
+    memory_region_transaction_begin();
+    smram_update(&d->smram_region, pd->config[c->smram],
+                 d->smm_enabled);
+    memory_region_transaction_commit();
+}
+
+void mc_update(MemoryController *d)
+{
+    mc_update_pam(d);
+    mc_update_smram(d);
+}
+
+void mc_set_smm(int val, void *arg)
+{
+    MemoryController *d = arg;
+    PCIDevice *pd = PCI_DEVICE(d);
+    MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(d);
+
+    memory_region_transaction_begin();
+    smram_set_smm(&d->smm_enabled, val, pd->config[c->smram],
+                  &d->smram_region);
+    memory_region_transaction_commit();
+}
+
+static int memory_controller_init(PCIDevice *dev)
+{
+    MemoryController *m = MEMORY_CONTROLLER(dev);
+    MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(dev);
+    ram_addr_t ram_size;
+    hwaddr below_4g_mem_size, above_4g_mem_size;
+    hwaddr pci_hole_start, pci_hole_size;
+    hwaddr pci_hole64_start, pci_hole64_size;
+    int i;
+
+    g_assert(m->system_memory != NULL);
+
+    if(m->ram_size > c->pci_hole_start) {
+        below_4g_mem_size = c->pci_hole_start;
+        above_4g_mem_size = m->ram_size - c->pci_hole_start;
+    } else {
+        below_4g_mem_size = m->ram_size;
+        above_4g_mem_size = 0;
+    }
+
+    /* Allocate RAM.  We allocate it as a single memory region and use
+     * aliases to address portions of it, mostly for backwards compatibility
+     * with older qemus that used qemu_ram_alloc().
+     */
+    memory_region_init_ram(&m->ram, "pc.ram", m->ram_size);
+    vmstate_register_ram_global(&m->ram);
+    memory_region_init_alias(&m->ram_below_4g, "ram-below-4g", &m->ram,
+                             0, below_4g_mem_size);
+    memory_region_add_subregion(m->system_memory, 0, &m->ram_below_4g);
+    if (above_4g_mem_size > 0) {
+        memory_region_init_alias(&m->ram_above_4g, "ram-above-4g", &m->ram,
+                                 below_4g_mem_size, above_4g_mem_size);
+        memory_region_add_subregion(m->system_memory, c->pci_hole_end,
+                                    &m->ram_above_4g);
+    }
+
+    pci_hole_start = below_4g_mem_size;
+    pci_hole_size = c->pci_hole_end - pci_hole_start;
+
+    pci_hole64_start = c->pci_hole_end + m->ram_size - pci_hole_start;
+    if (sizeof(hwaddr) == 4) {
+        pci_hole64_size = 0;
+    } else {
+        pci_hole64_size = (1ULL << 62);
+    }
+
+    memory_region_init_alias(&m->pci_hole, "pci-hole", m->pci_address_space,
+                             pci_hole_start, pci_hole_size);
+    memory_region_add_subregion(m->system_memory, pci_hole_start,
+                                &m->pci_hole);
+    memory_region_init_alias(&m->pci_hole_64bit, "pci-hole64",
+                             m->pci_address_space,
+                             pci_hole64_start, pci_hole64_size);
+    if (pci_hole64_size) {
+        memory_region_add_subregion(m->system_memory, pci_hole64_start,
+                                    &m->pci_hole_64bit);
+    }
+    memory_region_init_alias(&m->smram_region, "smram-region",
+                             m->pci_address_space, 0xa0000, 0x20000);
+    memory_region_add_subregion_overlap(m->system_memory, 0xa0000,
+                                        &m->smram_region, 1);
+    memory_region_set_enabled(&m->smram_region, false);
+
+    init_pam(m->ram_memory, m->system_memory, m->pci_address_space,
+             &m->pam_regions[0], PAM_BIOS_BASE, PAM_BIOS_SIZE);
+    for (i = 0; i < 12; ++i) {
+        init_pam(m->ram_memory, m->system_memory, m->pci_address_space,
+                 &m->pam_regions[i+1], PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE,
+                 PAM_EXPAN_SIZE);
+    }
+
+    ram_size = m->ram_size / 8 / 1024 / 1024;
+    if (ram_size > 255) {
+        ram_size = 255;
+    }
+    dev->config[0x57] = ram_size;
+
+    dev->config[0x72] = 0x02;
+
+    cpu_smm_register(c->set_smm, m);
+    return 0;
+}
+
+static void memory_controller_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    MemoryControllerClass *mc = MEMORY_CONTROLLER_CLASS(klass);
+
+    k->no_hotplug = 1;
+    k->init = memory_controller_init;
+    k->class_id = PCI_CLASS_BRIDGE_HOST;
+    dc->desc = "Host bridge";
+    dc->no_user = 1;
+    mc->set_smm = mc_set_smm;
+    mc->update = mc_update;
+}
+
+static const TypeInfo memory_controller_type_info = {
+    .name = TYPE_MEMORY_CONTROLLER,
+    .parent = TYPE_PCI_DEVICE,
+    .instance_size = sizeof(MemoryController),
+    .class_init = memory_controller_class_init,
+    .class_size = sizeof(MemoryControllerClass),
+};
+
+static void memory_controller_register_types(void)
+{
+    type_register_static(&memory_controller_type_info);
+}
+
+type_init(memory_controller_register_types)
