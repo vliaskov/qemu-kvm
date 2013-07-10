@@ -14,6 +14,7 @@
 #include "sysemu/sysemu.h"
 #include "hw/pci/pci.h"
 #include "hw/pci-host/pam.h"
+#include "hw/mem-hotplug/dimm.h"
 
 #define TYPE_MEMORY_CONTROLLER "memory controller"
 #define MEMORY_CONTROLLER(obj) OBJECT_CHECK(MemoryController, (obj), TYPE_DEVICE)
@@ -33,6 +34,7 @@ typedef struct MemoryControllerClass {
 
     void (*set_smm)(int val, void *arg);
     void (*update)(MemoryController *m);
+    hwaddr (*dimm_offset)(DeviceState *d, uint64_t size);
 } MemoryControllerClass;
 
 typedef struct MemoryController {
@@ -52,6 +54,9 @@ typedef struct MemoryController {
     MemoryRegion ram_above_4g;
     hwaddr below_4g_mem_size;
     hwaddr above_4g_mem_size;
+
+    DimmBus *dram_channel0;
+    DimmBus *pv_dram_channel;
 } MemoryController;
 
 void mc_update_pam(MemoryController *d);
