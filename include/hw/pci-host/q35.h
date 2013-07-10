@@ -43,21 +43,8 @@
      OBJECT_CHECK(MCHPCIState, (obj), TYPE_MCH_PCI_DEVICE)
 
 typedef struct MCHPCIState {
-    PCIDevice d;
-    MemoryRegion *ram_memory;
-    MemoryRegion *pci_address_space;
-    MemoryRegion *system_memory;
+    MemoryController dev;
     MemoryRegion *address_space_io;
-    PAMMemoryRegion pam_regions[13];
-    MemoryRegion smram_region;
-    MemoryRegion pci_hole;
-    MemoryRegion pci_hole_64bit;
-    uint8_t smm_enabled;
-    ram_addr_t ram_size;
-    MemoryRegion ram;
-    MemoryRegion ram_below_4g;
-    MemoryRegion ram_above_4g;
-    PcGuestInfo *guest_info;
 } MCHPCIState;
 
 typedef struct Q35PCIHost {

@@ -131,10 +131,9 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
         gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
     }
 
-    q35_host->mch.ram_size = ram_size;
-    q35_host->mch.system_memory = get_system_memory();
+    q35_host->mch.dev.ram_size = ram_size;
+    q35_host->mch.dev.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();
-    q35_host->mch.guest_info = guest_info;
     /* pci */
     qdev_init_nofail(DEVICE(q35_host));
     host_bus = q35_host->host.pci.bus;

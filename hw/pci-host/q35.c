@@ -53,10 +53,10 @@ static int q35_host_init(SysBusDevice *dev)
         return -1;
     }
 
-    s->mch.pci_address_space = &s->pci_address_space;
-    pci->bus = pci_bus_new(DEVICE(s), "pcie.0",
-                    s->mch.pci_address_space, s->mch.address_space_io,
-                    0, TYPE_PCIE_BUS);
+    s->mch.dev.pci_address_space = &s->pci_address_space;
+    pci->bus = pci_bus_new(DEVICE(dev), "pcie.0",
+                           s->mch.dev.pci_address_space, s->mch.address_space_io,
+                           0, TYPE_PCIE_BUS);
     qdev_set_parent_bus(DEVICE(&s->mch), BUS(pci->bus));
     qdev_init_nofail(DEVICE(&s->mch));
 
@@ -115,8 +115,8 @@ static const TypeInfo q35_host_info = {
 /* PCIe MMCFG */
 static void mch_update_pciexbar(MCHPCIState *mch)
 {
-    PCIDevice *pci_dev = &mch->d;
-    BusState *bus = qdev_get_parent_bus(&pci_dev->qdev);
+    PCIDevice *pci_dev = PCI_DEVICE(mch);
+    BusState *bus = qdev_get_parent_bus(DEVICE(pci_dev));
     DeviceState *qdev = bus->parent;
     Q35PCIHost *s = Q35_HOST_DEVICE(qdev);
 
@@ -153,49 +153,18 @@ static void mch_update_pciexbar(MCHPCIState *mch)
     pcie_host_mmcfg_update(&s->host, enable, addr, length);
 }
 
-/* PAM */
-static void mch_update_pam(MCHPCIState *mch)
-{
-    int i;
-
-    memory_region_transaction_begin();
-    for (i = 0; i < 13; i++) {
-        pam_update(&mch->pam_regions[i], i,
-                   mch->d.config[MCH_HOST_BRIDGE_PAM0 + ((i + 1) / 2)]);
-    }
-    memory_region_transaction_commit();
-}
-
-/* SMRAM */
-static void mch_update_smram(MCHPCIState *mch)
-{
-    memory_region_transaction_begin();
-    smram_update(&mch->smram_region, mch->d.config[MCH_HOST_BRDIGE_SMRAM],
-                    mch->smm_enabled);
-    memory_region_transaction_commit();
-}
-
-static void mch_set_smm(int smm, void *arg)
-{
-    MCHPCIState *mch = arg;
-
-    memory_region_transaction_begin();
-    smram_set_smm(&mch->smm_enabled, smm, mch->d.config[MCH_HOST_BRDIGE_SMRAM],
-                    &mch->smram_region);
-    memory_region_transaction_commit();
-}
-
 static void mch_write_config(PCIDevice *d,
-                              uint32_t address, uint32_t val, int len)
+                             uint32_t address, uint32_t val, int len)
 {
     MCHPCIState *mch = MCH_PCI_DEVICE(d);
+    MemoryController *m = MEMORY_CONTROLLER(d);
 
     /* XXX: implement SMRAM.D_LOCK */
     pci_default_write_config(d, address, val, len);
 
     if (ranges_overlap(address, len, MCH_HOST_BRIDGE_PAM0,
                        MCH_HOST_BRIDGE_PAM_SIZE)) {
-        mch_update_pam(mch);
+        mc_update_pam(m);
     }
 
     if (ranges_overlap(address, len, MCH_HOST_BRIDGE_PCIEXBAR,
@@ -205,21 +174,23 @@ static void mch_write_config(PCIDevice *d,
 
     if (ranges_overlap(address, len, MCH_HOST_BRDIGE_SMRAM,
                        MCH_HOST_BRDIGE_SMRAM_SIZE)) {
-        mch_update_smram(mch);
+        mc_update_smram(m);
     }
 }
 
-static void mch_update(MCHPCIState *mch)
+static void mch_update(MemoryController *d)
 {
+    MCHPCIState *mch = MCH_PCI_DEVICE(d);
+
     mch_update_pciexbar(mch);
-    mch_update_pam(mch);
-    mch_update_smram(mch);
+    mc_update_pam(d);
+    mc_update_smram(d);
 }
 
 static int mch_post_load(void *opaque, int version_id)
 {
-    MCHPCIState *mch = opaque;
-    mch_update(mch);
+    MemoryController *m = opaque;
+    mch_update(m);
     return 0;
 }
 
@@ -230,8 +201,8 @@ static const VMStateDescription vmstate_mch = {
     .minimum_version_id_old = 1,
     .post_load = mch_post_load,
     .fields = (VMStateField []) {
-        VMSTATE_PCI_DEVICE(d, MCHPCIState),
-        VMSTATE_UINT8(smm_enabled, MCHPCIState),
+        VMSTATE_PCI_DEVICE(dev.dev, MCHPCIState),
+        VMSTATE_UINT8(dev.smm_enabled, MCHPCIState),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -239,111 +210,39 @@ static const VMStateDescription vmstate_mch = {
 static void mch_reset(DeviceState *qdev)
 {
     PCIDevice *d = PCI_DEVICE(qdev);
-    MCHPCIState *mch = MCH_PCI_DEVICE(d);
+    MemoryController *m = MEMORY_CONTROLLER(d);
 
     pci_set_quad(d->config + MCH_HOST_BRIDGE_PCIEXBAR,
                  MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT);
 
     d->config[MCH_HOST_BRDIGE_SMRAM] = MCH_HOST_BRIDGE_SMRAM_DEFAULT;
 
-    mch_update(mch);
-}
-
-static int mch_init(PCIDevice *d)
-{
-    int i;
-    hwaddr pci_hole64_size;
-    hwaddr below_4g_mem_size, above_4g_mem_size;
-    MCHPCIState *mch = MCH_PCI_DEVICE(d);
-
-    /* Leave enough space for the biggest MCFG BAR */
-    /* TODO: this matches current bios behaviour, but
-     * it's not a power of two, which means an MTRR
-     * can't cover it exactly.
-     */
-    mch->guest_info->pci_info.w32.begin = MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT +
-        MCH_HOST_BRIDGE_PCIEXBAR_MAX;
-    mch->guest_info->mcfg_base = MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT;
-
-    if(mch->ram_size > MCH_PCI_HOLE) {
-        below_4g_mem_size = MCH_PCI_HOLE;
-        above_4g_mem_size = mch->ram_size - MCH_PCI_HOLE;
-    } else {
-        below_4g_mem_size = mch->ram_size;
-        above_4g_mem_size = 0;
-    }
-
-    /* Allocate RAM.  We allocate it as a single memory region and use
-     * aliases to address portions of it, mostly for backwards compatibility
-     * with older qemus that used qemu_ram_alloc().
-     */
-    memory_region_init_ram(&mch->ram, "pc.ram",
-                           below_4g_mem_size + above_4g_mem_size);
-    vmstate_register_ram_global(&mch->ram);
-    memory_region_init_alias(&mch->ram_below_4g, "ram-below-4g", &mch->ram,
-                             0, below_4g_mem_size);
-    memory_region_add_subregion(mch->system_memory, 0, &mch->ram_below_4g);
-    if (above_4g_mem_size > 0) {
-        memory_region_init_alias(&mch->ram_above_4g, "ram-above-4g", &mch->ram,
-                                 below_4g_mem_size, above_4g_mem_size);
-        memory_region_add_subregion(mch->system_memory, MCH_PCI_HOLE_END,
-                                    &mch->ram_above_4g);
-    }
-
-    /* setup pci memory regions */
-    memory_region_init_alias(&mch->pci_hole, "pci-hole",
-                             mch->pci_address_space,
-                             below_4g_mem_size,
-                             0x100000000ULL - below_4g_mem_size);
-    memory_region_add_subregion(mch->system_memory, below_4g_mem_size,
-                                &mch->pci_hole);
-    pci_hole64_size = (sizeof(hwaddr) == 4 ? 0 :
-                       ((uint64_t)1 << 62));
-    memory_region_init_alias(&mch->pci_hole_64bit, "pci-hole64",
-                             mch->pci_address_space,
-                             0x100000000ULL + above_4g_mem_size,
-                             pci_hole64_size);
-    if (pci_hole64_size) {
-        memory_region_add_subregion(mch->system_memory,
-                                    0x100000000ULL + above_4g_mem_size,
-                                    &mch->pci_hole_64bit);
-    }
-    /* smram */
-    cpu_smm_register(&mch_set_smm, mch);
-    memory_region_init_alias(&mch->smram_region, "smram-region",
-                             mch->pci_address_space, 0xa0000, 0x20000);
-    memory_region_add_subregion_overlap(mch->system_memory, 0xa0000,
-                                        &mch->smram_region, 1);
-    memory_region_set_enabled(&mch->smram_region, false);
-    init_pam(mch->ram_memory, mch->system_memory, mch->pci_address_space,
-             &mch->pam_regions[0], PAM_BIOS_BASE, PAM_BIOS_SIZE);
-    for (i = 0; i < 12; ++i) {
-        init_pam(mch->ram_memory, mch->system_memory, mch->pci_address_space,
-                 &mch->pam_regions[i+1], PAM_EXPAN_BASE + i * PAM_EXPAN_SIZE,
-                 PAM_EXPAN_SIZE);
-    }
-    return 0;
+    mch_update(m);
 }
 
 static void mch_class_init(ObjectClass *klass, void *data)
 {
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
+    MemoryControllerClass *mc = MEMORY_CONTROLLER_CLASS(klass);
 
-    k->init = mch_init;
     k->config_write = mch_write_config;
     dc->reset = mch_reset;
-    dc->desc = "Host bridge";
     dc->vmsd = &vmstate_mch;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_Q35_MCH;
     k->revision = MCH_HOST_BRIDGE_REVISION_DEFUALT;
-    k->class_id = PCI_CLASS_BRIDGE_HOST;
+
+    mc->pci_hole_start = MCH_PCI_HOLE;
+    mc->pci_hole_end = 0x100000000ULL;
+    mc->pam0 = MCH_HOST_BRIDGE_PAM0;
+    mc->smram = MCH_HOST_BRDIGE_SMRAM;
+    mc->update = mch_update;
 }
 
 static const TypeInfo mch_info = {
     .name = TYPE_MCH_PCI_DEVICE,
-    .parent = TYPE_PCI_DEVICE,
+    .parent = TYPE_MEMORY_CONTROLLER,
     .instance_size = sizeof(MCHPCIState),
     .class_init = mch_class_init,
 };
