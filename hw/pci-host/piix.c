@@ -44,6 +44,8 @@
 
 typedef struct I440FXState {
     PCIHostState parent_obj;
+    MemoryRegion *address_space_io;
+    MemoryRegion *pci_address_space;
 } I440FXState;
 
 #define PIIX_NUM_PIC_IRQS       16      /* i8259 * 2 */
@@ -201,9 +203,13 @@ static const VMStateDescription vmstate_i440fx_pmc = {
     }
 };
 
-static int i440fx_initfn(SysBusDevice *dev)
+static int i440fx_realize(SysBusDevice *dev)
 {
     PCIHostState *s = PCI_HOST_BRIDGE(dev);
+    I440FXState *f = I440FX_DEVICE(dev);
+
+    s->bus = pci_bus_new(DEVICE(f), NULL, f->pci_address_space,
+                         f->address_space_io, 0, TYPE_PCI_BUS);
 
     memory_region_init_io(&s->conf_mem, &pci_host_conf_le_ops, s,
                           "pci-conf-idx", 4);
@@ -216,6 +222,10 @@ static int i440fx_initfn(SysBusDevice *dev)
     sysbus_init_ioports(&s->busdev, 0xcfc, 4);
 
     return 0;
+}
+
+static void i440fx_initfn(Object *obj)
+{
 }
 
 static int i440fx_pmc_initfn(PCIDevice *dev)
@@ -241,23 +251,25 @@ static PCIBus *i440fx_common_init(const char *device_name,
                                   MemoryRegion *pci_address_space,
                                   MemoryRegion *ram_memory)
 {
-    DeviceState *dev;
-    PCIBus *b;
     PCIDevice *d;
     PCIHostState *s;
     PIIX3State *piix3;
     I440FXPMCState *f;
+    I440FXState *i440fx;
     unsigned i;
 
-    dev = qdev_create(NULL, TYPE_I440FX_DEVICE);
-    s = PCI_HOST_BRIDGE(dev);
-    b = pci_bus_new(dev, NULL, pci_address_space,
-                    address_space_io, 0, TYPE_PCI_BUS);
-    s->bus = b;
-    object_property_add_child(qdev_get_machine(), "i440fx", OBJECT(dev), NULL);
-    qdev_init_nofail(dev);
+    i440fx = I440FX_DEVICE(object_new(TYPE_I440FX_DEVICE));
+    s = PCI_HOST_BRIDGE(i440fx);
 
-    d = pci_create_simple(b, 0, device_name);
+    i440fx->address_space_io = address_space_io;
+    i440fx->pci_address_space = pci_address_space;
+
+    object_property_add_child(qdev_get_machine(), "i440fx",
+                              OBJECT(i440fx), NULL);
+    qdev_set_parent_bus(DEVICE(i440fx), sysbus_get_default());
+    qdev_init_nofail(DEVICE(i440fx));
+
+    d = pci_create_simple(s->bus, 0, device_name);
     f = I440FX_PMC_DEVICE(d);
     f->system_memory = address_space_mem;
     f->pci_address_space = pci_address_space;
@@ -291,15 +303,15 @@ static PCIBus *i440fx_common_init(const char *device_name,
      * These additional routes can be discovered through ACPI. */
     if (xen_enabled()) {
         piix3 = DO_UPCAST(PIIX3State, dev,
-                pci_create_simple_multifunction(b, -1, true, "PIIX3-xen"));
-        pci_bus_irqs(b, xen_piix3_set_irq, xen_pci_slot_get_pirq,
+                pci_create_simple_multifunction(s->bus, -1, true, "PIIX3-xen"));
+        pci_bus_irqs(s->bus, xen_piix3_set_irq, xen_pci_slot_get_pirq,
                 piix3, XEN_PIIX_NUM_PIRQS);
     } else {
         piix3 = DO_UPCAST(PIIX3State, dev,
-                pci_create_simple_multifunction(b, -1, true, "PIIX3"));
-        pci_bus_irqs(b, piix3_set_irq, pci_slot_get_pirq, piix3,
+                pci_create_simple_multifunction(s->bus, -1, true, "PIIX3"));
+        pci_bus_irqs(s->bus, piix3_set_irq, pci_slot_get_pirq, piix3,
                 PIIX_NUM_PIRQS);
-        pci_bus_set_route_irq_fn(b, piix3_route_intx_pin_to_irq);
+        pci_bus_set_route_irq_fn(s->bus, piix3_route_intx_pin_to_irq);
     }
     piix3->pic = pic;
     *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(piix3), "isa.0"));
@@ -313,7 +325,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
 
     i440fx_pmc_update_memory_mappings(f);
 
-    return b;
+    return s->bus;
 }
 
 PCIBus *i440fx_init(int *piix3_devfn,
@@ -645,7 +657,7 @@ static void i440fx_class_init(ObjectClass *klass, void *data)
     PCIHostBridgeClass *hc = PCI_HOST_BRIDGE_CLASS(klass);
 
     hc->root_bus_path = i440fx_pcihost_root_bus_path;
-    k->init = i440fx_initfn;
+    k->init = i440fx_realize;
     dc->fw_name = "pci";
     dc->no_user = 1;
 }
@@ -654,6 +666,7 @@ static const TypeInfo i440fx_info = {
     .name          = TYPE_I440FX_DEVICE,
     .parent        = TYPE_PCI_HOST_BRIDGE,
     .instance_size = sizeof(I440FXState),
+    .instance_init = i440fx_initfn,
     .class_init    = i440fx_class_init,
 };
 
