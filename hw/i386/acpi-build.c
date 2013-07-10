@@ -267,11 +267,26 @@ acpi_encode_len(uint8_t *ssdt_ptr, int length, int bytes)
 #define ACPI_PCIHP_SIZEOF (*ssdt_pcihp_end - *ssdt_pcihp_start)
 #define ACPI_PCIHP_AML (ssdp_pcihp_aml + *ssdt_pcihp_start)
 
+/* 0x5B 0x82 DeviceOp PkgLength NameString DimmID */
+#define ACPI_MEM_BASE 0xaf80
+#define ACPI_MEM_AML (ssdm_mem_aml + *ssdt_mem_start)
+#define ACPI_MEM_SIZEOF (*ssdt_mem_end - *ssdt_mem_start)
+#define ACPI_MEM_OFFSET_HEX (*ssdt_mem_name - *ssdt_mem_start + 2)
+#define ACPI_MEM_OFFSET_ID (*ssdt_mem_id - *ssdt_mem_start)
+#define ACPI_MEM_OFFSET_PXM 31
+#define ACPI_MEM_OFFSET_START 55
+#define ACPI_MEM_OFFSET_END   63
+#define ACPI_MEM_OFFSET_SIZE  79
+
+uint64_t nb_numa_dimms = 0;
+struct srat_memory_affinity *mem;
+
 #define ACPI_SSDT_SIGNATURE 0x54445353 /* SSDT */
 #define ACPI_SSDT_HEADER_LENGTH 36
 
 #include "hw/i386/ssdt-misc.hex"
 #include "hw/i386/ssdt-pcihp.hex"
+#include "hw/i386/ssdt-mem.hex"
 
 static uint8_t*
 build_notify(uint8_t *ssdt_ptr, const char *name, int skip, int count,
@@ -319,6 +334,105 @@ static void patch_pcihp(int slot, uint8_t *ssdt_ptr, uint32_t eject)
     if (!eject) {
         memcpy(ssdt_ptr + ACPI_PCIHP_OFFSET_EJ0, "EJ0_", 4);
     }
+}
+
+static void build_memdev(uint8_t *ssdt_ptr, int i, uint64_t mem_base, uint64_t mem_len, uint8_t node)
+{
+    memcpy(ssdt_ptr, ACPI_MEM_AML, ACPI_MEM_SIZEOF);
+    ssdt_ptr[ACPI_MEM_OFFSET_HEX] = acpi_get_hex(i >> 4);
+    ssdt_ptr[ACPI_MEM_OFFSET_HEX+1] = acpi_get_hex(i);
+    ssdt_ptr[ACPI_MEM_OFFSET_ID] = i;
+    ssdt_ptr[ACPI_MEM_OFFSET_PXM] = node;
+    *(uint64_t*)(ssdt_ptr + ACPI_MEM_OFFSET_START) = mem_base;
+    *(uint64_t*)(ssdt_ptr + ACPI_MEM_OFFSET_END) = mem_base + mem_len;
+    *(uint64_t*)(ssdt_ptr + ACPI_MEM_OFFSET_SIZE) = mem_len;
+}
+
+static void*
+build_memssdt(GArray *table_data, GArray *linker,
+           FWCfgState *fw_cfg, PcGuestInfo *guest_info)
+{
+    uint64_t mem_base;
+    uint64_t mem_len;
+    uint8_t  node;
+    int i;
+    uint64_t num_dimms = guest_info->num_dimms;
+    uint8_t  memslot_status, enabled;
+
+    int length = (sizeof(acpi_table_header) + (1+3+4)
+                  + (num_dimms * ACPI_MEM_SIZEOF)
+                  + (1+2+5+(12*num_dimms))
+                  + (6+2+1+(1*num_dimms)));
+
+    uint8_t *ssdt = acpi_data_push(table_data, length);
+    uint8_t *ssdt_ptr = ssdt + sizeof(struct acpi_table_header);
+
+    // build Scope(_SB_) header
+    *(ssdt_ptr++) = 0x10; // ScopeOp
+    ssdt_ptr = acpi_encode_len(ssdt_ptr, length-1, 3);
+    *(ssdt_ptr++) = '_';
+    *(ssdt_ptr++) = 'S';
+    *(ssdt_ptr++) = 'B';
+    *(ssdt_ptr++) = '_';
+
+    for (i = 0; i < num_dimms; i++) {
+        mem_base = guest_info->start_dimm[i];
+        mem_len = guest_info->size_dimm[i];
+        node = guest_info->node_dimm[i];
+        build_memdev(ssdt_ptr, i, mem_base, mem_len, node);
+        ssdt_ptr += ACPI_MEM_SIZEOF;
+    }
+
+    // build "Method(MTFY, 2) {If (LEqual(Arg0, 0x00)) {Notify(CM00, Arg1)} ...}"
+    *(ssdt_ptr++) = 0x14; // MethodOp
+    ssdt_ptr = acpi_encode_len(ssdt_ptr, 2+5+(12*num_dimms), 2);
+    *(ssdt_ptr++) = 'M';
+    *(ssdt_ptr++) = 'T';
+    *(ssdt_ptr++) = 'F';
+    *(ssdt_ptr++) = 'Y';
+    *(ssdt_ptr++) = 0x02;
+    for (i=0; i<num_dimms; i++) {
+        *(ssdt_ptr++) = 0xA0; // IfOp
+       ssdt_ptr = acpi_encode_len(ssdt_ptr, 11, 1);
+        *(ssdt_ptr++) = 0x93; // LEqualOp
+        *(ssdt_ptr++) = 0x68; // Arg0Op
+        *(ssdt_ptr++) = 0x0A; // BytePrefix
+        *(ssdt_ptr++) = i;
+        *(ssdt_ptr++) = 0x86; // NotifyOp
+        *(ssdt_ptr++) = 'M';
+        *(ssdt_ptr++) = 'P';
+        *(ssdt_ptr++) = acpi_get_hex(i >> 4);
+        *(ssdt_ptr++) = acpi_get_hex(i);
+        *(ssdt_ptr++) = 0x69; // Arg1Op
+    }
+
+    // build "Name(MEON, Package() { One, One, ..., Zero, Zero, ... })"
+    *(ssdt_ptr++) = 0x08; // NameOp
+    *(ssdt_ptr++) = 'M';
+    *(ssdt_ptr++) = 'E';
+    *(ssdt_ptr++) = 'O';
+    *(ssdt_ptr++) = 'N';
+    *(ssdt_ptr++) = 0x12; // PackageOp
+    ssdt_ptr = acpi_encode_len(ssdt_ptr, 2+1+(1*num_dimms), 2);
+    *(ssdt_ptr++) = num_dimms;
+
+    memslot_status = 0;
+
+    for (i = 0; i < num_dimms; i++) {
+        enabled = 0;
+        if (i % 8 == 0)
+            memslot_status = cpu_inb(ACPI_MEM_BASE + i/8);
+        enabled = memslot_status & 1;
+        mem_base = guest_info->start_dimm[i];
+        mem_len = guest_info->size_dimm[i];
+        *(ssdt_ptr++) = enabled ? 0x01 : 0x00;
+        if (enabled)
+            e820_add_entry(mem_base, mem_len, E820_RAM);
+        memslot_status = memslot_status >> 1;
+    }
+    build_header(linker, table_data, (void*)ssdt, ACPI_SSDT_SIGNATURE, ssdt_ptr - ssdt, 1);
+
+    return ssdt;
 }
 
 static void
@@ -446,13 +560,17 @@ build_hpet(GArray *table_data, GArray *linker)
 
 static void
 acpi_build_srat_memory(AcpiSratMemoryAffinity *numamem,
-                       uint64_t base, uint64_t len, int node, int enabled)
+                       uint64_t base, uint64_t len, int node, int enabled,
+                       int hotpluggable)
 {
     numamem->type = ACPI_SRAT_MEMORY;
     numamem->length = sizeof(*numamem);
     memset(numamem->proximity, 0, 4);
     numamem->proximity[0] = node;
     numamem->flags = cpu_to_le32(!!enabled);
+    if (hotpluggable) {
+        numamem->flags |= cpu_to_le32(0x2);
+    }       
     numamem->base_addr = cpu_to_le64(base);
     numamem->range_length = cpu_to_le64(len);
 }
@@ -468,7 +586,7 @@ build_srat(GArray *table_data, GArray *linker,
     int i;
     uint64_t curnode;
     int srat_size;
-    int slots;
+    int slots, node;
     uint64_t mem_len, mem_base, next_base;
 
     srat_size = sizeof(*srat) +
@@ -502,7 +620,7 @@ build_srat(GArray *table_data, GArray *linker,
     slots = 0;
     next_base = 0;
 
-    acpi_build_srat_memory(numamem, 0, 640*1024, 0, 1);
+    acpi_build_srat_memory(numamem, 0, 640*1024, 0, 1, 0);
     next_base = 1024 * 1024;
     numamem++;
     slots++;
@@ -518,7 +636,7 @@ build_srat(GArray *table_data, GArray *linker,
             next_base > guest_info->ram_size) {
             mem_len -= next_base - guest_info->ram_size;
             if (mem_len > 0) {
-                acpi_build_srat_memory(numamem, mem_base, mem_len, i-1, 1);
+                acpi_build_srat_memory(numamem, mem_base, mem_len, i-1, 1, 0);
                 numamem++;
                 slots++;
             }
@@ -526,12 +644,21 @@ build_srat(GArray *table_data, GArray *linker,
             mem_len = next_base - guest_info->ram_size;
             next_base += (1ULL << 32) - guest_info->ram_size;
         }
-        acpi_build_srat_memory(numamem, mem_base, mem_len, i-1, 1);
+        acpi_build_srat_memory(numamem, mem_base, mem_len, i-1, 1, 0);
         numamem++;
         slots++;
     }
-    for (; slots < guest_info->numa_nodes + 2; slots++) {
-        acpi_build_srat_memory(numamem, 0, 0, 0, 0);
+
+    for (i = 1; i < guest_info->num_dimms + 1; ++i) {
+        mem_base = guest_info->start_dimm[i];
+        mem_len = guest_info->size_dimm[i];
+        node = guest_info->node_dimm[i];
+        acpi_build_srat_memory(numamem, mem_base, mem_len, node, 1, 1);
+        slots++;
+    }
+
+    for (; slots < guest_info->numa_nodes + guest_info->num_dimms + 2; slots++) {
+        acpi_build_srat_memory(numamem, 0, 0, 0, 0, 0);
         numamem++;
     }
 
@@ -688,6 +815,10 @@ void acpi_setup(PcGuestInfo *guest_info)
     if (guest_info->numa_nodes) {
         acpi_add_table(table_offsets, table_data);
         build_srat(table_data, linker, guest_info->fw_cfg, guest_info);
+    }
+    if (guest_info->num_dimms) {
+        acpi_add_table(table_offsets, table_data);
+        build_memssdt(table_data, linker, guest_info->fw_cfg, guest_info);
     }
     if (guest_info->mcfg_base) {
         acpi_add_table(table_offsets, table_data);
