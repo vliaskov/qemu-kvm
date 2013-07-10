@@ -136,7 +136,6 @@ FWCfgState *pc_memory_init(MemoryRegion *system_memory,
                            ram_addr_t below_4g_mem_size,
                            ram_addr_t above_4g_mem_size,
                            MemoryRegion *rom_memory,
-                           MemoryRegion **ram_memory,
                            PcGuestInfo *guest_info);
 
 qemu_irq *pc_allocate_cpu_irq(void);

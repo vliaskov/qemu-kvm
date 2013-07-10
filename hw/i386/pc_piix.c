@@ -141,7 +141,7 @@ static void pc_init1(MemoryRegion *system_memory,
         fw_cfg = pc_memory_init(system_memory,
                        kernel_filename, kernel_cmdline, initrd_filename,
                        below_4g_mem_size, above_4g_mem_size,
-                       rom_memory, NULL, guest_info);
+                       rom_memory, guest_info);
     }
 
     gsi_state = g_malloc0(sizeof(*gsi_state));

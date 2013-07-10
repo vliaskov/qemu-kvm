@@ -1131,7 +1131,6 @@ FWCfgState *pc_memory_init(MemoryRegion *system_memory,
                            ram_addr_t below_4g_mem_size,
                            ram_addr_t above_4g_mem_size,
                            MemoryRegion *rom_memory,
-                           MemoryRegion **ram_memory,
                            PcGuestInfo *guest_info)
 {
     int linux_boot, i;
@@ -1149,7 +1148,6 @@ FWCfgState *pc_memory_init(MemoryRegion *system_memory,
     memory_region_init_ram(ram, "pc.ram",
                            below_4g_mem_size + above_4g_mem_size);
     vmstate_register_ram_global(ram);
-    *ram_memory = ram;
     ram_below_4g = g_malloc(sizeof(*ram_below_4g));
     memory_region_init_alias(ram_below_4g, "ram-below-4g", ram,
                              0, below_4g_mem_size);

@@ -253,6 +253,7 @@ static int mch_init(PCIDevice *d)
 {
     int i;
     hwaddr pci_hole64_size;
+    hwaddr below_4g_mem_size, above_4g_mem_size;
     MCHPCIState *mch = MCH_PCI_DEVICE(d);
 
     /* Leave enough space for the biggest MCFG BAR */
@@ -264,22 +265,47 @@ static int mch_init(PCIDevice *d)
         MCH_HOST_BRIDGE_PCIEXBAR_MAX;
     mch->guest_info->mcfg_base = MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT;
 
+    if(mch->ram_size > MCH_PCI_HOLE) {
+        below_4g_mem_size = MCH_PCI_HOLE;
+        above_4g_mem_size = mch->ram_size - MCH_PCI_HOLE;
+    } else {
+        below_4g_mem_size = mch->ram_size;
+        above_4g_mem_size = 0;
+    }
+
+    /* Allocate RAM.  We allocate it as a single memory region and use
+     * aliases to address portions of it, mostly for backwards compatibility
+     * with older qemus that used qemu_ram_alloc().
+     */
+    memory_region_init_ram(&mch->ram, "pc.ram",
+                           below_4g_mem_size + above_4g_mem_size);
+    vmstate_register_ram_global(&mch->ram);
+    memory_region_init_alias(&mch->ram_below_4g, "ram-below-4g", &mch->ram,
+                             0, below_4g_mem_size);
+    memory_region_add_subregion(mch->system_memory, 0, &mch->ram_below_4g);
+    if (above_4g_mem_size > 0) {
+        memory_region_init_alias(&mch->ram_above_4g, "ram-above-4g", &mch->ram,
+                                 below_4g_mem_size, above_4g_mem_size);
+        memory_region_add_subregion(mch->system_memory, MCH_PCI_HOLE_END,
+                                    &mch->ram_above_4g);
+    }
+
     /* setup pci memory regions */
     memory_region_init_alias(&mch->pci_hole, "pci-hole",
                              mch->pci_address_space,
-                             mch->below_4g_mem_size,
-                             0x100000000ULL - mch->below_4g_mem_size);
-    memory_region_add_subregion(mch->system_memory, mch->below_4g_mem_size,
+                             below_4g_mem_size,
+                             0x100000000ULL - below_4g_mem_size);
+    memory_region_add_subregion(mch->system_memory, below_4g_mem_size,
                                 &mch->pci_hole);
     pci_hole64_size = (sizeof(hwaddr) == 4 ? 0 :
                        ((uint64_t)1 << 62));
     memory_region_init_alias(&mch->pci_hole_64bit, "pci-hole64",
                              mch->pci_address_space,
-                             0x100000000ULL + mch->above_4g_mem_size,
+                             0x100000000ULL + above_4g_mem_size,
                              pci_hole64_size);
     if (pci_hole64_size) {
         memory_region_add_subregion(mch->system_memory,
-                                    0x100000000ULL + mch->above_4g_mem_size,
+                                    0x100000000ULL + above_4g_mem_size,
                                     &mch->pci_hole_64bit);
     }
     /* smram */
