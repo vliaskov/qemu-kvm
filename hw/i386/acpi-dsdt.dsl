@@ -294,6 +294,7 @@ DefinitionBlock (
     }
 
 #include "acpi-dsdt-cpu-hotplug.dsl"
+#include "acpi-dsdt-mem-hotplug.dsl"
 
 
 /****************************************************************
