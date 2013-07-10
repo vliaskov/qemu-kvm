@@ -38,6 +38,10 @@
  * http://download.intel.com/design/chipsets/datashts/29054901.pdf
  */
 
+#define TYPE_I440FX_DEVICE "i440FX"
+#define I440FX_DEVICE(obj) \
+    OBJECT_CHECK(I440FXState, (obj), TYPE_I440FX_DEVICE)
+
 typedef struct I440FXState {
     PCIHostState parent_obj;
 } I440FXState;
@@ -197,7 +201,7 @@ static const VMStateDescription vmstate_i440fx_pmc = {
     }
 };
 
-static int i440fx_pcihost_initfn(SysBusDevice *dev)
+static int i440fx_initfn(SysBusDevice *dev)
 {
     PCIHostState *s = PCI_HOST_BRIDGE(dev);
 
@@ -245,7 +249,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
     I440FXPMCState *f;
     unsigned i;
 
-    dev = qdev_create(NULL, "i440FX-pcihost");
+    dev = qdev_create(NULL, TYPE_I440FX_DEVICE);
     s = PCI_HOST_BRIDGE(dev);
     b = pci_bus_new(dev, NULL, pci_address_space,
                     address_space_io, 0, TYPE_PCI_BUS);
@@ -634,23 +638,23 @@ static const char *i440fx_pcihost_root_bus_path(PCIHostState *host_bridge,
     return "0000";
 }
 
-static void i440fx_pcihost_class_init(ObjectClass *klass, void *data)
+static void i440fx_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
     PCIHostBridgeClass *hc = PCI_HOST_BRIDGE_CLASS(klass);
 
     hc->root_bus_path = i440fx_pcihost_root_bus_path;
-    k->init = i440fx_pcihost_initfn;
+    k->init = i440fx_initfn;
     dc->fw_name = "pci";
     dc->no_user = 1;
 }
 
-static const TypeInfo i440fx_pcihost_info = {
-    .name          = "i440FX-pcihost",
+static const TypeInfo i440fx_info = {
+    .name          = TYPE_I440FX_DEVICE,
     .parent        = TYPE_PCI_HOST_BRIDGE,
     .instance_size = sizeof(I440FXState),
-    .class_init    = i440fx_pcihost_class_init,
+    .class_init    = i440fx_class_init,
 };
 
 static void i440fx_register_types(void)
@@ -658,7 +662,7 @@ static void i440fx_register_types(void)
     type_register_static(&i440fx_pmc_info);
     type_register_static(&piix3_info);
     type_register_static(&piix3_xen_info);
-    type_register_static(&i440fx_pcihost_info);
+    type_register_static(&i440fx_info);
 }
 
 type_init(i440fx_register_types)
