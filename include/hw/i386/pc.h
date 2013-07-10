@@ -170,9 +170,9 @@ void piix4_smbus_register_device(SMBusDevice *dev, uint8_t addr);
 /* hpet.c */
 extern int no_hpet;
 
-/* piix_pci.c */
-struct PCII440FXState;
-typedef struct PCII440FXState PCII440FXState;
+/* piix.c */
+struct I440FXPMCState;
+typedef struct I440FXPMCState I440FXPMCState;
 
 PCIBus *i440fx_init(int *piix_devfn,
                     ISABus **isa_bus, qemu_irq *pic,

@@ -82,11 +82,11 @@ typedef struct PIIX3State {
     MemoryRegion rcr_mem;
 } PIIX3State;
 
-#define TYPE_I440FX_PCI_DEVICE "i440FX"
-#define I440FX_PCI_DEVICE(obj) \
-    OBJECT_CHECK(PCII440FXState, (obj), TYPE_I440FX_PCI_DEVICE)
+#define TYPE_I440FX_PMC_DEVICE "i440FX-PMC"
+#define I440FX_PMC_DEVICE(obj) \
+    OBJECT_CHECK(I440FXPMCState, (obj), TYPE_I440FX_PMC_DEVICE)
 
-struct PCII440FXState {
+struct I440FXPMCState {
     PCIDevice dev;
     MemoryRegion *system_memory;
     MemoryRegion *pci_address_space;
@@ -118,7 +118,7 @@ static int pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
     return (pci_intx + slot_addend) & 3;
 }
 
-static void i440fx_update_memory_mappings(PCII440FXState *d)
+static void i440fx_pmc_update_memory_mappings(I440FXPMCState *d)
 {
     int i;
 
@@ -133,7 +133,7 @@ static void i440fx_update_memory_mappings(PCII440FXState *d)
 
 static void i440fx_set_smm(int val, void *arg)
 {
-    PCII440FXState *d = arg;
+    I440FXPMCState *d = arg;
 
     memory_region_transaction_begin();
     smram_set_smm(&d->smm_enabled, val, d->dev.config[I440FX_SMRAM],
@@ -145,25 +145,25 @@ static void i440fx_set_smm(int val, void *arg)
 static void i440fx_write_config(PCIDevice *dev,
                                 uint32_t address, uint32_t val, int len)
 {
-    PCII440FXState *d = I440FX_PCI_DEVICE(dev);
+    I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
 
     /* XXX: implement SMRAM.D_LOCK */
     pci_default_write_config(dev, address, val, len);
     if (ranges_overlap(address, len, I440FX_PAM, I440FX_PAM_SIZE) ||
         range_covers_byte(address, len, I440FX_SMRAM)) {
-        i440fx_update_memory_mappings(d);
+        i440fx_pmc_update_memory_mappings(d);
     }
 }
 
 static int i440fx_load_old(QEMUFile* f, void *opaque, int version_id)
 {
-    PCII440FXState *d = opaque;
+    I440FXPMCState *d = opaque;
     int ret, i;
 
     ret = pci_device_load(&d->dev, f);
     if (ret < 0)
         return ret;
-    i440fx_update_memory_mappings(d);
+    i440fx_pmc_update_memory_mappings(d);
     qemu_get_8s(f, &d->smm_enabled);
 
     if (version_id == 2) {
@@ -177,22 +177,22 @@ static int i440fx_load_old(QEMUFile* f, void *opaque, int version_id)
 
 static int i440fx_post_load(void *opaque, int version_id)
 {
-    PCII440FXState *d = opaque;
+    I440FXPMCState *d = opaque;
 
-    i440fx_update_memory_mappings(d);
+    i440fx_pmc_update_memory_mappings(d);
     return 0;
 }
 
-static const VMStateDescription vmstate_i440fx = {
-    .name = "I440FX",
+static const VMStateDescription vmstate_i440fx_pmc = {
+    .name = TYPE_I440FX_PMC_DEVICE,
     .version_id = 3,
     .minimum_version_id = 3,
     .minimum_version_id_old = 1,
     .load_state_old = i440fx_load_old,
     .post_load = i440fx_post_load,
     .fields      = (VMStateField []) {
-        VMSTATE_PCI_DEVICE(dev, PCII440FXState),
-        VMSTATE_UINT8(smm_enabled, PCII440FXState),
+        VMSTATE_PCI_DEVICE(dev, I440FXPMCState),
+        VMSTATE_UINT8(smm_enabled, I440FXPMCState),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -214,9 +214,9 @@ static int i440fx_pcihost_initfn(SysBusDevice *dev)
     return 0;
 }
 
-static int i440fx_initfn(PCIDevice *dev)
+static int i440fx_pmc_initfn(PCIDevice *dev)
 {
-    PCII440FXState *d = I440FX_PCI_DEVICE(dev);
+    I440FXPMCState *d = I440FX_PMC_DEVICE(dev);
 
     d->dev.config[I440FX_SMRAM] = 0x02;
 
@@ -242,7 +242,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
     PCIDevice *d;
     PCIHostState *s;
     PIIX3State *piix3;
-    PCII440FXState *f;
+    I440FXPMCState *f;
     unsigned i;
 
     dev = qdev_create(NULL, "i440FX-pcihost");
@@ -254,7 +254,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
     qdev_init_nofail(dev);
 
     d = pci_create_simple(b, 0, device_name);
-    f = I440FX_PCI_DEVICE(d);
+    f = I440FX_PMC_DEVICE(d);
     f->system_memory = address_space_mem;
     f->pci_address_space = pci_address_space;
     f->ram_memory = ram_memory;
@@ -307,7 +307,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
         ram_size = 255;
     f->dev.config[0x57] = ram_size;
 
-    i440fx_update_memory_mappings(f);
+    i440fx_pmc_update_memory_mappings(f);
 
     return b;
 }
@@ -326,7 +326,7 @@ PCIBus *i440fx_init(int *piix3_devfn,
 {
     PCIBus *b;
 
-    b = i440fx_common_init(TYPE_I440FX_PCI_DEVICE,
+    b = i440fx_common_init(TYPE_I440FX_PMC_DEVICE,
                            piix3_devfn, isa_bus, pic,
                            address_space_mem, address_space_io, ram_size,
                            pci_hole_start, pci_hole_size,
@@ -603,13 +603,13 @@ static const TypeInfo piix3_xen_info = {
     .class_init    = piix3_xen_class_init,
 };
 
-static void i440fx_class_init(ObjectClass *klass, void *data)
+static void i440fx_pmc_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
     k->no_hotplug = 1;
-    k->init = i440fx_initfn;
+    k->init = i440fx_pmc_initfn;
     k->config_write = i440fx_write_config;
     k->vendor_id = PCI_VENDOR_ID_INTEL;
     k->device_id = PCI_DEVICE_ID_INTEL_82441;
@@ -617,14 +617,14 @@ static void i440fx_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_BRIDGE_HOST;
     dc->desc = "Host bridge";
     dc->no_user = 1;
-    dc->vmsd = &vmstate_i440fx;
+    dc->vmsd = &vmstate_i440fx_pmc;
 }
 
-static const TypeInfo i440fx_info = {
-    .name          = TYPE_I440FX_PCI_DEVICE,
+static const TypeInfo i440fx_pmc_info = {
+    .name          = TYPE_I440FX_PMC_DEVICE,
     .parent        = TYPE_PCI_DEVICE,
-    .instance_size = sizeof(PCII440FXState),
-    .class_init    = i440fx_class_init,
+    .instance_size = sizeof(I440FXPMCState),
+    .class_init    = i440fx_pmc_class_init,
 };
 
 static const char *i440fx_pcihost_root_bus_path(PCIHostState *host_bridge,
@@ -655,7 +655,7 @@ static const TypeInfo i440fx_pcihost_info = {
 
 static void i440fx_register_types(void)
 {
-    type_register_static(&i440fx_info);
+    type_register_static(&i440fx_pmc_info);
     type_register_static(&piix3_info);
     type_register_static(&piix3_xen_info);
     type_register_static(&i440fx_pcihost_info);
