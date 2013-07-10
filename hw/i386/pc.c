@@ -1390,6 +1390,27 @@ void mc_set_smm(int val, void *arg)
     memory_region_transaction_commit();
 }
 
+static hwaddr mc_dimm_offset(DeviceState *dev, uint64_t size)
+{
+    MemoryController *d = MEMORY_CONTROLLER(dev);
+    MemoryControllerClass *c = MEMORY_CONTROLLER_GET_CLASS(d);
+    hwaddr ret;
+
+    if (d->below_4g_mem_size + size <= c->pci_hole_start) {
+        /* if dimm fits before pci hole, append it normally */
+        ret = d->below_4g_mem_size;
+        d->below_4g_mem_size += size;
+    } else {
+        /* otherwise place it above 4GB */
+        ret = d->above_4g_mem_size + c->pci_hole_end;
+        d->above_4g_mem_size += size;
+    }
+
+    d->ram_size += size;
+
+    return ret;
+}
+
 static int memory_controller_init(PCIDevice *dev)
 {
     MemoryController *m = MEMORY_CONTROLLER(dev);
@@ -1460,6 +1481,11 @@ static int memory_controller_init(PCIDevice *dev)
                  PAM_EXPAN_SIZE);
     }
 
+    m->dram_channel0 = dimm_bus_create(OBJECT(m), "membus.0", 8,
+                                       c->dimm_offset);
+    m->pv_dram_channel = dimm_bus_create(OBJECT(m), "membus.pv", 0,
+                                         c->dimm_offset);
+
     ram_size = m->ram_size / 8 / 1024 / 1024;
     if (ram_size > 255) {
         ram_size = 255;
@@ -1495,6 +1521,7 @@ static void memory_controller_class_init(ObjectClass *klass, void *data)
     dc->no_user = 1;
     mc->set_smm = mc_set_smm;
     mc->update = mc_update;
+    mc->dimm_offset = mc_dimm_offset;
 }
 
 static const TypeInfo memory_controller_type_info = {
