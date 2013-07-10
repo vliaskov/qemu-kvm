@@ -51,6 +51,7 @@
 #endif
 
 #include "hw/i386/acpi-dsdt.hex"
+#include "hw/isa/isa_pc.h"
 
 #define MAX_IDE_BUS 2
 
@@ -76,7 +77,7 @@ static void pc_init1(MemoryRegion *system_memory,
 {
     int i;
     ram_addr_t below_4g_mem_size, above_4g_mem_size;
-    PCIBus *pci_bus;
+    PCIBus *pci_bus = NULL;
     ISABus *isa_bus;
     int piix3_devfn = -1;
     qemu_irq *cpu_irq;
@@ -93,6 +94,7 @@ static void pc_init1(MemoryRegion *system_memory,
     DeviceState *icc_bridge;
     FWCfgState *fw_cfg = NULL;
     PcGuestInfo *guest_info;
+    ISAPc *isapc = NULL;
 
     icc_bridge = qdev_create(NULL, TYPE_ICC_BRIDGE);
     object_property_add_child(qdev_get_machine(), "icc-bridge",
@@ -158,8 +160,13 @@ static void pc_init1(MemoryRegion *system_memory,
                               system_memory, system_io, ram_size,
                               &pci_memory);
     } else {
-        pci_bus = NULL;
-        isa_bus = isa_bus_new(NULL, system_io);
+        isapc = ISA_PC(object_new(TYPE_ISA_PC));
+        isapc->ram_size = ram_size;
+        isapc->address_space_mem = system_memory;
+        isapc->address_space_io = system_io;
+        qdev_init_nofail(DEVICE(isapc));
+
+        isa_bus = isapc->bus;
         no_hpet = 1;
     }
     isa_bus_irqs(isa_bus, gsi);
@@ -183,7 +190,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     pc_register_ferr_irq(gsi[13]);
 
-    pc_vga_init(isa_bus, pci_enabled ? pci_bus : NULL);
+    pc_vga_init(isa_bus, pci_bus);
 
     /* init basic PC hardware */
     pc_basic_device_init(isa_bus, gsi, &rtc_state, &floppy, xen_enabled(),
