@@ -115,11 +115,8 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     if (pci_enabled) {
-        pci_memory = g_new(MemoryRegion, 1);
-        memory_region_init(pci_memory, "pci", INT64_MAX);
         rom_memory = pci_memory;
     } else {
-        pci_memory = NULL;
         rom_memory = system_memory;
     }
 
@@ -160,7 +157,7 @@ static void pc_init1(MemoryRegion *system_memory,
     if (pci_enabled) {
         pci_bus = i440fx_init(&piix3_devfn, &isa_bus, gsi,
                               system_memory, system_io, ram_size,
-                              pci_memory, ram_memory);
+                              &pci_memory, ram_memory);
     } else {
         pci_bus = NULL;
         isa_bus = isa_bus_new(NULL, system_io);

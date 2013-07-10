@@ -179,7 +179,7 @@ PCIBus *i440fx_init(int *piix_devfn,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
-                    MemoryRegion *pci_memory,
+                    MemoryRegion **pci_memory,
                     MemoryRegion *ram_memory);
 
 /* piix4.c */

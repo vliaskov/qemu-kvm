@@ -105,7 +105,7 @@ struct I440FXPMCState {
 typedef struct I440FXState {
     PCIHostState parent_obj;
     MemoryRegion *address_space_io;
-    MemoryRegion *pci_address_space;
+    MemoryRegion pci_address_space;
 
     PIIX3State piix3;
     I440FXPMCState pmc;
@@ -214,7 +214,7 @@ static int i440fx_realize(SysBusDevice *dev)
     PCIHostState *s = PCI_HOST_BRIDGE(dev);
     I440FXState *f = I440FX_DEVICE(dev);
 
-    s->bus = pci_bus_new(DEVICE(f), NULL, f->pci_address_space,
+    s->bus = pci_bus_new(DEVICE(f), NULL, &f->pci_address_space,
                          f->address_space_io, 0, TYPE_PCI_BUS);
 
     memory_region_init_io(&s->conf_mem, &pci_host_conf_le_ops, s,
@@ -226,6 +226,8 @@ static int i440fx_realize(SysBusDevice *dev)
                           "pci-conf-data", 4);
     sysbus_add_io(dev, 0xcfc, &s->data_mem);
     sysbus_init_ioports(&s->busdev, 0xcfc, 4);
+
+    f->pmc.pci_address_space = &f->pci_address_space;
 
     qdev_set_parent_bus(DEVICE(&f->pmc), BUS(s->bus));
     qdev_init_nofail(DEVICE(&f->pmc));
@@ -240,6 +242,8 @@ static void i440fx_initfn(Object *obj)
     object_initialize(&f->pmc, TYPE_I440FX_PMC_DEVICE);
     object_property_add_child(obj, "pmc", OBJECT(&f->pmc), NULL);
     qdev_prop_set_uint32(DEVICE(&f->pmc), "addr", PCI_DEVFN(0, 0));
+
+    memory_region_init(&f->pci_address_space, "pci", INT64_MAX);
 }
 
 static int i440fx_pmc_initfn(PCIDevice *dev)
@@ -251,7 +255,6 @@ static int i440fx_pmc_initfn(PCIDevice *dev)
     int i;
 
     g_assert(d->system_memory != NULL);
-    g_assert(d->pci_address_space != NULL);
     g_assert(d->ram_memory != NULL);
 
     if(d->ram_size > I440FX_PMC_PCI_HOLE) {
@@ -313,7 +316,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
                                   MemoryRegion *address_space_mem,
                                   MemoryRegion *address_space_io,
                                   ram_addr_t ram_size,
-                                  MemoryRegion *pci_address_space,
+                                  MemoryRegion **pci_address_space,
                                   MemoryRegion *ram_memory)
 {
     PCIHostState *s;
@@ -325,12 +328,10 @@ static PCIBus *i440fx_common_init(const char *device_name,
     s = PCI_HOST_BRIDGE(i440fx);
 
     i440fx->address_space_io = address_space_io;
-    i440fx->pci_address_space = pci_address_space;
 
     f = &i440fx->pmc;
     f->ram_size = ram_size;
     f->system_memory = address_space_mem;
-    f->pci_address_space = pci_address_space;
     f->ram_memory = ram_memory;
 
     object_property_add_child(qdev_get_machine(), "i440fx",
@@ -358,6 +359,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
     *isa_bus = ISA_BUS(qdev_get_child_bus(DEVICE(piix3), "isa.0"));
 
     *piix3_devfn = piix3->dev.devfn;
+    *pci_address_space = &i440fx->pci_address_space;
 
     return s->bus;
 }
@@ -367,7 +369,7 @@ PCIBus *i440fx_init(int *piix3_devfn,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
-                    MemoryRegion *pci_memory, MemoryRegion *ram_memory)
+                    MemoryRegion **pci_memory, MemoryRegion *ram_memory)
 
 {
     PCIBus *b;
