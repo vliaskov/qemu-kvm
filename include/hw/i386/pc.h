@@ -40,6 +40,7 @@ typedef struct MemoryController {
     MemoryRegion *system_memory;
     MemoryRegion *pci_address_space;
     MemoryRegion *ram_memory;
+    MemoryRegion option_roms;
     MemoryRegion pci_hole;
     MemoryRegion pci_hole_64bit;
     PAMMemoryRegion pam_regions[13];
@@ -170,13 +171,11 @@ void pc_acpi_init(const char *default_dsdt);
 PcGuestInfo *pc_guest_info_init(ram_addr_t below_4g_mem_size,
                                 ram_addr_t above_4g_mem_size);
 
-FWCfgState *pc_memory_init(MemoryRegion *system_memory,
-                           const char *kernel_filename,
+FWCfgState *pc_memory_init(const char *kernel_filename,
                            const char *kernel_cmdline,
                            const char *initrd_filename,
                            ram_addr_t below_4g_mem_size,
                            ram_addr_t above_4g_mem_size,
-                           MemoryRegion *rom_memory,
                            PcGuestInfo *guest_info);
 
 qemu_irq *pc_allocate_cpu_irq(void);

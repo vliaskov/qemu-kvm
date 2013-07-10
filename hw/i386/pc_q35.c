@@ -68,7 +68,6 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     BusState *idebus[MAX_SATA_PORTS];
     ISADevice *rtc_state;
     ISADevice *floppy;
-    MemoryRegion *rom_memory;
     GSIState *gsi_state;
     ISABus *isa_bus;
     int pci_enabled = 1;
@@ -101,13 +100,6 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
         below_4g_mem_size = ram_size;
     }
 
-    /* pci enabled */
-    if (pci_enabled) {
-        rom_memory = &q35_host->pci_address_space;
-    } else {
-        rom_memory = get_system_memory();
-    }
-
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
     guest_info->has_pci_info = has_pci_info;
     guest_info->has_acpi_build = has_acpi_build;
@@ -116,9 +108,8 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
-        pc_memory_init(get_system_memory(), kernel_filename, kernel_cmdline,
-                       initrd_filename, below_4g_mem_size, above_4g_mem_size,
-                       rom_memory, guest_info);
+        pc_memory_init(kernel_filename, kernel_cmdline,
+                       initrd_filename, below_4g_mem_size, above_4g_mem_size, guest_info);
     }
 
     /* irq lines */

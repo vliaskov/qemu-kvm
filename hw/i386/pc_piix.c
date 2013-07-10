@@ -90,7 +90,6 @@ static void pc_init1(MemoryRegion *system_memory,
     ISADevice *rtc_state;
     ISADevice *floppy;
     MemoryRegion *pci_memory;
-    MemoryRegion *rom_memory;
     DeviceState *icc_bridge;
     FWCfgState *fw_cfg = NULL;
     PcGuestInfo *guest_info;
@@ -115,12 +114,6 @@ static void pc_init1(MemoryRegion *system_memory,
         below_4g_mem_size = ram_size;
     }
 
-    if (pci_enabled) {
-        rom_memory = pci_memory;
-    } else {
-        rom_memory = system_memory;
-    }
-
     guest_info = pc_guest_info_init(below_4g_mem_size, above_4g_mem_size);
 
     guest_info->has_acpi_build = has_acpi_build;
@@ -140,10 +133,8 @@ static void pc_init1(MemoryRegion *system_memory,
 
     /* allocate ram and load rom/bios */
     if (!xen_enabled()) {
-        fw_cfg = pc_memory_init(system_memory,
-                       kernel_filename, kernel_cmdline, initrd_filename,
-                       below_4g_mem_size, above_4g_mem_size,
-                       rom_memory, guest_info);
+        fw_cfg = pc_memory_init(kernel_filename, kernel_cmdline, initrd_filename,
+                                below_4g_mem_size, above_4g_mem_size, guest_info);
     }
 
     gsi_state = g_malloc0(sizeof(*gsi_state));
