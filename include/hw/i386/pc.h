@@ -81,8 +81,12 @@ struct PcGuestInfo {
     bool apic_xrupt_override;
     bool has_hpet;
     uint64_t numa_nodes;
-    uint64_t *node_mem;
+    uint64_t num_dimms;
+    uint64_t *node_dimm;
+    uint64_t *size_dimm;
+    uint64_t *start_dimm;
     uint64_t *node_cpu;
+    uint64_t *node_mem;
     DECLARE_BITMAP(found_cpus, MAX_CPUMASK_BITS + 1);
     bool s3_disabled;
     bool s4_disabled;

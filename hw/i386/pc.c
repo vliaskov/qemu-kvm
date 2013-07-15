@@ -56,6 +56,7 @@
 #include "hw/cpu/icc_bus.h"
 #include "hw/boards.h"
 #include "hw/i386/acpi-build.h"
+#include "hw/mem-hotplug/dimm.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -1059,6 +1060,12 @@ PcGuestInfo *pc_guest_info_init(ram_addr_t below_4g_mem_size,
     guest_info->apic_id_limit = pc_apic_id_limit(max_cpus);
     guest_info->apic_xrupt_override = kvm_allows_irq0_override();
     guest_info->numa_nodes = nb_numa_nodes;
+    guest_info->num_dimms = nb_hp_dimms;
+    guest_info->start_dimm = g_new0(uint64_t, nb_hp_dimms);
+    guest_info->size_dimm = g_new0(uint64_t, nb_hp_dimms);
+    guest_info->node_dimm = g_new0(uint64_t, nb_hp_dimms);
+    dimm_setup_guestinfo_layout(guest_info->start_dimm, guest_info->size_dimm,
+            guest_info->node_dimm);
     guest_info->node_mem = g_memdup(node_mem, guest_info->numa_nodes *
                                     sizeof *guest_info->node_mem);
     guest_info->node_cpu = g_malloc0(guest_info->apic_id_limit *

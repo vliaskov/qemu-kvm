@@ -170,7 +170,7 @@ static DimmConfig *dimmcfg_find_from_name(DimmBus *bus, const char *name)
     return NULL;
 }
 
-void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots)
+void dimm_setup_guestinfo_layout(uint64_t *start, uint64_t *size, uint64_t *node)
 {
     DimmConfig *slot;
     DimmBus *bus;
@@ -178,9 +178,9 @@ void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots)
     QLIST_FOREACH(bus, &memory_buses, next) {
         QTAILQ_FOREACH(slot, &bus->dimmconfig_list, nextdimmcfg) {
             assert(slot->start);
-            fw_cfg_slots[3 * slot->idx] = cpu_to_le64(slot->start);
-            fw_cfg_slots[3 * slot->idx + 1] = cpu_to_le64(slot->size);
-            fw_cfg_slots[3 * slot->idx + 2] = cpu_to_le64(slot->node);
+            start[slot->idx] = cpu_to_le64(slot->start);
+            size[slot->idx] = cpu_to_le64(slot->size);
+            node[slot->idx] = cpu_to_le64(slot->node);
         }
     }
 }

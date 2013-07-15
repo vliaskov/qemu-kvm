@@ -67,7 +67,7 @@ struct dimm_hp_result {
 };
 
 void dimm_bus_hotplug(dimm_hotplug_fn hotplug, DeviceState *qdev);
-void dimm_setup_fwcfg_layout(uint64_t *fw_cfg_slots);
+void dimm_setup_guestinfo_layout(uint64_t *start, uint64_t *size, uint64_t *node);
 int dimm_add(char *id);
 DimmBus *dimm_bus_create(Object *parent, const char *name, uint32_t max_dimms,
     dimm_calcoffset_fn pmc_set_offset);

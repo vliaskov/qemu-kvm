@@ -822,6 +822,7 @@ static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
 static void enable_mem_device(PIIX4PMState *s, int memdevice)
 {
     MemStatus *g = &s->gpe_mem;
+    fprintf(stderr, "%s for dimm %d\n", __func__, memdevice);
     s->ar.gpe.sts[0] |= PIIX4_MEM_HOTPLUG_STATUS;
     g->mems_sts[memdevice / 8] |= (1 << (memdevice % 8));
 }
