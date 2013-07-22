@@ -1551,8 +1551,10 @@ void qemu_register_pc_machine(QEMUMachine *m)
 static void pc_dimm_plug(HotplugHandler *hotplug_dev,
                          DeviceState *dev, Error **errp)
 {
+    int slot;
     Error *local_err = NULL;
     PCMachineState *pcms = PC_MACHINE(hotplug_dev);
+    MachineState *machine = MACHINE(hotplug_dev);
     DimmDevice *dimm = DIMM(dev);
     DimmDeviceClass *ddc = DIMM_GET_CLASS(dimm);
     MemoryRegion *mr = ddc->get_memory_region(dimm);
@@ -1569,7 +1571,26 @@ static void pc_dimm_plug(HotplugHandler *hotplug_dev,
     if (local_err) {
         goto out;
     }
+
     object_property_set_int(OBJECT(dev), addr, DIMM_ADDR_PROP, &local_err);
+    if (local_err) {
+        goto out;
+    }
+
+    slot = object_property_get_int(OBJECT(dev), DIMM_SLOT_PROP, &local_err);
+    if (local_err) {
+        goto out;
+    }
+
+    slot = dimm_get_free_slot(slot == DIMM_UNASSIGNED_SLOT ? NULL : &slot,
+                              machine->ram_slots, &local_err);
+    if (local_err) {
+        goto out;
+    }
+    object_property_set_int(OBJECT(dev), slot, DIMM_SLOT_PROP, &local_err);
+    if (local_err) {
+        goto out;
+    }
 
     memory_region_add_subregion(&pcms->hotplug_memory,
                                 addr - pcms->hotplug_memory_base, mr);
