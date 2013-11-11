@@ -32,8 +32,6 @@
 #define SYNC_TO_VAPIC                   0x2
 #define SYNC_ISR_IRR_TO_VAPIC           0x4
 
-static APICCommonState *local_apics[MAX_APICS + 1];
-
 static void apic_set_irq(APICCommonState *s, int vector_num, int trigger_mode);
 static void apic_update_irq(APICCommonState *s);
 static void apic_get_delivery_bitmask(uint32_t *deliver_bitmask,
@@ -200,18 +198,15 @@ static void apic_external_nmi(APICCommonState *s)
 
 #define foreach_apic(apic, deliver_bitmask, code) \
 {\
+    CPUState *cpu;\
     int __i, __j, __mask;\
-    for(__i = 0; __i < MAX_APIC_WORDS; __i++) {\
+    CPU_FOREACH(cpu) {\
+        apic = APIC_COMMON(X86_CPU(cpu)->apic_state);\
+        __i = apic->idx / 32;\
+        __j = apic->idx % 32;\
         __mask = deliver_bitmask[__i];\
-        if (__mask) {\
-            for(__j = 0; __j < 32; __j++) {\
-                if (__mask & (1 << __j)) {\
-                    apic = local_apics[__i * 32 + __j];\
-                    if (apic) {\
-                        code;\
-                    }\
-                }\
-            }\
+        if (__mask & (1 << __j)) {\
+            code;\
         }\
     }\
 }
@@ -235,9 +230,13 @@ static void apic_bus_deliver(const uint32_t *deliver_bitmask,
                     }
                 }
                 if (d >= 0) {
-                    apic_iter = local_apics[d];
-                    if (apic_iter) {
-                        apic_set_irq(apic_iter, vector_num, trigger_mode);
+                    CPUState *cpu;
+                    CPU_FOREACH(cpu) {
+                        apic_iter = APIC_COMMON(X86_CPU(cpu)->apic_state);
+                        if (apic_iter->idx == d) {
+                            apic_set_irq(apic_iter, vector_num, trigger_mode);
+                            break;
+                        }
                     }
                 }
             }
@@ -422,18 +421,14 @@ static void apic_eoi(APICCommonState *s)
 
 static int apic_find_dest(uint8_t dest)
 {
-    APICCommonState *apic = local_apics[dest];
-    int i;
+    APICCommonState *apic;
+    CPUState *cpu;
 
-    if (apic && apic->id == dest)
-        return dest;  /* shortcut in case apic->id == apic->idx */
-
-    for (i = 0; i < MAX_APICS; i++) {
-        apic = local_apics[i];
-	if (apic && apic->id == dest)
-            return i;
-        if (!apic)
-            break;
+    CPU_FOREACH(cpu) {
+        apic = APIC_COMMON(X86_CPU(cpu)->apic_state);
+        if (apic->id == dest) {
+            return apic->idx;
+        }
     }
 
     return -1;
@@ -443,7 +438,7 @@ static void apic_get_delivery_bitmask(uint32_t *deliver_bitmask,
                                       uint8_t dest, uint8_t dest_mode)
 {
     APICCommonState *apic_iter;
-    int i;
+    CPUState *cpu;
 
     if (dest_mode == 0) {
         if (dest == 0xff) {
@@ -457,20 +452,17 @@ static void apic_get_delivery_bitmask(uint32_t *deliver_bitmask,
     } else {
         /* XXX: cluster mode */
         memset(deliver_bitmask, 0x00, MAX_APIC_WORDS * sizeof(uint32_t));
-        for(i = 0; i < MAX_APICS; i++) {
-            apic_iter = local_apics[i];
-            if (apic_iter) {
-                if (apic_iter->dest_mode == 0xf) {
-                    if (dest & apic_iter->log_dest)
-                        apic_set_bit(deliver_bitmask, i);
-                } else if (apic_iter->dest_mode == 0x0) {
-                    if ((dest & 0xf0) == (apic_iter->log_dest & 0xf0) &&
-                        (dest & apic_iter->log_dest & 0x0f)) {
-                        apic_set_bit(deliver_bitmask, i);
-                    }
+        CPU_FOREACH(cpu) {
+            apic_iter = APIC_COMMON(X86_CPU(cpu)->apic_state);
+            if (apic_iter->dest_mode == 0xf) {
+                if (dest & apic_iter->log_dest) {
+                    apic_set_bit(deliver_bitmask, apic_iter->idx);
                 }
-            } else {
-                break;
+            } else if (apic_iter->dest_mode == 0x0) {
+                if ((dest & 0xf0) == (apic_iter->log_dest & 0xf0) &&
+                    (dest & apic_iter->log_dest & 0x0f)) {
+                    apic_set_bit(deliver_bitmask, apic_iter->idx);
+                }
             }
         }
     }
@@ -877,7 +869,6 @@ static void apic_init(APICCommonState *s)
                           APIC_SPACE_SIZE);
 
     s->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, apic_timer, s);
-    local_apics[s->idx] = s;
 
     msi_supported = true;
 }
