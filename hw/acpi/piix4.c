@@ -98,7 +98,7 @@ typedef struct PIIX4PMState {
     uint8_t s4_val;
 
     CPUStatus gpe_cpu;
-    Notifier cpu_added_notifier;
+    Notifier cpu_hotplug_notifier;
 } PIIX4PMState;
 
 #define TYPE_PIIX4_PM "PIIX4_PM"
@@ -697,9 +697,9 @@ static void piix4_cpu_hotplug_req(PIIX4PMState *s, CPUState *cpu,
     pm_update_sci(s);
 }
 
-static void piix4_cpu_added_req(Notifier *n, void *opaque)
+static void piix4_cpu_hotplug(Notifier *n, void *opaque)
 {
-    PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_added_notifier);
+    PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_hotplug_notifier);
 
     piix4_cpu_hotplug_req(s, CPU(opaque), PLUG);
 }
@@ -732,8 +732,8 @@ static void piix4_acpi_system_hot_add_init(MemoryRegion *parent,
     memory_region_init_io(&s->io_cpu, OBJECT(s), &cpu_hotplug_ops, s,
                           "acpi-cpu-hotplug", PIIX4_PROC_LEN);
     memory_region_add_subregion(parent, PIIX4_PROC_BASE, &s->io_cpu);
-    s->cpu_added_notifier.notify = piix4_cpu_added_req;
-    qemu_register_cpu_added_notifier(&s->cpu_added_notifier);
+    s->cpu_hotplug_notifier.notify = piix4_cpu_hotplug;
+    qemu_register_cpu_hotplug_notifier(&s->cpu_hotplug_notifier);
 }
 
 static void enable_device(PIIX4PMState *s, int slot)
