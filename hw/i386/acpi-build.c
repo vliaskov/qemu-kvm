@@ -603,6 +603,7 @@ static inline char acpi_get_hex(uint32_t val)
 #define ACPI_PROC_OFFSET_CPUHEX (*ssdt_proc_name - *ssdt_proc_start + 2)
 #define ACPI_PROC_OFFSET_CPUID1 (*ssdt_proc_name - *ssdt_proc_start + 4)
 #define ACPI_PROC_OFFSET_CPUID2 (*ssdt_proc_id - *ssdt_proc_start)
+#define ACPI_PROC_OFFSET_CPUPXM (*ssdt_proc_pxm - *ssdt_proc_start)
 #define ACPI_PROC_SIZEOF (*ssdt_proc_end - *ssdt_proc_start)
 #define ACPI_PROC_AML (ssdp_proc_aml + *ssdt_proc_start)
 
@@ -724,6 +725,7 @@ build_ssdt(GArray *table_data, GArray *linker,
             proc[ACPI_PROC_OFFSET_CPUHEX+1] = acpi_get_hex(i);
             proc[ACPI_PROC_OFFSET_CPUID1] = i;
             proc[ACPI_PROC_OFFSET_CPUID2] = i;
+            proc[ACPI_PROC_OFFSET_CPUPXM] = guest_info->node_cpu[i];
         }
 
         /* build this code:

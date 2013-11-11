@@ -47,6 +47,8 @@ DefinitionBlock ("ssdt-proc.aml", "SSDT", 0x01, "BXPC", "BXSSDT", 0x1)
  * also updating the C code.
  */
         Name(_HID, "ACPI0007")
+        ACPI_EXTRACT_NAME_BYTE_CONST ssdt_proc_pxm
+        Name(PXM, 0xAA)
         External(CPMA, MethodObj)
         External(CPST, MethodObj)
         External(CPEJ, MethodObj)
@@ -58,6 +60,9 @@ DefinitionBlock ("ssdt-proc.aml", "SSDT", 0x01, "BXPC", "BXSSDT", 0x1)
         }
         Method(_EJ0, 1, NotSerialized) {
             CPEJ(ID, Arg0)
+        }
+        Method(_PXM, 0) {
+            Return (PXM)
         }
     }
 }
