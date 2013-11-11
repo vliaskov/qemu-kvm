@@ -289,13 +289,9 @@ static int apic_init_common(ICCDevice *dev)
     APICCommonState *s = APIC_COMMON(dev);
     APICCommonClass *info;
     static DeviceState *vapic;
-    static int apic_no;
     static bool mmio_registered;
 
-    if (apic_no >= MAX_APICS) {
-        return -1;
-    }
-    s->idx = apic_no++;
+    s->idx = s->id;
 
     info = APIC_COMMON_GET_CLASS(s);
     info->init(s);
