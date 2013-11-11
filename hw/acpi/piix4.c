@@ -62,6 +62,7 @@ struct pci_status {
 
 typedef struct CPUStatus {
     uint8_t sts[PIIX4_PROC_LEN];
+    uint8_t old_sts[PIIX4_PROC_LEN];
 } CPUStatus;
 
 typedef struct PIIX4PMState {
@@ -647,6 +648,12 @@ static const MemoryRegionOps piix4_pci_ops = {
     },
 };
 
+static void acpi_piix_eject_vcpu(int64_t cpuid)
+{
+    /* TODO: eject a vcpu, release allocated vcpu and exit the vcpu pthread.  */
+    PIIX4_DPRINTF("vcpu: %" PRIu64 " need to be ejected.\n", cpuid);
+}
+
 static uint64_t cpu_status_read(void *opaque, hwaddr addr, unsigned int size)
 {
     PIIX4PMState *s = opaque;
@@ -659,7 +666,27 @@ static uint64_t cpu_status_read(void *opaque, hwaddr addr, unsigned int size)
 static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
                              unsigned int size)
 {
-    /* TODO: implement VCPU removal on guest signal that CPU can be removed */
+    PIIX4PMState *s = opaque;
+    CPUStatus *cpus = &s->gpe_cpu;
+    uint8_t val;
+    int i;
+    int64_t cpuid = 0;
+
+    val = cpus->old_sts[addr] ^ data;
+
+    if (val == 0) {
+        return;
+    }
+
+    for (i = 0; i < 8; i++) {
+        if (val & 1 << i) {
+            cpuid = 8 * addr + i;
+        }
+    }
+
+    if (cpuid != 0) {
+        acpi_piix_eject_vcpu(cpuid);
+    }
 }
 
 static const MemoryRegionOps cpu_hotplug_ops = {
@@ -679,13 +706,20 @@ static void piix4_cpu_hotplug_req(PIIX4PMState *s, CPUState *cpu,
     ACPIGPE *gpe = &s->ar.gpe;
     CPUClass *k = CPU_GET_CLASS(cpu);
     int64_t cpu_id;
+    int i;
 
     assert(s != NULL);
 
     *gpe->sts = *gpe->sts | PIIX4_CPU_HOTPLUG_STATUS;
     cpu_id = k->get_arch_id(CPU(cpu));
+
+    for (i = 0; i < PIIX4_PROC_LEN; i++) {
+        g->old_sts[i] = g->sts[i];
+    }
+
     if (action == PLUG) {
         g->sts[cpu_id / 8] |= (1 << (cpu_id % 8));
+        g->old_sts[cpu_id / 8] |= (1 << (cpu_id % 8));
     } else {
         g->sts[cpu_id / 8] &= ~(1 << (cpu_id % 8));
     }
@@ -724,6 +758,7 @@ static void piix4_acpi_system_hot_add_init(MemoryRegion *parent,
 
         g_assert((id / 8) < PIIX4_PROC_LEN);
         s->gpe_cpu.sts[id / 8] |= (1 << (id % 8));
+        s->gpe_cpu.old_sts[id / 8] |= (1 << (id % 8));
     }
     memory_region_init_io(&s->io_cpu, OBJECT(s), &cpu_hotplug_ops, s,
                           "acpi-cpu-hotplug", PIIX4_PROC_LEN);
