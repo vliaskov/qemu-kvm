@@ -507,6 +507,16 @@ void qemu_init_vcpu(CPUState *cpu);
  */
 void cpu_single_step(CPUState *cpu, int enabled);
 
+typedef enum {
+    PLUG,
+    UNPLUG,
+} HotplugEventType;
+
+typedef struct CPUNotifier {
+    DeviceState *dev;
+    HotplugEventType type;
+} CPUNotifier;
+
 #ifdef CONFIG_SOFTMMU
 extern const struct VMStateDescription vmstate_cpu_common;
 #else

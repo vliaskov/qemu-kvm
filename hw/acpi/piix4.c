@@ -672,11 +672,6 @@ static const MemoryRegionOps cpu_hotplug_ops = {
     },
 };
 
-typedef enum {
-    PLUG,
-    UNPLUG,
-} HotplugEventType;
-
 static void piix4_cpu_hotplug_req(PIIX4PMState *s, CPUState *cpu,
                                   HotplugEventType action)
 {
@@ -700,8 +695,9 @@ static void piix4_cpu_hotplug_req(PIIX4PMState *s, CPUState *cpu,
 static void piix4_cpu_hotplug(Notifier *n, void *opaque)
 {
     PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_hotplug_notifier);
+    CPUNotifier *notifier = opaque;
 
-    piix4_cpu_hotplug_req(s, CPU(opaque), PLUG);
+    piix4_cpu_hotplug_req(s, CPU(notifier->dev), notifier->type);
 }
 
 static int piix4_device_hotplug(DeviceState *qdev, PCIDevice *dev,
