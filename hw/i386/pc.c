@@ -974,6 +974,12 @@ void pc_hot_add_cpu(const int64_t id, Error **errp)
     pc_new_cpu(current_cpu_model, apic_id, icc_bridge, errp);
 }
 
+void pc_hot_del_cpu(const int64_t id, Error **errp)
+{
+    /* TODO: hot remove vCPU. */
+    error_setg(errp, "Hot-remove CPU is not supported.");
+}
+
 void pc_cpus_init(const char *cpu_model, DeviceState *icc_bridge)
 {
     int i;

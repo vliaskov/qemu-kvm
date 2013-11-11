@@ -118,6 +118,15 @@ void qmp_cpu_add(int64_t id, Error **errp)
     }
 }
 
+void qmp_cpu_del(int64_t id, Error **errp)
+{
+    if (current_machine->hot_del_cpu) {
+        current_machine->hot_del_cpu(id, errp);
+    } else {
+        error_setg(errp, "Not supported");
+    }
+}
+
 #ifndef CONFIG_VNC
 /* If VNC support is enabled, the "true" query-vnc command is
    defined in the VNC subsystem */

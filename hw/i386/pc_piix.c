@@ -344,7 +344,8 @@ static void pc_xen_hvm_init(QEMUMachineInitArgs *args)
 #define PC_I440FX_MACHINE_OPTIONS \
     PC_DEFAULT_MACHINE_OPTIONS, \
     .desc = "Standard PC (i440FX + PIIX, 1996)", \
-    .hot_add_cpu = pc_hot_add_cpu
+    .hot_add_cpu = pc_hot_add_cpu, \
+    .hot_del_cpu = pc_hot_del_cpu
 
 #define PC_I440FX_1_7_MACHINE_OPTIONS PC_I440FX_MACHINE_OPTIONS
 static QEMUMachine pc_i440fx_machine_v1_7 = {

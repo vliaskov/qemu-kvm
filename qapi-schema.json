@@ -1553,6 +1553,18 @@
 ##
 { 'command': 'cpu-add', 'data': {'id': 'int'} }
 
+# @cpu-del
+
+# Deletes CPU with specified ID
+#
+# @id: ID of CPU to be deleted, valid values [0..max_cpus)
+#
+# Returns: Nothing on success
+#
+# Since 1.7
+##
+{ 'command': 'cpu-del', 'data': {'id': 'int'} }
+
 ##
 # @memsave:
 #
