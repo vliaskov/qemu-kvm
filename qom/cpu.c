@@ -228,6 +228,17 @@ static void cpu_common_realizefn(DeviceState *dev, Error **errp)
     }
 }
 
+static void cpu_common_unrealizefn(DeviceState *dev, Error **errp)
+{
+    CPUNotifier notifier;
+
+    notifier.dev = dev;
+    notifier.type = UNPLUG;
+
+    notifier_list_notify(&cpu_hotplug_notifiers, &notifier);
+}
+
+
 static void cpu_common_initfn(Object *obj)
 {
     CPUState *cpu = CPU(obj);
@@ -258,6 +269,7 @@ static void cpu_class_init(ObjectClass *klass, void *data)
     k->gdb_read_register = cpu_common_gdb_read_register;
     k->gdb_write_register = cpu_common_gdb_write_register;
     dc->realize = cpu_common_realizefn;
+    dc->unrealize = cpu_common_unrealizefn;
     dc->no_user = 1;
 }
 

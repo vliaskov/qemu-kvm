@@ -976,8 +976,34 @@ void pc_hot_add_cpu(const int64_t id, Error **errp)
 
 void pc_hot_del_cpu(const int64_t id, Error **errp)
 {
-    /* TODO: hot remove vCPU. */
-    error_setg(errp, "Hot-remove CPU is not supported.");
+    CPUState *cpu;
+    bool found = false;
+    X86CPUClass *xcc;
+
+    CPU_FOREACH(cpu) {
+        CPUClass *cc = CPU_GET_CLASS(cpu);
+        int64_t cpuid = cc->get_arch_id(cpu);
+
+        if (cpuid == id) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        error_setg(errp, "Unable to find cpu-index: %" PRIi64
+                   ", it doesn't exist or has been deleted.", id);
+        return;
+    }
+
+    if (cpu == first_cpu && !CPU_NEXT(cpu)) {
+        error_setg(errp, "Unable to delete the last "
+                   "one cpu when VM running.");
+        return;
+    }
+
+    xcc = X86_CPU_GET_CLASS(DEVICE(cpu));
+    xcc->parent_unrealize(DEVICE(cpu), errp);
 }
 
 void pc_cpus_init(const char *cpu_model, DeviceState *icc_bridge)
