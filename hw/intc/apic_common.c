@@ -284,17 +284,15 @@ static int apic_load_old(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
-static int apic_init_common(ICCDevice *dev)
+static void apic_common_realize(DeviceState *dev, Error **errp)
 {
     APICCommonState *s = APIC_COMMON(dev);
-    APICCommonClass *info;
+    APICCommonClass *info = APIC_COMMON_GET_CLASS(s);
     static DeviceState *vapic;
     static bool mmio_registered;
 
     s->idx = s->id;
 
-    info = APIC_COMMON_GET_CLASS(s);
-    info->init(s);
     if (!mmio_registered) {
         ICCBus *b = ICC_BUS(qdev_get_parent_bus(DEVICE(dev)));
         memory_region_add_subregion(b->apic_address_space, 0, &s->io_memory);
@@ -310,8 +308,6 @@ static int apic_init_common(ICCDevice *dev)
     if (apic_report_tpr_access && info->enable_tpr_reporting) {
         info->enable_tpr_reporting(s, true);
     }
-
-    return 0;
 }
 
 static void apic_dispatch_pre_save(void *opaque)
@@ -377,14 +373,13 @@ static Property apic_properties_common[] = {
 
 static void apic_common_class_init(ObjectClass *klass, void *data)
 {
-    ICCDeviceClass *idc = ICC_DEVICE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
 
+    dc->realize = apic_common_realize;
     dc->vmsd = &vmstate_apic_common;
     dc->reset = apic_reset_common;
     dc->no_user = 1;
     dc->props = apic_properties_common;
-    idc->init = apic_init_common;
 }
 
 static const TypeInfo apic_common_type = {
