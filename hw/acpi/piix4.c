@@ -648,10 +648,21 @@ static const MemoryRegionOps piix4_pci_ops = {
     },
 };
 
-static void acpi_piix_eject_vcpu(int64_t cpuid)
+static void acpi_piix_eject_vcpu(PIIX4PMState *s, int64_t cpuid)
 {
-    /* TODO: eject a vcpu, release allocated vcpu and exit the vcpu pthread.  */
-    PIIX4_DPRINTF("vcpu: %" PRIu64 " need to be ejected.\n", cpuid);
+    CPUStatus *g = &s->gpe_cpu;
+    CPUState *cpu;
+
+    CPU_FOREACH(cpu) {
+        CPUClass *cc = CPU_GET_CLASS(cpu);
+        int64_t id = cc->get_arch_id(cpu);
+
+        if (cpuid == id) {
+            g->old_sts[cpuid / 8] &= ~(1 << (cpuid % 8));
+            cpu_remove(cpu);
+            break;
+        }
+    }
 }
 
 static uint64_t cpu_status_read(void *opaque, hwaddr addr, unsigned int size)
@@ -670,7 +681,7 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
     CPUStatus *cpus = &s->gpe_cpu;
     uint8_t val;
     int i;
-    int64_t cpuid = 0;
+    int64_t cpuid = -1;
 
     val = cpus->old_sts[addr] ^ data;
 
@@ -684,8 +695,8 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
         }
     }
 
-    if (cpuid != 0) {
-        acpi_piix_eject_vcpu(cpuid);
+    if (cpuid != -1) {
+        acpi_piix_eject_vcpu(s, cpuid);
     }
 }
 

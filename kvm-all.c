@@ -226,6 +226,31 @@ static void kvm_reset_vcpu(void *opaque)
     kvm_arch_reset_vcpu(cpu);
 }
 
+int kvm_destroy_vcpu(CPUState *cpu)
+{
+    KVMState *s = kvm_state;
+    long mmap_size;
+    int ret = 0;
+
+    DPRINTF("kvm_destroy_vcpu\n");
+
+    mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    if (mmap_size < 0) {
+        ret = mmap_size;
+        DPRINTF("KVM_GET_VCPU_MMAP_SIZE failed\n");
+        goto err;
+    }
+
+    ret = munmap(cpu->kvm_run, mmap_size);
+    if (ret < 0) {
+        goto err;
+    }
+
+    close(cpu->kvm_fd);
+err:
+    return ret;
+}
+
 int kvm_init_vcpu(CPUState *cpu)
 {
     KVMState *s = kvm_state;

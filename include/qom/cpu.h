@@ -181,6 +181,7 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+    bool exit;
     volatile sig_atomic_t exit_request;
     volatile sig_atomic_t tcg_exit_req;
     uint32_t interrupt_request;
@@ -206,6 +207,7 @@ struct CPUState {
 QTAILQ_HEAD(CPUTailQ, CPUState);
 extern struct CPUTailQ cpus;
 #define CPU_NEXT(cpu) QTAILQ_NEXT(cpu, node)
+#define CPU_REMOVE(cpu) QTAILQ_REMOVE(&cpus, cpu, node)
 #define CPU_FOREACH(cpu) QTAILQ_FOREACH(cpu, &cpus, node)
 #define CPU_FOREACH_SAFE(cpu, next_cpu) \
     QTAILQ_FOREACH_SAFE(cpu, &cpus, node, next_cpu)
@@ -485,6 +487,14 @@ void cpu_exit(CPUState *cpu);
  * Resumes CPU, i.e. puts CPU into runnable state.
  */
 void cpu_resume(CPUState *cpu);
+
+/**
+ * qemu_remove_vcpu:
+ * @cpu: The vCPU to remove.
+ *
+ * Requests the CPU @cpu to be removed.
+ */
+void cpu_remove(CPUState *cpu);
 
 /**
  * qemu_init_vcpu:
