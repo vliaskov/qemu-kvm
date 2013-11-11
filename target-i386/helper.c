@@ -1248,7 +1248,8 @@ void cpu_report_tpr_access(CPUX86State *env, TPRAccess access)
     } else {
         cpu_restore_state(env, env->mem_io_pc);
 
-        apic_handle_tpr_access_report(env->apic_state, env->eip, access);
+        apic_handle_tpr_access_report(x86_env_get_cpu(env)->apic_state,
+                                      env->eip, access);
     }
 }
 #endif /* !CONFIG_USER_ONLY */
@@ -1295,14 +1296,12 @@ void do_cpu_init(X86CPU *cpu)
     cpu_reset(cs);
     cs->interrupt_request = sipi;
     env->pat = pat;
-    apic_init_reset(env->apic_state);
+    apic_init_reset(cpu->apic_state);
 }
 
 void do_cpu_sipi(X86CPU *cpu)
 {
-    CPUX86State *env = &cpu->env;
-
-    apic_sipi(env->apic_state);
+    apic_sipi(cpu->apic_state);
 }
 #else
 void do_cpu_init(X86CPU *cpu)

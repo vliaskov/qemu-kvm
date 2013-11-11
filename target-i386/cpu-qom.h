@@ -66,6 +66,10 @@ typedef struct X86CPU {
 
     CPUX86State env;
 
+    /* in order to simplify APIC support, we leave this pointer to the
+       user */
+    struct DeviceState *apic_state;
+
     bool hyperv_vapic;
     bool hyperv_relaxed_timing;
     int hyperv_spinlock_attempts;
