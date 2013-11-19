@@ -30,4 +30,7 @@
 #define PIIX4_CPU_HOTPLUG_IO_BASE 0xaf00
 #define ACPI_CPU_HOTPLUG_BASE_PROP "cpu-hotplug-io-base"
 
+#define ACPI_MEMORY_HOTPLUG_IO_LEN 24
+#define ACPI_MEMORY_HOTPLUG_BASE 0x0a00
+
 #endif
