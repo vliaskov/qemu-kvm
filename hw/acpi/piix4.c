@@ -652,6 +652,7 @@ static void acpi_piix_eject_vcpu(PIIX4PMState *s, int64_t cpuid)
 {
     CPUStatus *g = &s->gpe_cpu;
     CPUState *cpu;
+    fprintf(stderr, "%s called for cpuid %ld\n", __func__, cpuid);
 
     CPU_FOREACH(cpu) {
         CPUClass *cc = CPU_GET_CLASS(cpu);
@@ -670,6 +671,7 @@ static uint64_t cpu_status_read(void *opaque, hwaddr addr, unsigned int size)
     PIIX4PMState *s = opaque;
     CPUStatus *cpus = &s->gpe_cpu;
     uint64_t val = cpus->sts[addr];
+    fprintf(stderr, "%s called with val %lu\n", __func__, val);
 
     return val;
 }
@@ -683,6 +685,7 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
     int i;
     int64_t cpuid = -1;
 
+    fprintf(stderr, "%s called with val %lu\n", __func__, data);
     val = cpus->old_sts[addr] ^ data;
 
     if (val == 0) {
@@ -695,6 +698,7 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
         }
     }
 
+    fprintf(stderr, "%s called for cpuid %ld\n", __func__, cpuid);
     if (cpuid != -1) {
         acpi_piix_eject_vcpu(s, cpuid);
     }
@@ -724,6 +728,7 @@ static void piix4_cpu_hotplug_req(PIIX4PMState *s, CPUState *cpu,
     *gpe->sts = *gpe->sts | PIIX4_CPU_HOTPLUG_STATUS;
     cpu_id = k->get_arch_id(CPU(cpu));
 
+    fprintf(stderr, "%s called for cpuid %ld\n", __func__, cpu_id);
     for (i = 0; i < PIIX4_PROC_LEN; i++) {
         g->old_sts[i] = g->sts[i];
     }

@@ -792,16 +792,19 @@ static void qemu_kvm_destroy_vcpu(CPUState *cpu)
         fprintf(stderr, "kvm_destroy_vcpu failed.\n");
         exit(1);
     }
+    fprintf(stderr, "kvm_destroy_vcpu succeeded.\n");
 
     object_property_set_bool(OBJECT(cpu), false, "realized", NULL);
-    qdev_free(DEVICE(cpu));
+    //qdev_free(DEVICE(cpu));
+    object_unparent(OBJECT(cpu));
 }
 
 static void qemu_tcg_destroy_vcpu(CPUState *cpu)
 {
     CPU_REMOVE(cpu);
     object_property_set_bool(OBJECT(cpu), false, "realized", NULL);
-    qdev_free(DEVICE(cpu));
+    //qdev_free(DEVICE(cpu));
+    object_unparent(OBJECT(cpu));
 }
 
 static void flush_queued_work(CPUState *cpu)

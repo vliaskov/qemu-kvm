@@ -979,6 +979,7 @@ void pc_hot_del_cpu(const int64_t id, Error **errp)
     CPUState *cpu;
     bool found = false;
     X86CPUClass *xcc;
+    fprintf(stderr, "%s called for cpuid %ld\n", __func__, id);
 
     CPU_FOREACH(cpu) {
         CPUClass *cc = CPU_GET_CLASS(cpu);
@@ -1002,6 +1003,7 @@ void pc_hot_del_cpu(const int64_t id, Error **errp)
         return;
     }
 
+    fprintf(stderr, "%s called for cpuid %ld found\n", __func__, id);
     xcc = X86_CPU_GET_CLASS(DEVICE(cpu));
     xcc->parent_unrealize(DEVICE(cpu), errp);
 }

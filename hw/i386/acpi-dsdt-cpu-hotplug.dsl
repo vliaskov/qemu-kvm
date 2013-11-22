@@ -47,16 +47,19 @@ Scope(\_SB) {
             Return (0x0)
         }
     }
-    Method(CPEJ, 2, NotSerialized) {
-        // _EJ0 method - eject callback
-        Sleep(200)
-    }
+
 
     /* CPU hotplug notify method */
-    OperationRegion(PRST, SystemIO, 0xaf00, 32)
+    OperationRegion(PRST, SystemIO, 0xaf80, 32)
     Field(PRST, ByteAcc, NoLock, Preserve) {
         PRS, 256
     }
+
+    Method(CPEJ, 2, NotSerialized) {
+        // _EJ0 method - eject callback
+	Store(ShiftLeft(1, Arg0), PRS)
+    }
+
     Method(PRSC, 0) {
         // Local5 = active cpu bitmap
         Store(PRS, Local5)

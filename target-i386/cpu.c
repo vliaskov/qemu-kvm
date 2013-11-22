@@ -2540,7 +2540,8 @@ static void x86_cpu_apic_unrealize(X86CPU *cpu, Error **errp)
         return;
     }
 
-    qdev_free(cpu->apic_state);
+    //qdev_free(cpu->apic_state);
+    object_unparent(OBJECT(cpu->apic_state));
 }
 #else
 static void x86_cpu_apic_realize(X86CPU *cpu, Error **errp)
@@ -2628,7 +2629,7 @@ static void x86_cpu_unrealizefn(DeviceState *dev, Error **errp)
 {
     X86CPU *cpu = X86_CPU(dev);
     Error *local_err = NULL;
-
+    fprintf(stderr, "%s called \n", __func__);
     x86_cpu_apic_unrealize(cpu, &local_err);
     if (local_err != NULL) {
         error_propagate(errp, local_err);

@@ -1045,6 +1045,7 @@ void acpi_build(PcGuestInfo *guest_info, AcpiBuildTables *tables)
     PcPciInfo pci;
     uint8_t *u;
 
+    fprintf(stderr, "%s called\n", __func__);
     acpi_get_cpu_info(&cpu);
     acpi_get_pm_info(&pm);
     acpi_get_dsdt(&misc);
