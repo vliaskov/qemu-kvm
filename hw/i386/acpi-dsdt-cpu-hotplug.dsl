@@ -50,7 +50,7 @@ Scope(\_SB) {
 
 
     /* CPU hotplug notify method */
-    OperationRegion(PRST, SystemIO, 0xaf80, 32)
+    OperationRegion(PRST, SystemIO, 0xaf00, 32)
     Field(PRST, ByteAcc, NoLock, Preserve) {
         PRS, 256
     }

@@ -685,8 +685,9 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
     int i;
     int64_t cpuid = -1;
 
-    fprintf(stderr, "%s called with val %lu\n", __func__, data);
-    val = cpus->old_sts[addr] ^ data;
+    fprintf(stderr, "%s called with data %lu addr %lu\n", __func__, data, addr);
+    val = cpus->old_sts[addr] & data;
+    fprintf(stderr, "%s called with val %u addr %lu\n", __func__, val, addr);
 
     if (val == 0) {
         return;
@@ -694,6 +695,7 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
 
     for (i = 0; i < 8; i++) {
         if (val & 1 << i) {
+    		fprintf(stderr, "boom: %s called for i %d cpuid %ld\n", __func__, i, cpuid);
             cpuid = 8 * addr + i;
         }
     }
