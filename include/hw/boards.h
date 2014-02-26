@@ -8,7 +8,6 @@
 #include "hw/qdev.h"
 #include "qom/object.h"
 
-
 typedef struct MachineState MachineState;
 
 typedef void QEMUMachineInitFunc(MachineState *ms);
@@ -113,6 +112,8 @@ struct MachineState {
     char *firmware;
 
     ram_addr_t ram_size;
+    ram_addr_t maxram_size;
+    uint64_t   ram_slots;
     const char *boot_order;
     const char *kernel_filename;
     const char *kernel_cmdline;
