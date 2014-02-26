@@ -10,6 +10,8 @@
 typedef struct QEMUMachineInitArgs {
     const QEMUMachine *machine;
     ram_addr_t ram_size;
+    ram_addr_t maxram_size;
+    uint64_t   ram_slots;
     const char *boot_order;
     const char *kernel_filename;
     const char *kernel_cmdline;
