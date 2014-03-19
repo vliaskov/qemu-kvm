@@ -1429,3 +1429,39 @@ void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name)
         gsi_state->ioapic_irq[i] = qdev_get_gpio_in(dev, i);
     }
 }
+
+static void pc_generic_machine_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->qemu_machine = data;
+}
+
+void qemu_register_pc_machine(QEMUMachine *m)
+{
+    char *name = g_strconcat(m->name, TYPE_MACHINE_SUFFIX, NULL);
+    TypeInfo ti = {
+        .name       = name,
+        .parent     = TYPE_PC_MACHINE,
+        .class_init = pc_generic_machine_class_init,
+        .class_data = (void *)m,
+    };
+
+    type_register(&ti);
+    g_free(name);
+}
+
+static const TypeInfo pc_machine_info = {
+    .name = TYPE_PC_MACHINE,
+    .parent = TYPE_MACHINE,
+    .abstract = true,
+    .instance_size = sizeof(PCMachineState),
+    .class_size = sizeof(PCMachineClass),
+};
+
+static void pc_machine_register_types(void)
+{
+    type_register_static(&pc_machine_info);
+}
+
+type_init(pc_machine_register_types)
