@@ -60,6 +60,8 @@
 #include "acpi-build.h"
 #include "hw/mem/dimm.h"
 #include "trace.h"
+#include "hw/acpi/piix4.h"
+#include "hw/i386/ich9.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -1484,6 +1486,8 @@ void qemu_register_pc_machine(QEMUMachine *m)
 static void pc_dimm_plug(HotplugHandler *hotplug_dev,
                          DeviceState *dev, Error **errp)
 {
+    Object *acpi_dev;
+    HotplugHandlerClass *hhc;
     Error *local_err = NULL;
     PCMachineState *pcms = PC_MACHINE(hotplug_dev);
     DimmDevice *dimm = DIMM(dev);
@@ -1517,10 +1521,19 @@ static void pc_dimm_plug(HotplugHandler *hotplug_dev,
     }
     trace_mhp_pc_dimm_assigned_slot(dimm->slot);
 
+    acpi_dev = (acpi_dev = piix4_pm_find()) ? acpi_dev : ich9_lpc_find();
+    if (!acpi_dev) {
+        error_setg(&local_err,
+                   "memory hotplug is not enabled: missing acpi device");
+        return;
+    }
+
+    hhc = HOTPLUG_HANDLER_GET_CLASS(acpi_dev);
     memory_region_add_subregion(&pcms->hotplug_memory,
                                 addr - pcms->hotplug_memory_base,
                                 mr);
     vmstate_register_ram(mr, dev);
+    hhc->plug(HOTPLUG_HANDLER(acpi_dev), dev, &local_err);
 
 out:
     error_propagate(errp, local_err);
