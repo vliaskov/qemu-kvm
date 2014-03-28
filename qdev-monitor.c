@@ -24,6 +24,7 @@
 #include "qmp-commands.h"
 #include "sysemu/arch_init.h"
 #include "qemu/config-file.h"
+#include "qom/object.h"
 
 /*
  * Aliases were a bad idea from the start.  Let's keep them
@@ -679,12 +680,34 @@ int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
     return 0;
 }
 
+static DeviceState *find_peripheral_device(const char *id)
+{
+    Object *peripheral = qdev_get_peripheral();
+    DeviceState *dev = NULL;
+    ObjectProperty *prop;
+
+
+    QTAILQ_FOREACH(prop, &peripheral->properties, node) {
+        if (object_property_is_child(prop)) {
+            dev = DEVICE(prop->opaque);
+            if (!strcmp(dev->id, id)) {
+                return dev;
+            }
+        }
+    }
+
+    return dev;
+}
+
 void qmp_device_del(const char *id, Error **errp)
 {
     DeviceState *dev;
 
     dev = qdev_find_recursive(sysbus_get_default(), id);
-    if (NULL == dev) {
+    if (dev == NULL) {
+        dev = find_peripheral_device(id);
+    }
+    if (dev == NULL) {
         error_set(errp, QERR_DEVICE_NOT_FOUND, id);
         return;
     }

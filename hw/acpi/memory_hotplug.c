@@ -40,12 +40,14 @@ static uint64_t acpi_memory_hotplug_read(void *opaque, hwaddr addr,
     case 0x14: /* pack and return is_* fields */
         val |= mdev->is_enabled   ? 1 : 0;
         val |= mdev->is_inserting ? 2 : 0;
+        val |= mdev->is_removing ? 4 : 0;
         trace_mhp_acpi_read_flags(mem_st->selector, val);
         break;
     default:
         val = ~0;
         break;
     }
+
     return val;
 }
 
@@ -87,17 +89,57 @@ static void acpi_memory_hotplug_write(void *opaque, hwaddr addr, uint64_t data,
         trace_mhp_acpi_write_ost_status(mem_st->selector, mdev->ost_status);
         /* TODO: report async error */
         /* TODO: implement memory removal on guest signal */
+        switch (mdev->ost_event) {
+        case 0x03: /* EJECT */
+            switch (mdev->ost_status) {
+            case 0x0: /* SUCCESS */
+                object_unparent(OBJECT(mdev->dimm));
+                mdev->is_removing = false;
+                mdev->dimm = NULL;
+                break;
+            case 0x1: /* FAILURE */
+            case 0x2: /* UNRECOGNIZED NOTIFY */
+            case 0x80: /* EJECT NOT SUPPORTED */
+            case 0x81: /* DEVICE IN USE */
+            case 0x82: /* DEVICE BUSY */
+            case 0x83: /* EJECT_DEPENDENCY_BUSY */
+                mdev->is_removing = false;
+                mdev->is_enabled = true;
+                break;
+            case 0x84: /* EJECTION IN PROGRESS */
+                break;
+            default:
+                break;
+            }
+            break;
+        case 0x103: /* OSPM EJECT */
+            switch (mdev->ost_status) {
+            case 0x0: /* SUCCESS */
+                object_unparent(OBJECT(mdev->dimm));
+                mdev->is_removing = false;
+                mdev->dimm = NULL;
+                break;
+            case 0x84: /* EJECTION IN PROGRESS */
+                mdev->is_enabled = false;
+                mdev->is_removing = true;
+                break;
+            default:
+                break;
+            }
+        }
         break;
     case 0x14:
         mdev = &mem_st->devs[mem_st->selector];
         if (data & 2) { /* clear insert event */
             mdev->is_inserting  = false;
             trace_mhp_acpi_clear_insert_evt(mem_st->selector);
+        } else if (data & 4) { /* MRMV */
+            mdev->is_enabled = false;
         }
         break;
     }
-
 }
+
 static const MemoryRegionOps acpi_memory_hotplug_ops = {
     .read = acpi_memory_hotplug_read,
     .write = acpi_memory_hotplug_write,
@@ -149,6 +191,36 @@ void acpi_memory_plug_cb(ACPIREGS *ar, qemu_irq irq, MemHotplugState *mem_st,
     mdev->dimm = dev;
     mdev->is_enabled = true;
     mdev->is_inserting = true;
+
+    /* do ACPI magic */
+    ar->gpe.sts[0] |= ACPI_MEMORY_HOTPLUG_STATUS;
+    acpi_update_sci(ar, irq);
+    return;
+}
+
+void acpi_memory_unplug_cb(ACPIREGS *ar, qemu_irq irq, MemHotplugState *mem_st,
+                           DeviceState *dev, Error **errp)
+{
+    MemStatus *mdev;
+    Error *local_err = NULL;
+    int slot = object_property_get_int(OBJECT(dev), "slot", &local_err);
+
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    if (slot >= mem_st->dev_count) {
+        char *dev_path = object_get_canonical_path(OBJECT(dev));
+        error_setg(errp, "acpi_memory_plug_cb: "
+                   "device [%s] returned invalid memory slot[%d]",
+                    dev_path, slot);
+        g_free(dev_path);
+        return;
+    }
+
+    mdev = &mem_st->devs[slot];
+    mdev->is_removing = true;
 
     /* do ACPI magic */
     ar->gpe.sts[0] |= ACPI_MEMORY_HOTPLUG_STATUS;

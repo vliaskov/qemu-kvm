@@ -1539,11 +1539,39 @@ out:
     error_propagate(errp, local_err);
 }
 
+static void pc_dimm_unplug(HotplugHandler *hotplug_dev,
+                           DeviceState *dev, Error **errp)
+{
+    Object *acpi_dev;
+    HotplugHandlerClass *hhc;
+    Error *local_err = NULL;
+
+    acpi_dev = (acpi_dev = piix4_pm_find()) ? acpi_dev : ich9_lpc_find();
+    if (!acpi_dev) {
+        error_setg(&local_err,
+                   "memory hotplug is not enabled: missing acpi device");
+        return;
+    }
+
+    hhc = HOTPLUG_HANDLER_GET_CLASS(acpi_dev);
+    hhc->unplug(HOTPLUG_HANDLER(acpi_dev), dev, &local_err);
+
+    error_propagate(errp, local_err);
+}
+
 static void pc_machine_device_plug_cb(HotplugHandler *hotplug_dev,
                                       DeviceState *dev, Error **errp)
 {
     if (object_dynamic_cast(OBJECT(dev), TYPE_DIMM)) {
         pc_dimm_plug(hotplug_dev, dev, errp);
+    }
+}
+
+static void pc_machine_device_unplug_cb(HotplugHandler *hotplug_dev,
+                                        DeviceState *dev, Error **errp)
+{
+    if (object_dynamic_cast(OBJECT(dev), TYPE_DIMM)) {
+        pc_dimm_unplug(hotplug_dev, dev, errp);
     }
 }
 
@@ -1569,6 +1597,7 @@ static void pc_machine_class_init(ObjectClass *oc, void *data)
     pcmc->get_hotplug_handler = mc->get_hotplug_handler;
     mc->get_hotplug_handler = pc_get_hotpug_handler;
     hc->plug = pc_machine_device_plug_cb;
+    hc->unplug = pc_machine_device_unplug_cb;
 }
 
 static const TypeInfo pc_machine_info = {

@@ -186,6 +186,22 @@ static void dimm_initfn(Object *obj)
                              &error_abort);
 }
 
+static void dimm_finalize(Object *obj)
+{
+    DimmDevice *dimm = DIMM(obj);
+    Error *errp = NULL;
+    MemoryRegion *mr = NULL;
+
+    if (dimm->hostmem) {
+        mr = host_memory_backend_get_memory(dimm->hostmem, &errp);
+    }
+
+    if (mr && mr->parent) {
+        memory_region_del_subregion(mr->parent, mr);
+        vmstate_unregister_ram(mr, DEVICE(dimm));
+    }
+}
+
 static void dimm_realize(DeviceState *dev, Error **errp)
 {
     DimmDevice *dimm = DIMM(dev);
@@ -222,6 +238,7 @@ static TypeInfo dimm_info = {
     .parent        = TYPE_DEVICE,
     .instance_size = sizeof(DimmDevice),
     .instance_init = dimm_initfn,
+    .instance_finalize = dimm_finalize,
     .class_init    = dimm_class_init,
     .class_size    = sizeof(DimmDeviceClass),
 };

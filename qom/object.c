@@ -350,7 +350,7 @@ void object_initialize(void *data, size_t size, const char *typename)
     object_initialize_with_type(data, size, type);
 }
 
-static inline bool object_property_is_child(ObjectProperty *prop)
+bool object_property_is_child(ObjectProperty *prop)
 {
     return strstart(prop->type, "child<", NULL);
 }

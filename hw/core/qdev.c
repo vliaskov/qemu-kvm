@@ -228,6 +228,15 @@ void qdev_unplug(DeviceState *dev, Error **errp)
 
     if (dev->parent_bus && dev->parent_bus->hotplug_handler) {
         hotplug_handler_unplug(dev->parent_bus->hotplug_handler, dev, errp);
+    } else if (*errp == NULL) {
+            HotplugHandler *hotplug_ctrl;
+            MachineState *machine = MACHINE(qdev_get_machine());
+            MachineClass *mc = MACHINE_GET_CLASS(machine);
+
+            hotplug_ctrl = mc->get_hotplug_handler(machine ,dev);
+            if (hotplug_ctrl) {
+                hotplug_handler_unplug(hotplug_ctrl, dev, errp);
+            }
     } else {
         assert(dc->unplug != NULL);
         if (dc->unplug(dev) < 0) { /* legacy handler */

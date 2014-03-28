@@ -41,6 +41,7 @@ DefinitionBlock ("ssdt-mem.aml", "SSDT", 0x02, "BXPC", "CSSDT", 0x1)
     External(\_SB.MHPD.MRST, MethodObj)
     External(\_SB.MHPD.MOST, MethodObj)
     External(\_SB.MHPD.MPXM, MethodObj)
+    External(\_SB.MHPD.MDEJ, MethodObj)
 
     Scope(\_SB) {
 /*  v------------------ DO NOT EDIT ------------------v */
@@ -69,6 +70,9 @@ DefinitionBlock ("ssdt-mem.aml", "SSDT", 0x02, "BXPC", "CSSDT", 0x1)
 
             Method(_OST, 3) {
                 \_SB.MHPD.MOST(_UID, Arg0, Arg1, Arg2)
+            }
+            Method(_EJ0, 1) {
+                \_SB.MHPD.MDEJ(_UID, Arg0)
             }
         }
     }

@@ -1228,5 +1228,6 @@ int object_child_foreach(Object *obj, int (*fn)(Object *child, void *opaque),
  */
 Object *container_get(Object *root, const char *path);
 
+bool object_property_is_child(ObjectProperty *prop);
 
 #endif

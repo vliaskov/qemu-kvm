@@ -155,6 +155,7 @@ DefinitionBlock ("ssdt-misc.aml", "SSDT", 0x01, "BXPC", "BXSSDTSUSP", 0x1)
                 Offset(20),
                 MES,  1, // 1 if DIMM enabled used by _STA, read only
                 MINS, 1, // (read) 1 if DIMM has a insert event. (write) 1 after MTFY() to clear event
+                MRMV, 1, // 1 if DIMM has a remove request, read only
             }
 
             Mutex (MLCK, 0)
@@ -177,7 +178,9 @@ DefinitionBlock ("ssdt-misc.aml", "SSDT", 0x01, "BXPC", "BXSSDTSUSP", 0x1)
                         MTFY(Local0, 1)
                         Store(1, MINS)
                     }
-                    // TODO: handle memory eject request
+                    If (LEqual(MRMV, One)) { // Ejection request
+                        MTFY(Local0, 3)
+                    }
                     Add(Local0, One, Local0) // goto next DIMM
                 }
                 Release(MLCK)
@@ -275,6 +278,12 @@ DefinitionBlock ("ssdt-misc.aml", "SSDT", 0x01, "BXPC", "BXSSDTSUSP", 0x1)
                 Store(ToInteger(Arg0), MSEL) // select DIMM
                 Store(Arg1, MOEV)
                 Store(Arg2, MOSC)
+                Release(MLCK)
+            }
+            Method(MDEJ, 2) {
+                Acquire(MLCK, 0xFFFF)
+                Store(ToInteger(Arg0), MSEL) // select DIMM
+                Store(One, MRMV)
                 Release(MLCK)
             }
         } // Device()
