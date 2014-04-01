@@ -52,9 +52,17 @@ DefinitionBlock (
      WordIO(ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange, \
          0x0000, \
          0x0000, \
+         0x09FF, \
+         0x0000, \
+         0x0A00, \
+         ,, , TypeStatic) \
+     /* 0xa00-0xa17 hole for memory hotplug, include/hw/acpi/memory_hotplug.h:ACPI_MEMORY_HOTPLUG_BASE */ \
+     WordIO(ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange, \
+         0x0000, \
+         0x0A18, \
          0x0CD7, \
          0x0000, \
-         0x0CD8, \
+         0x02C0, \
          ,, , TypeStatic) \
      /* 0xcd8-0xcf7 hole for CPU hotplug, hw/acpi/ich9.c:ICH9_PROC_BASE */ \
      WordIO(ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange, \
