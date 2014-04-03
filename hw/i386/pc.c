@@ -1204,6 +1204,12 @@ FWCfgState *pc_memory_init(MemoryRegion *system_memory,
         ram_addr_t hotplug_mem_size =
             machine->init_args.maxram_size - ram_size;
 
+        if (machine->init_args.ram_slots > 256) {
+            error_report("unsupported amount of memory slots: %"PRIu64,
+                         machine->init_args.ram_slots);
+            exit(EXIT_FAILURE);
+        }
+
         pcms->hotplug_memory_base =
             ROUND_UP(0x100000000ULL + above_4g_mem_size, 1ULL << 30);
 
