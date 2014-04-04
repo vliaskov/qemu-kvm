@@ -58,6 +58,7 @@
 #include "hw/boards.h"
 #include "hw/pci/pci_host.h"
 #include "acpi-build.h"
+#include "hw/mem/dimm.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -1479,12 +1480,63 @@ void qemu_register_pc_machine(QEMUMachine *m)
     g_free(name);
 }
 
+static void pc_dimm_plug(HotplugHandler *hotplug_dev,
+                         DeviceState *dev, Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(hotplug_dev);
+    DimmDevice *dimm = DIMM(dev);
+    DimmDeviceClass *ddc = DIMM_GET_CLASS(dimm);
+    MemoryRegion *mr = ddc->get_memory_region(dimm);
+
+    memory_region_add_subregion(&pcms->hotplug_memory,
+                                dimm->start - pcms->hotplug_memory_base,
+                                mr);
+    vmstate_register_ram(mr, dev);
+}
+
+static void pc_machine_device_plug_cb(HotplugHandler *hotplug_dev,
+                                      DeviceState *dev, Error **errp)
+{
+    if (object_dynamic_cast(OBJECT(dev), TYPE_DIMM)) {
+        pc_dimm_plug(hotplug_dev, dev, errp);
+    }
+}
+
+static HotplugHandler *pc_get_hotpug_handler(MachineState *machine,
+                                             DeviceState *dev)
+{
+    PCMachineClass *pcmc = PC_MACHINE_GET_CLASS(machine);
+
+    if (object_dynamic_cast(OBJECT(dev), TYPE_DIMM)) {
+        return HOTPLUG_HANDLER(machine);
+    }
+
+    return pcmc->get_hotplug_handler ?
+        pcmc->get_hotplug_handler(machine, dev) : NULL;
+}
+
+static void pc_machine_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    PCMachineClass *pcmc = PC_MACHINE_CLASS(oc);
+    HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(oc);
+
+    pcmc->get_hotplug_handler = mc->get_hotplug_handler;
+    mc->get_hotplug_handler = pc_get_hotpug_handler;
+    hc->plug = pc_machine_device_plug_cb;
+}
+
 static const TypeInfo pc_machine_info = {
     .name = TYPE_PC_MACHINE,
     .parent = TYPE_MACHINE,
     .abstract = true,
     .instance_size = sizeof(PCMachineState),
     .class_size = sizeof(PCMachineClass),
+    .class_init = pc_machine_class_init,
+    .interfaces = (InterfaceInfo[]) {
+         { TYPE_HOTPLUG_HANDLER },
+         { }
+    },
 };
 
 static void pc_machine_register_types(void)
