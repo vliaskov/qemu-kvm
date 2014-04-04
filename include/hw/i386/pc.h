@@ -283,6 +283,14 @@ uint16_t pvpanic_port(void);
 
 int e820_add_entry(uint64_t, uint64_t, uint32_t);
 
+#define PC_Q35_COMPAT_2_0 \
+        PC_COMPAT_2_0, \
+        {\
+            .driver   = "ICH9 LPC",\
+            .property = "memory-hotplug-support",\
+            .value    = "off",\
+        }
+
 #define PC_Q35_COMPAT_1_7 \
         PC_COMPAT_1_7, \
         {\

@@ -327,6 +327,10 @@ static QEMUMachine pc_q35_machine_v2_0 = {
     .name = "pc-q35-2.0",
     .alias = "q35",
     .init = pc_q35_init_2_0,
+    .compat_props = (GlobalProperty[]) {
+        PC_Q35_COMPAT_2_0,
+        { /* end of list */ }
+    },
 };
 
 #define PC_Q35_1_7_MACHINE_OPTIONS PC_Q35_MACHINE_OPTIONS
