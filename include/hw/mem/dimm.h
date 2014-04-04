@@ -62,4 +62,9 @@ typedef struct DimmDeviceClass {
     MemoryRegion *(*get_memory_region)(DimmDevice *dimm);
 } DimmDeviceClass;
 
+
+uint64_t dimm_get_free_addr(uint64_t address_space_start,
+                            uint64_t address_space_size,
+                            uint64_t *hint, uint64_t size,
+                            Error **errp);
 #endif

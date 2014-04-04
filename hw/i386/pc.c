@@ -1483,15 +1483,29 @@ void qemu_register_pc_machine(QEMUMachine *m)
 static void pc_dimm_plug(HotplugHandler *hotplug_dev,
                          DeviceState *dev, Error **errp)
 {
+    Error *local_err = NULL;
     PCMachineState *pcms = PC_MACHINE(hotplug_dev);
     DimmDevice *dimm = DIMM(dev);
     DimmDeviceClass *ddc = DIMM_GET_CLASS(dimm);
     MemoryRegion *mr = ddc->get_memory_region(dimm);
+    ram_addr_t addr = dimm->start;
+
+    addr = dimm_get_free_addr(pcms->hotplug_memory_base,
+                              memory_region_size(&pcms->hotplug_memory),
+                              !addr ? NULL : &addr,
+                              memory_region_size(mr), &local_err);
+    if (local_err) {
+        goto out;
+    }
+    object_property_set_int(OBJECT(dev), addr, "start", &local_err);
 
     memory_region_add_subregion(&pcms->hotplug_memory,
-                                dimm->start - pcms->hotplug_memory_base,
+                                addr - pcms->hotplug_memory_base,
                                 mr);
     vmstate_register_ram(mr, dev);
+
+out:
+    error_propagate(errp, local_err);
 }
 
 static void pc_machine_device_plug_cb(HotplugHandler *hotplug_dev,

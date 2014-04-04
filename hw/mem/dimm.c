@@ -21,6 +21,75 @@
 #include "hw/mem/dimm.h"
 #include "qemu/config-file.h"
 #include "qapi/visitor.h"
+#include "qemu/range.h"
+
+static gint dimm_addr_sort(gconstpointer a, gconstpointer b)
+{
+    DimmDevice *x = DIMM(a);
+    DimmDevice *y = DIMM(b);
+
+    return x->start - y->start;
+}
+
+static int dimm_built_list(Object *obj, void *opaque)
+{
+    GSList **list = opaque;
+
+    if (object_dynamic_cast(obj, TYPE_DIMM)) {
+        DeviceState *dev = DEVICE(obj);
+        if (dev->realized) { /* only realized DIMMs matter */
+            *list = g_slist_insert_sorted(*list, dev, dimm_addr_sort);
+        }
+    }
+
+    object_child_foreach(obj, dimm_built_list, opaque);
+    return 0;
+}
+
+uint64_t dimm_get_free_addr(uint64_t address_space_start,
+                            uint64_t address_space_size,
+                            uint64_t *hint, uint64_t size,
+                            Error **errp)
+{
+    GSList *list = NULL, *item;
+    uint64_t new_start, ret;
+    uint64_t address_space_end = address_space_start + address_space_size;
+
+    object_child_foreach(qdev_get_machine(), dimm_built_list, &list);
+
+    if (hint) {
+        new_start = *hint;
+    } else {
+        new_start = address_space_start;
+    }
+
+    /* find address range that will fit new DIMM */
+    for (item = list; item; item = g_slist_next(item)) {
+        DimmDevice *dimm = item->data;
+        uint64_t dimm_size = object_property_get_int(OBJECT(dimm),
+                             "size", &error_abort);
+        if (ranges_overlap(dimm->start, dimm_size, new_start, size)) {
+            if (hint) {
+                DeviceState *d = DEVICE(dimm);
+                error_setg(errp, "address range conflicts with '%s'", d->id);
+                break;
+            }
+            new_start = dimm->start + dimm_size;
+        }
+    }
+    ret = new_start;
+
+    g_slist_free(list);
+
+    if (new_start < address_space_start) {
+        error_setg(errp, "can't add memory [0x%" PRIx64 ":0x%" PRIx64
+                   "] at 0x%" PRIx64, new_start, size, address_space_start);
+    } else if ((new_start + size) > address_space_end) {
+        error_setg(errp, "can't add memory [0x%" PRIx64 ":0x%" PRIx64
+                   "] beyond 0x%" PRIx64, new_start, size, address_space_end);
+    }
+    return ret;
+}
 
 static Property dimm_properties[] = {
     DEFINE_PROP_UINT64("start", DimmDevice, start, 0),
