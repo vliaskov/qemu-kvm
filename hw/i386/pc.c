@@ -59,6 +59,7 @@
 #include "hw/pci/pci_host.h"
 #include "acpi-build.h"
 #include "hw/mem/dimm.h"
+#include "trace.h"
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -1503,6 +1504,7 @@ static void pc_dimm_plug(HotplugHandler *hotplug_dev,
     if (local_err) {
         goto out;
     }
+    trace_mhp_pc_dimm_assigned_address(dimm->start);
 
     slot = dimm_get_free_slot(slot < 0 ? NULL : &slot,
                               machine->init_args.ram_slots, &local_err);
@@ -1513,6 +1515,7 @@ static void pc_dimm_plug(HotplugHandler *hotplug_dev,
     if (local_err) {
         goto out;
     }
+    trace_mhp_pc_dimm_assigned_slot(dimm->slot);
 
     memory_region_add_subregion(&pcms->hotplug_memory,
                                 addr - pcms->hotplug_memory_base,
