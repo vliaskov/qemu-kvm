@@ -56,6 +56,7 @@ static bool smbios_type1_defaults = true;
  * pages in the host.
  */
 static bool gigabyte_align = true;
+static bool has_reserved_memory = true;
 
 /* PC hardware initialisation */
 static void pc_q35_init(QEMUMachineInitArgs *args)
@@ -129,6 +130,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
     guest_info->has_pci_info = has_pci_info;
     guest_info->isapc_ram_fw = false;
     guest_info->has_acpi_build = has_acpi_build;
+    guest_info->has_reserved_memory = has_reserved_memory;
 
     if (smbios_type1_defaults) {
         /* These values are guest ABI, do not change */
@@ -242,6 +244,7 @@ static void pc_q35_init(QEMUMachineInitArgs *args)
 
 static void pc_compat_2_0(QEMUMachineInitArgs *args)
 {
+    has_reserved_memory = false;
 }
 
 static void pc_compat_1_7(QEMUMachineInitArgs *args)
