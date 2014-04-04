@@ -1197,6 +1197,8 @@ build_srat(GArray *table_data, GArray *linker,
     uint64_t curnode;
     int srat_start, numa_start, slots;
     uint64_t mem_len, mem_base, next_base;
+    PCMachineState *pcms = PC_MACHINE(qdev_get_machine());
+    ram_addr_t hotplug_as_size = memory_region_size(&pcms->hotplug_memory);
 
     srat_start = table_data->len;
 
@@ -1259,6 +1261,18 @@ build_srat(GArray *table_data, GArray *linker,
     for (; slots < guest_info->numa_nodes + 2; slots++) {
         numamem = acpi_data_push(table_data, sizeof *numamem);
         acpi_build_srat_memory(numamem, 0, 0, 0, MEM_AFFINITY_NOFLAGS);
+    }
+
+    /*
+     * Fake entry required by Windows to enable memory hotplug in OS.
+     * Individual DIMM devices override proximity set here via _PXM method,
+     * which returns associated with it NUMA node id.
+     */
+    if (hotplug_as_size) {
+        numamem = acpi_data_push(table_data, sizeof *numamem);
+        acpi_build_srat_memory(numamem, pcms->hotplug_memory_base,
+                               hotplug_as_size, 0, MEM_AFFINITY_HOTPLUGGABLE |
+                               MEM_AFFINITY_ENABLED);
     }
 
     build_header(linker, table_data,
