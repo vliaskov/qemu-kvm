@@ -140,6 +140,12 @@ static int ich9_pm_post_load(void *opaque, int version_id)
      .offset     = vmstate_offset_pointer(_state, _field, uint8_t),  \
  }
 
+static bool vmstate_test_use_memhp(void *opaque, int version_id)
+{
+    ICH9LPCPMRegs *s = opaque;
+    return s->acpi_memory_hotplug.is_enabled;
+}
+
 const VMStateDescription vmstate_ich9_pm = {
     .name = "ich9_pm",
     .version_id = 1,
@@ -156,6 +162,8 @@ const VMStateDescription vmstate_ich9_pm = {
         VMSTATE_GPE_ARRAY(acpi_regs.gpe.en, ICH9LPCPMRegs),
         VMSTATE_UINT32(smi_en, ICH9LPCPMRegs),
         VMSTATE_UINT32(smi_sts, ICH9LPCPMRegs),
+        VMSTATE_MEMORY_HOTPLUG(acpi_memory_hotplug,
+                               ICH9LPCPMRegs, vmstate_test_use_memhp),
         VMSTATE_END_OF_LIST()
     }
 };
