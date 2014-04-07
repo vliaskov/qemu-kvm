@@ -67,6 +67,7 @@ typedef struct ICCDeviceClass {
     /*< public >*/
 
     DeviceRealize realize;
+    DeviceUnrealize unrealize;
 } ICCDeviceClass;
 
 #define TYPE_ICC_DEVICE "icc-device"

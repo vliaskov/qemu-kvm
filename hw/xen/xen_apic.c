@@ -49,6 +49,13 @@ static void xen_apic_realize(DeviceState *dev, Error **errp)
 #endif
 }
 
+static void xen_apic_unrealize(DeviceState *dev, Error **errp)
+{
+    APICCommonState *s = APIC_COMMON(dev);
+
+    memory_region_destroy(&s->io_memory);
+}
+
 static void xen_apic_set_base(APICCommonState *s, uint64_t val)
 {
 }
@@ -75,6 +82,7 @@ static void xen_apic_class_init(ObjectClass *klass, void *data)
     APICCommonClass *k = APIC_COMMON_CLASS(klass);
 
     k->realize = xen_apic_realize;
+    k->unrealize = xen_apic_unrealize;
     k->set_base = xen_apic_set_base;
     k->set_tpr = xen_apic_set_tpr;
     k->get_tpr = xen_apic_get_tpr;

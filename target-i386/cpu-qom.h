@@ -64,6 +64,7 @@ typedef struct X86CPUClass {
 
     bool kvm_required;
 
+    DeviceUnrealize parent_unrealize;
     DeviceRealize parent_realize;
     void (*parent_reset)(CPUState *cpu);
 } X86CPUClass;

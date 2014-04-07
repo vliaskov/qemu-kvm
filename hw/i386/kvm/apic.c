@@ -183,11 +183,19 @@ static void kvm_apic_realize(DeviceState *dev, Error **errp)
     }
 }
 
+static void kvm_apic_unrealize(DeviceState *dev, Error **errp)
+{
+    APICCommonState *s = APIC_COMMON(dev);
+
+    memory_region_destroy(&s->io_memory);
+}
+
 static void kvm_apic_class_init(ObjectClass *klass, void *data)
 {
     APICCommonClass *k = APIC_COMMON_CLASS(klass);
 
     k->realize = kvm_apic_realize;
+    k->unrealize = kvm_apic_unrealize;
     k->set_base = kvm_apic_set_base;
     k->set_tpr = kvm_apic_set_tpr;
     k->get_tpr = kvm_apic_get_tpr;

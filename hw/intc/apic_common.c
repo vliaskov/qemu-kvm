@@ -289,12 +289,13 @@ static int apic_load_old(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
+static int apic_no;
+
 static void apic_common_realize(DeviceState *dev, Error **errp)
 {
     APICCommonState *s = APIC_COMMON(dev);
     APICCommonClass *info;
     static DeviceState *vapic;
-    static int apic_no;
     static bool mmio_registered;
 
     if (apic_no >= MAX_APICS) {
@@ -322,6 +323,25 @@ static void apic_common_realize(DeviceState *dev, Error **errp)
         info->enable_tpr_reporting(s, true);
     }
 
+}
+
+static void apic_common_unrealize(DeviceState *dev, Error **errp)
+{
+    APICCommonState *s = APIC_COMMON(dev);
+    APICCommonClass *info = APIC_COMMON_GET_CLASS(s);
+
+    if (apic_no <= 0) {
+        error_setg(errp, "%s exit failed.",
+                   object_get_typename(OBJECT(dev)));
+        return;
+    }
+    apic_no--;
+
+    info->unrealize(dev, errp);
+
+    if (apic_report_tpr_access && info->enable_tpr_reporting) {
+        info->enable_tpr_reporting(s, false);
+    }
 }
 
 static void apic_dispatch_pre_save(void *opaque)
@@ -394,6 +414,7 @@ static void apic_common_class_init(ObjectClass *klass, void *data)
     dc->reset = apic_reset_common;
     dc->props = apic_properties_common;
     idc->realize = apic_common_realize;
+    idc->unrealize = apic_common_unrealize;
     /*
      * Reason: APIC and CPU need to be wired up by
      * x86_cpu_apic_create()

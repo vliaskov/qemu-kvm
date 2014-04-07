@@ -2559,8 +2559,29 @@ static void x86_cpu_apic_realize(X86CPU *cpu, Error **errp)
         return;
     }
 }
+
+static void x86_cpu_apic_unrealize(X86CPU *cpu, Error **errp)
+{
+    Error *local_err = NULL;
+
+    if (cpu->apic_state == NULL) {
+        return;
+    }
+
+    object_property_set_bool(OBJECT(cpu->apic_state),
+                             false, "realized", &local_err);
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    object_unparent(OBJECT(cpu->apic_state));
+}
 #else
 static void x86_cpu_apic_realize(X86CPU *cpu, Error **errp)
+{
+}
+static void x86_cpu_apic_unrealize(X86CPU *cpu, Error **errp)
 {
 }
 #endif
@@ -2631,6 +2652,27 @@ static void x86_cpu_realizefn(DeviceState *dev, Error **errp)
 
     xcc->parent_realize(dev, &local_err);
 out:
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        return;
+    }
+}
+
+static void x86_cpu_unrealizefn(DeviceState *dev, Error **errp)
+{
+    X86CPU *cpu = X86_CPU(dev);
+    CPUClass *cc = CPU_GET_CLASS(dev);
+    Error *local_err = NULL;
+
+    if (qdev_get_vmsd(DEVICE(cpu)) == NULL) {
+        vmstate_unregister(NULL, &vmstate_cpu_common, cpu);
+    }
+
+    if (cc->vmsd != NULL) {
+        vmstate_unregister(NULL, cc->vmsd, cpu);
+    }
+
+    x86_cpu_apic_unrealize(cpu, &local_err);
     if (local_err != NULL) {
         error_propagate(errp, local_err);
         return;
@@ -2791,7 +2833,9 @@ static void x86_cpu_common_class_init(ObjectClass *oc, void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     xcc->parent_realize = dc->realize;
+    xcc->parent_unrealize = dc->unrealize;
     dc->realize = x86_cpu_realizefn;
+    dc->unrealize = x86_cpu_unrealizefn;
     dc->bus_type = TYPE_ICC_BUS;
     dc->props = x86_cpu_properties;
 

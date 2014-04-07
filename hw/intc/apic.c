@@ -885,11 +885,21 @@ static void apic_realize(DeviceState *dev, Error **errp)
     msi_supported = true;
 }
 
+static void apic_unrealize(DeviceState *dev, Error **errp)
+{
+    APICCommonState *s = APIC_COMMON(dev);
+
+    memory_region_destroy(&s->io_memory);
+    timer_free(s->timer);
+    local_apics[s->idx] = NULL;
+}
+
 static void apic_class_init(ObjectClass *klass, void *data)
 {
     APICCommonClass *k = APIC_COMMON_CLASS(klass);
 
     k->realize = apic_realize;
+    k->unrealize = apic_unrealize;
     k->set_base = apic_set_base;
     k->set_tpr = apic_set_tpr;
     k->get_tpr = apic_get_tpr;
