@@ -1664,6 +1664,16 @@
 ##
 { 'command': 'cpu-add', 'data': {'id': 'int'} }
 
+# @cpu-del
+
+# Deletes CPU from the last ID
+#
+# Returns: Nothing on success
+#
+# Since 2.0
+##
+{ 'command': 'cpu-del' }
+
 ##
 # @memsave:
 #

@@ -407,7 +407,8 @@ static QEMUMachine pc_i440fx_machine_v2_1 = {
 
 #define PC_I440FX_2_0_MACHINE_OPTIONS                           \
     PC_I440FX_MACHINE_OPTIONS,                                  \
-    .default_machine_opts = "firmware=bios-256k.bin"
+    .default_machine_opts = "firmware=bios-256k.bin",           \
+    .hot_del_cpu = pc_hot_del_cpu
 
 static QEMUMachine pc_i440fx_machine_v2_0 = {
     PC_I440FX_2_0_MACHINE_OPTIONS,

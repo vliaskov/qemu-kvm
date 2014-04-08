@@ -991,6 +991,25 @@ void pc_hot_add_cpu(const int64_t id, Error **errp)
     pc_new_cpu(current_cpu_model, apic_id, icc_bridge, errp);
 }
 
+void pc_hot_del_cpu(Error **errp)
+{
+    CPUState *cpu = first_cpu;
+    X86CPUClass *xcc;
+
+    while (CPU_NEXT(cpu)) {
+        cpu = CPU_NEXT(cpu);
+    }
+
+    if (cpu == first_cpu) {
+        error_setg(errp, "Unable to delete the last "
+                   "one cpu.");
+        return;
+    }
+
+    xcc = X86_CPU_GET_CLASS(DEVICE(cpu));
+    xcc->parent_unrealize(DEVICE(cpu), errp);
+}
+
 void pc_cpus_init(const char *cpu_model, DeviceState *icc_bridge)
 {
     int i;

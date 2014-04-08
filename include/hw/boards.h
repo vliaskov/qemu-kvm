@@ -24,6 +24,7 @@ typedef void QEMUMachineInitFunc(QEMUMachineInitArgs *args);
 typedef void QEMUMachineResetFunc(void);
 
 typedef void QEMUMachineHotAddCPUFunc(const int64_t id, Error **errp);
+typedef void QEMUMachineHotDelCPUFunc(Error **errp);
 
 typedef int QEMUMachineGetKvmtypeFunc(const char *arg);
 
@@ -34,6 +35,7 @@ struct QEMUMachine {
     QEMUMachineInitFunc *init;
     QEMUMachineResetFunc *reset;
     QEMUMachineHotAddCPUFunc *hot_add_cpu;
+    QEMUMachineHotDelCPUFunc *hot_del_cpu;
     QEMUMachineGetKvmtypeFunc *kvm_type;
     BlockInterfaceType block_default_type;
     int max_cpus;

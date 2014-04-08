@@ -411,6 +411,27 @@ Example:
 EQMP
 
     {
+        .name       = "cpu-del",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_cpu_del,
+    },
+
+SQMP
+cpu-del
+-------
+
+Deletes virtual cpu
+
+Arguments: None.
+
+Example:
+
+-> { "execute": "cpu-del" }
+<- { "return": {} }
+
+EQMP
+
+    {
         .name       = "memsave",
         .args_type  = "val:l,size:i,filename:s,cpu:i?",
         .mhandler.cmd_new = qmp_marshal_input_memsave,
