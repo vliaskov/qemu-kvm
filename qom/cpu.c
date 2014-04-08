@@ -295,10 +295,14 @@ static void cpu_common_parse_features(CPUState *cpu, char *features,
 static void cpu_common_realizefn(DeviceState *dev, Error **errp)
 {
     CPUState *cpu = CPU(dev);
+    CPUNotifierData notifier;
+
+    notifier.dev = dev;
+    notifier.type = PLUG;
 
     if (dev->hotplugged) {
         cpu_synchronize_post_init(cpu);
-        notifier_list_notify(&cpu_hotplug_notifiers, dev);
+        notifier_list_notify(&cpu_hotplug_notifiers, &notifier);
         cpu_resume(cpu);
     }
 }

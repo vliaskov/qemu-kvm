@@ -528,9 +528,10 @@ static const MemoryRegionOps piix4_gpe_ops = {
 static void piix4_cpu_hotplug_req(Notifier *n, void *opaque)
 {
     PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_hotplug_notifier);
+    CPUNotifierData *data = opaque;
 
     assert(s != NULL);
-    AcpiCpuHotplug_add(&s->ar.gpe, &s->gpe_cpu, CPU(opaque));
+    AcpiCpuHotplug_req(&s->ar.gpe, &s->gpe_cpu, CPU(data->dev), data->type);
     acpi_update_sci(&s->ar, s->irq);
 }
 

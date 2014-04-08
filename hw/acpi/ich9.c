@@ -197,9 +197,11 @@ static void pm_powerdown_req(Notifier *n, void *opaque)
 static void ich9_cpu_hotplug_req(Notifier *n, void *opaque)
 {
     ICH9LPCPMRegs *pm = container_of(n, ICH9LPCPMRegs, cpu_hotplug_notifier);
+    CPUNotifierData *data = opaque;
 
     assert(pm != NULL);
-    AcpiCpuHotplug_add(&pm->acpi_regs.gpe, &pm->gpe_cpu, CPU(opaque));
+    AcpiCpuHotplug_req(&pm->acpi_regs.gpe, &pm->gpe_cpu, CPU(data->dev),
+		    data->type);
     acpi_update_sci(&pm->acpi_regs, pm->irq);
 }
 

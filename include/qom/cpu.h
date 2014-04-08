@@ -28,6 +28,7 @@
 #include "qemu/thread.h"
 #include "qemu/tls.h"
 #include "qemu/typedefs.h"
+#include "qemu/notify.h"
 
 typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
                                      void *opaque);
@@ -604,6 +605,16 @@ void qemu_init_vcpu(CPUState *cpu);
  * Enables or disables single-stepping for @cpu.
  */
 void cpu_single_step(CPUState *cpu, int enabled);
+
+typedef enum {
+    PLUG,
+    UNPLUG,
+} HotplugEventType;
+
+typedef struct CPUNotifierData {
+    DeviceState *dev;
+    HotplugEventType type;
+} CPUNotifierData;
 
 /* Breakpoint/watchpoint flags */
 #define BP_MEM_READ           0x01

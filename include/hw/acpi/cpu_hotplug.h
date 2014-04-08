@@ -20,7 +20,8 @@ typedef struct AcpiCpuHotplug {
     uint8_t sts[ACPI_GPE_PROC_LEN];
 } AcpiCpuHotplug;
 
-void AcpiCpuHotplug_add(ACPIGPE *gpe, AcpiCpuHotplug *g, CPUState *cpu);
+void AcpiCpuHotplug_req(ACPIGPE *gpe, AcpiCpuHotplug *g, CPUState *cpu,
+		HotplugEventType type);
 
 void AcpiCpuHotplug_init(MemoryRegion *parent, Object *owner,
                          AcpiCpuHotplug *gpe_cpu, uint16_t base);
