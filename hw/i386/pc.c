@@ -414,7 +414,7 @@ void pc_cmos_init(ram_addr_t ram_size, ram_addr_t above_4g_mem_size,
     /* init CPU hotplug notifier */
     cpu_hotplug_cb.rtc_state = s;
     cpu_hotplug_cb.cpu_added_notifier.notify = rtc_notify_cpu_added;
-    qemu_register_cpu_added_notifier(&cpu_hotplug_cb.cpu_added_notifier);
+    qemu_register_cpu_hotplug_notifier(&cpu_hotplug_cb.cpu_added_notifier);
 
     if (set_boot_dev(s, boot_device)) {
         exit(1);

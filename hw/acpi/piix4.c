@@ -82,7 +82,7 @@ typedef struct PIIX4PMState {
     uint8_t s4_val;
 
     AcpiCpuHotplug gpe_cpu;
-    Notifier cpu_added_notifier;
+    Notifier cpu_hotplug_notifier;
 
     MemHotplugState acpi_memory_hotplug;
 } PIIX4PMState;
@@ -525,9 +525,9 @@ static const MemoryRegionOps piix4_gpe_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
-static void piix4_cpu_added_req(Notifier *n, void *opaque)
+static void piix4_cpu_hotplug_req(Notifier *n, void *opaque)
 {
-    PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_added_notifier);
+    PIIX4PMState *s = container_of(n, PIIX4PMState, cpu_hotplug_notifier);
 
     assert(s != NULL);
     AcpiCpuHotplug_add(&s->ar.gpe, &s->gpe_cpu, CPU(opaque));
@@ -546,8 +546,8 @@ static void piix4_acpi_system_hot_add_init(MemoryRegion *parent,
 
     AcpiCpuHotplug_init(parent, OBJECT(s), &s->gpe_cpu,
                         PIIX4_CPU_HOTPLUG_IO_BASE);
-    s->cpu_added_notifier.notify = piix4_cpu_added_req;
-    qemu_register_cpu_added_notifier(&s->cpu_added_notifier);
+    s->cpu_hotplug_notifier.notify = piix4_cpu_hotplug_req;
+    qemu_register_cpu_hotplug_notifier(&s->cpu_hotplug_notifier);
 
     if (s->acpi_memory_hotplug.is_enabled) {
         acpi_memory_hotplug_init(parent, OBJECT(s), &s->acpi_memory_hotplug);

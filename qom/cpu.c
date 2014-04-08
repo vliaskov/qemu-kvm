@@ -108,12 +108,12 @@ static void cpu_common_get_memory_mapping(CPUState *cpu,
 }
 
 /* CPU hot-plug notifiers */
-static NotifierList cpu_added_notifiers =
-    NOTIFIER_LIST_INITIALIZER(cpu_add_notifiers);
+static NotifierList cpu_hotplug_notifiers =
+    NOTIFIER_LIST_INITIALIZER(cpu_hotplug_notifiers);
 
-void qemu_register_cpu_added_notifier(Notifier *notifier)
+void qemu_register_cpu_hotplug_notifier(Notifier *notifier)
 {
-    notifier_list_add(&cpu_added_notifiers, notifier);
+    notifier_list_add(&cpu_hotplug_notifiers, notifier);
 }
 
 void cpu_reset_interrupt(CPUState *cpu, int mask)
@@ -298,7 +298,7 @@ static void cpu_common_realizefn(DeviceState *dev, Error **errp)
 
     if (dev->hotplugged) {
         cpu_synchronize_post_init(cpu);
-        notifier_list_notify(&cpu_added_notifiers, dev);
+        notifier_list_notify(&cpu_hotplug_notifiers, dev);
         cpu_resume(cpu);
     }
 }

@@ -194,9 +194,9 @@ static void pm_powerdown_req(Notifier *n, void *opaque)
     acpi_pm1_evt_power_down(&pm->acpi_regs);
 }
 
-static void ich9_cpu_added_req(Notifier *n, void *opaque)
+static void ich9_cpu_hotplug_req(Notifier *n, void *opaque)
 {
-    ICH9LPCPMRegs *pm = container_of(n, ICH9LPCPMRegs, cpu_added_notifier);
+    ICH9LPCPMRegs *pm = container_of(n, ICH9LPCPMRegs, cpu_hotplug_notifier);
 
     assert(pm != NULL);
     AcpiCpuHotplug_add(&pm->acpi_regs.gpe, &pm->gpe_cpu, CPU(opaque));
@@ -231,8 +231,8 @@ void ich9_pm_init(PCIDevice *lpc_pci, ICH9LPCPMRegs *pm,
 
     AcpiCpuHotplug_init(pci_address_space_io(lpc_pci), OBJECT(lpc_pci),
                         &pm->gpe_cpu, ICH9_CPU_HOTPLUG_IO_BASE);
-    pm->cpu_added_notifier.notify = ich9_cpu_added_req;
-    qemu_register_cpu_added_notifier(&pm->cpu_added_notifier);
+    pm->cpu_hotplug_notifier.notify = ich9_cpu_hotplug_req;
+    qemu_register_cpu_hotplug_notifier(&pm->cpu_hotplug_notifier);
 
     if (pm->acpi_memory_hotplug.is_enabled) {
         acpi_memory_hotplug_init(pci_address_space_io(lpc_pci), OBJECT(lpc_pci),
