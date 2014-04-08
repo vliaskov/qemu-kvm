@@ -24,6 +24,26 @@ static void cpu_status_write(void *opaque, hwaddr addr, uint64_t data,
                              unsigned int size)
 {
     /* TODO: implement VCPU removal on guest signal that CPU can be removed */
+    AcpiCpuHotplug *cpus = opaque;
+    uint8_t val;
+    int i;
+    int64_t cpuid = -1;
+
+    val = cpus->old_sts[addr] ^ data;
+
+    if (val == 0) {
+        return;
+    }
+
+    for (i = 0; i < 8; i++) {
+        if (val & 1 << i) {
+            cpuid = 8 * addr + i;
+        }
+    }
+
+    if (cpuid != -1) {
+        AcpiCpuHotplug_eject(cpus, cpuid);
+    }
 }
 
 static const MemoryRegionOps AcpiCpuHotplug_ops = {
@@ -51,6 +71,21 @@ void AcpiCpuHotplug_req(ACPIGPE *gpe, AcpiCpuHotplug *g, CPUState *cpu,
     	g->sts[cpu_id / 8] &= ~(1 << (cpu_id % 8));
 }
 
+void AcpiCpuHotplug_eject(AcpiCpuHotplug *g, int64_t cpu_id)
+{
+    CPUState *cpu;
+    CPU_FOREACH(cpu) {
+        CPUClass *cc = CPU_GET_CLASS(cpu);
+        int64_t id = cc->get_arch_id(cpu);
+
+        if (cpu_id == id) {
+            g->old_sts[id / 8] &= ~(1 << (id % 8));
+            cpu_remove(cpu);
+            break;
+        }
+    }
+}
+
 void AcpiCpuHotplug_init(MemoryRegion *parent, Object *owner,
                          AcpiCpuHotplug *gpe_cpu, uint16_t base)
 {
@@ -62,6 +97,7 @@ void AcpiCpuHotplug_init(MemoryRegion *parent, Object *owner,
 
         g_assert((id / 8) < ACPI_GPE_PROC_LEN);
         gpe_cpu->sts[id / 8] |= (1 << (id % 8));
+        gpe_cpu->old_sts[id / 8] |= (1 << (id % 8));
     }
     memory_region_init_io(&gpe_cpu->io, owner, &AcpiCpuHotplug_ops,
                           gpe_cpu, "acpi-cpu-hotplug", ACPI_GPE_PROC_LEN);

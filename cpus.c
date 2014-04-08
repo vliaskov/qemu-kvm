@@ -1116,6 +1116,13 @@ void resume_all_vcpus(void)
     }
 }
 
+void cpu_remove(CPUState *cpu)
+{
+    cpu->stop = true;
+    cpu->exit = true;
+    qemu_cpu_kick(cpu);
+}
+
 /* For temporary buffers for forming a name */
 #define VCPU_THREAD_NAME_SIZE 16
 

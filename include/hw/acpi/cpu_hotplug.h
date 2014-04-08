@@ -18,6 +18,7 @@
 typedef struct AcpiCpuHotplug {
     MemoryRegion io;
     uint8_t sts[ACPI_GPE_PROC_LEN];
+    uint8_t old_sts[ACPI_GPE_PROC_LEN];
 } AcpiCpuHotplug;
 
 void AcpiCpuHotplug_req(ACPIGPE *gpe, AcpiCpuHotplug *g, CPUState *cpu,
@@ -25,4 +26,6 @@ void AcpiCpuHotplug_req(ACPIGPE *gpe, AcpiCpuHotplug *g, CPUState *cpu,
 
 void AcpiCpuHotplug_init(MemoryRegion *parent, Object *owner,
                          AcpiCpuHotplug *gpe_cpu, uint16_t base);
+
+void AcpiCpuHotplug_eject(AcpiCpuHotplug *g, int64_t cpu_id);
 #endif

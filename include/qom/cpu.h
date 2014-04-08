@@ -189,6 +189,7 @@ struct kvm_run;
  * @halted: Nonzero if the CPU is in suspended state.
  * @stop: Indicates a pending stop request.
  * @stopped: Indicates the CPU has been artificially stopped.
+ * @exit: Indicates the CPU is in impending exit state.
  * @tcg_exit_req: Set to force TCG to stop executing linked TBs for this
  *           CPU and return to its top level loop.
  * @singlestep_enabled: Flags for single-stepping.
@@ -232,6 +233,7 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+    bool exit;
     volatile sig_atomic_t exit_request;
     uint32_t interrupt_request;
     int singlestep_enabled;
@@ -584,6 +586,14 @@ void cpu_exit(CPUState *cpu);
  * Resumes CPU, i.e. puts CPU into runnable state.
  */
 void cpu_resume(CPUState *cpu);
+
+/**
+ * qemu_remove_vcpu:
+ * @cpu: The vCPU to remove.
+ *
+ * Requests the CPU @cpu to be removed.
+ */
+void cpu_remove(CPUState *cpu);
 
 /**
  * qemu_init_vcpu:
