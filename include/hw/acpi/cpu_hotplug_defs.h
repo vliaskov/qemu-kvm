@@ -28,5 +28,6 @@
 
 #define ICH9_CPU_HOTPLUG_IO_BASE 0x0CD8
 #define PIIX4_CPU_HOTPLUG_IO_BASE 0xaf00
+#define ACPI_CPU_HOTPLUG_BASE_PROP "cpu-hotplug-io-base"
 
 #endif
