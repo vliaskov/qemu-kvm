@@ -488,7 +488,7 @@ static const char *monitor_event_names[] = {
 };
 QEMU_BUILD_BUG_ON(ARRAY_SIZE(monitor_event_names) != QEVENT_MAX)
 
-MonitorEventState monitor_event_state[QEVENT_MAX];
+static MonitorEventState monitor_event_state[QEVENT_MAX];
 
 /*
  * Emits the event to every monitor instance
@@ -2611,16 +2611,33 @@ int monitor_handle_fd_param(Monitor *mon, const char *fdname)
     int fd;
     Error *local_err = NULL;
 
-    if (!qemu_isdigit(fdname[0]) && mon) {
+    fd = monitor_handle_fd_param2(mon, fdname, &local_err);
+    if (local_err) {
+        qerror_report_err(local_err);
+        error_free(local_err);
+    }
+    return fd;
+}
 
+int monitor_handle_fd_param2(Monitor *mon, const char *fdname, Error **errp)
+{
+    int fd;
+    Error *local_err = NULL;
+
+    if (!qemu_isdigit(fdname[0]) && mon) {
         fd = monitor_get_fd(mon, fdname, &local_err);
-        if (fd == -1) {
-            qerror_report_err(local_err);
-            error_free(local_err);
-            return -1;
-        }
     } else {
         fd = qemu_parse_fd(fdname);
+        if (fd == -1) {
+            error_setg(&local_err, "Invalid file descriptor number '%s'",
+                       fdname);
+        }
+    }
+    if (local_err) {
+        error_propagate(errp, local_err);
+        assert(fd == -1);
+    } else {
+        assert(fd != -1);
     }
 
     return fd;
