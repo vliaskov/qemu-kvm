@@ -77,4 +77,5 @@ uint64_t dimm_get_free_addr(uint64_t address_space_start,
                             Error **errp);
 
 int dimm_get_free_slot(const int *hint, int max_slots, Error **errp);
+int dimm_built_list(Object *obj, void *opaque);
 #endif

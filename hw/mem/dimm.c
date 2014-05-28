@@ -77,7 +77,7 @@ static gint dimm_addr_sort(gconstpointer a, gconstpointer b)
     return x->addr - y->addr;
 }
 
-static int dimm_built_list(Object *obj, void *opaque)
+int dimm_built_list(Object *obj, void *opaque)
 {
     GSList **list = opaque;
 

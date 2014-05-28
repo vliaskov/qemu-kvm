@@ -2958,6 +2958,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.cmd = hmp_info_tpm,
     },
     {
+        .name       = "dimm",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show hot-plugged dimms information",
+        .mhandler.cmd = hmp_info_dimm,
+    },
+    {
         .name       = NULL,
     },
 };

@@ -28,6 +28,7 @@
 #include "qapi/qmp-input-visitor.h"
 #include "hw/boards.h"
 #include "qom/object_interfaces.h"
+#include "hw/mem/dimm.h"
 
 NameInfo *qmp_query_name(Error **errp)
 {
@@ -627,4 +628,39 @@ void qmp_object_del(const char *id, Error **errp)
         return;
     }
     object_unparent(obj);
+}
+
+DimmInfoList *qmp_query_dimm(Error **errp)
+{
+    GSList *list = NULL, *item;
+    DimmInfoList *head = NULL, *info, *cur_item = NULL;
+
+    object_child_foreach(qdev_get_machine(), dimm_built_list, &list);
+
+    for (item = list; item; item = g_slist_next(item)) {
+	    DimmDevice *dimm = item->data;
+	    DeviceState *dev = DEVICE(dimm);
+	    uint64_t dimm_size = object_property_get_int(OBJECT(dimm),
+			    "size", &error_abort);
+
+	    info = g_malloc0(sizeof(*info));
+	    info->value = g_malloc0(sizeof(*info->value));
+	    info->value->dimm = g_strdup(dev->id);
+	    info->value->size = dimm_size;
+	    info->value->start = dimm->addr;
+
+	    info->value->memdev =
+		    g_strdup(object_get_canonical_path_component(OBJECT(dimm->hostmem)));
+	    /* XXX: waiting for the qapi to support GSList */
+	    if (!cur_item) {
+		    head = cur_item = info;
+	    } else {
+		    cur_item->next = info;
+		    cur_item = info;
+	    }
+    }
+
+    g_slist_free(list);
+
+    return head;
 }

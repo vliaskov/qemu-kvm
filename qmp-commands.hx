@@ -3572,3 +3572,27 @@ Example:
                    } } ] }
 
 EQMP
+    
+    {
+        .name       = "query-dimm",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_dimm,
+    },
+
+SQMP
+@query-dimm
+------------------------
+
+Return a list of DimmInfo for all the DimmDevices 
+
+Example:
+
+{"execute":"query-dimm"}
+{"return": [
+  {"memdev": "p128n0-memdev", "start": 4294967296, "dimm": "p128n0", "size": 134217728},
+  {"memdev": "p128n1-memdev", "start": 4429185024, "dimm": "p128n1", "size": 134217728},
+  {"memdev": "p128n2-memdev", "start": 4563402752, "dimm": "p128n2", "size": 134217728},
+  {"memdev": "p128n3-memdev", "start": 4697620480, "dimm": "p128n3", "size": 134217728}
+  ]}
+
+EQMP

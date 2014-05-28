@@ -1676,3 +1676,20 @@ void hmp_object_del(Monitor *mon, const QDict *qdict)
     qmp_object_del(id, &err);
     hmp_handle_error(mon, &err);
 }
+
+void hmp_info_dimm(Monitor *mon, const QDict *qdict)
+{
+    DimmInfoList *info;
+    DimmInfoList *item;
+    DimmInfo *dev;
+
+    info = qmp_query_dimm(NULL);
+    for (item = info; item; item = item->next) {
+        dev = item->value;
+        monitor_printf(mon, "dimm %s : size = %ld start = %ld memdev = %s\n", dev->dimm,
+                dev->size, dev->start, dev->memdev);
+        //dev->dimm = NULL;
+    }
+    qapi_free_DimmInfoList(info);
+}
+
