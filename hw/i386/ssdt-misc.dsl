@@ -163,6 +163,7 @@ DefinitionBlock ("ssdt-misc.aml", "SSDT", 0x01, "BXPC", "BXSSDTSUSP", 0x1)
                 MSEL, 32,  // DIMM selector, write only
                 MOEV, 32,  // _OST event code, write only
                 MOSC, 32,  // _OST status code, write only
+                MEJE, 8, // if written to, eject DIMM
             }
 
             Method(MESC, 0, Serialized) {
@@ -283,7 +284,7 @@ DefinitionBlock ("ssdt-misc.aml", "SSDT", 0x01, "BXPC", "BXSSDTSUSP", 0x1)
             Method(MDEJ, 2) {
                 Acquire(MLCK, 0xFFFF)
                 Store(ToInteger(Arg0), MSEL) // select DIMM
-                Store(One, MRMV)
+                Store(1, MEJE)
                 Release(MLCK)
             }
         } // Device()

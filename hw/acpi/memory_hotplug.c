@@ -93,9 +93,6 @@ static void acpi_memory_hotplug_write(void *opaque, hwaddr addr, uint64_t data,
         case 0x03: /* EJECT */
             switch (mdev->ost_status) {
             case 0x0: /* SUCCESS */
-                object_unparent(OBJECT(mdev->dimm));
-                mdev->is_removing = false;
-                mdev->dimm = NULL;
                 break;
             case 0x1: /* FAILURE */
             case 0x2: /* UNRECOGNIZED NOTIFY */
@@ -115,9 +112,6 @@ static void acpi_memory_hotplug_write(void *opaque, hwaddr addr, uint64_t data,
         case 0x103: /* OSPM EJECT */
             switch (mdev->ost_status) {
             case 0x0: /* SUCCESS */
-                object_unparent(OBJECT(mdev->dimm));
-                mdev->is_removing = false;
-                mdev->dimm = NULL;
                 break;
             case 0x84: /* EJECTION IN PROGRESS */
                 mdev->is_enabled = false;
@@ -136,6 +130,12 @@ static void acpi_memory_hotplug_write(void *opaque, hwaddr addr, uint64_t data,
         } else if (data & 4) { /* MRMV */
             mdev->is_enabled = false;
         }
+        break;
+    case 0x0c:
+        mdev = &mem_st->devs[mem_st->selector];
+        object_unparent(OBJECT(mdev->dimm));
+        mdev->is_removing = false;
+        mdev->dimm = NULL;
         break;
     }
 }
@@ -238,6 +238,7 @@ static const VMStateDescription vmstate_memhp_sts = {
         VMSTATE_BOOL(is_inserting, MemStatus),
         VMSTATE_UINT32(ost_event, MemStatus),
         VMSTATE_UINT32(ost_status, MemStatus),
+        VMSTATE_UINT32(ej_status, MemStatus),
         VMSTATE_END_OF_LIST()
     }
 };

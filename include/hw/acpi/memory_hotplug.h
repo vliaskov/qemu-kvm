@@ -14,6 +14,7 @@ typedef struct MemStatus {
     bool is_removing;
     uint32_t ost_event;
     uint32_t ost_status;
+    uint32_t ej_status;
 } MemStatus;
 
 typedef struct MemHotplugState {
