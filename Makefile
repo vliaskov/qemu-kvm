@@ -563,3 +563,12 @@ endif
 # Include automatically generated dependency files
 # Dependencies in Makefile.objs files come from our recursive subdir rules
 -include $(wildcard *.d tests/*.d)
+
+virtgpu := $(wildcard /home/kraxel/projects/linux/drivers/gpu/drm/virtio/virtgpu_hw.h)
+ifneq ($(virtgpu),)
+$(SRC_PATH)/include/hw/virtio/virtgpu_hw.h: $(virtgpu)
+	sed	-e 's/	/    /g'		\
+		-e 's/__le32/uint32_t/g'	\
+		-e 's/__le64/uint64_t/g'	\
+		< $< > $@
+endif
