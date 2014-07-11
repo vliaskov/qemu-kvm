@@ -330,6 +330,7 @@ archipelago=""
 gtk=""
 gtkabi=""
 vte=""
+virglrenderer=""
 tpm="yes"
 libssh2=""
 vhdx=""
@@ -1108,6 +1109,10 @@ for opt do
   --disable-vte) vte="no"
   ;;
   --enable-vte) vte="yes"
+  ;;
+  --disable-virglrenderer) virglrenderer="no"
+  ;;
+  --enable-virglrenderer) virglrenderer="yes"
   ;;
   --disable-tpm) tpm="no"
   ;;
@@ -3057,7 +3062,7 @@ libs_softmmu="$libs_softmmu $fdt_libs"
 ##########################################
 # GLX probe, used by milkymist-tmu2
 if test "$glx" != "no" ; then
-  glx_libs="-lGL -lX11"
+  glx_libs="-lEGL -lgbm -lGL -lX11"
   cat > $TMPC << EOF
 #include <X11/Xlib.h>
 #include <GL/gl.h>
@@ -3736,6 +3741,28 @@ fi
 
 ##########################################
 
+
+# virgl renderer probe
+if test "$virglrenderer" != "no" ; then
+  cat > $TMPC << EOF
+#include <virglrenderer.h>
+int main(void) { virgl_renderer_check_fences(); return 0; }
+EOF
+  virgl_cflags=$($pkg_config --cflags virglrenderer 2>/dev/null)
+  virgl_libs=$($pkg_config --libs virglrenderer 2>/dev/null)
+  if $pkg_config virglrenderer >/dev/null 2>&1 && \
+     compile_prog "$virgl_cflags" "$virgl_libs" ; then
+    virglrenderer="yes"
+    libs_softmmu="$libs_softmmu $virgl_libs"
+    QEMU_CFLAGS="$QEMU_CFLAGS $virgl_cflags"
+  else
+    if test "$virglrenderer" = "yes" ; then
+      feature_not_found "virglrenderer"
+    fi
+    virglrenderer="no"
+  fi
+fi
+
 ##########################################
 # check if we have fdatasync
 
@@ -4264,6 +4291,7 @@ echo "SDL support       $sdl"
 echo "GTK support       $gtk"
 echo "VTE support       $vte"
 echo "curses support    $curses"
+echo "virgl support     $virglrenderer"
 echo "curl support      $curl"
 echo "mingw32 support   $mingw32"
 echo "Audio drivers     $audio_drv_list"
@@ -4609,6 +4637,9 @@ fi
 if test "$vte" = "yes" ; then
   echo "CONFIG_VTE=y" >> $config_host_mak
   echo "VTE_CFLAGS=$vte_cflags" >> $config_host_mak
+fi
+if test "$virglrenderer" = "yes" ; then
+  echo "CONFIG_VIRGL=y" >> $config_host_mak
 fi
 if test "$xen" = "yes" ; then
   echo "CONFIG_XEN_BACKEND=y" >> $config_host_mak
