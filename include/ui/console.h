@@ -149,6 +149,8 @@ void cursor_set_mono(QEMUCursor *c,
 void cursor_get_mono_image(QEMUCursor *c, int foreground, uint8_t *mask);
 void cursor_get_mono_mask(QEMUCursor *c, int transparent, uint8_t *mask);
 
+typedef void *qemu_gl_context;
+
 typedef struct DisplayChangeListenerOps {
     const char *dpy_name;
 
@@ -173,6 +175,21 @@ typedef struct DisplayChangeListenerOps {
                           int x, int y, int on);
     void (*dpy_cursor_define)(DisplayChangeListener *dcl,
                               QEMUCursor *cursor);
+
+    qemu_gl_context (*dpy_gl_ctx_create)(DisplayChangeListener *dcl,
+                                         bool shared);
+    void (*dpy_gl_ctx_destroy)(DisplayChangeListener *dcl,
+                              qemu_gl_context ctx);
+    int (*dpy_gl_ctx_make_current)(DisplayChangeListener *dcl,
+                                   qemu_gl_context ctx);
+    qemu_gl_context (*dpy_gl_ctx_get_current)(DisplayChangeListener *dcl);
+
+    void (*dpy_gl_scanout)(DisplayChangeListener *dcl,
+                           uint32_t backing_id, bool backing_y_0_top,
+                           uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+    void (*dpy_gl_update)(DisplayChangeListener *dcl,
+                          uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+
 } DisplayChangeListenerOps;
 
 struct DisplayChangeListener {
@@ -235,6 +252,19 @@ void dpy_gfx_update_dirty(QemuConsole *con,
                           MemoryRegion *address_space,
                           uint64_t base,
                           bool invalidate);
+
+void dpy_gl_scanout(QemuConsole *con,
+                    uint32_t backing_id, bool backing_y_0_top,
+                    uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+void dpy_gl_update(QemuConsole *con,
+                   uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+
+qemu_gl_context dpy_gl_ctx_create(QemuConsole *con, bool shared);
+void dpy_gl_ctx_destroy(QemuConsole *con, qemu_gl_context ctx);
+int dpy_gl_ctx_make_current(QemuConsole *con, qemu_gl_context ctx);
+qemu_gl_context dpy_gl_ctx_get_current(QemuConsole *con);
+
+bool console_has_gl(QemuConsole *con);
 
 static inline int surface_stride(DisplaySurface *s)
 {
