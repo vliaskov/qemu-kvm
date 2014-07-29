@@ -554,6 +554,10 @@ static void handle_keydown(SDL_Event *ev)
             break;
         }
     }
+    fprintf(stderr, "%s: scancode %d, mod %x, gui-mod %d, gui-key %d\n",
+            __func__, ev->key.keysym.scancode,
+            SDL_GetModState(), gui_key_modifier_pressed,
+            gui_keysym);
     if (!gui_keysym) {
         sdl_process_key(scon, &ev->key);
     }
