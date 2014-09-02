@@ -466,8 +466,12 @@ static void virgl_write_fence(void *opaque, uint32_t fence)
     struct virtio_gpu_ctrl_command *cmd, *tmp;
 
     QTAILQ_FOREACH_SAFE(cmd, &g->fenceq, next, tmp) {
+        /*
+	 * the guest can end up emitting fences out of order
+	 * so we should check all fenced cmds not just the first one.
+	 */
         if (cmd->cmd_hdr.fence_id > fence) {
-            return;
+            continue;
         }
         trace_virtio_gpu_fence_resp(cmd->cmd_hdr.fence_id);
         virtio_gpu_ctrl_response_nodata(g, cmd, VIRTIO_GPU_RESP_OK_NODATA);
