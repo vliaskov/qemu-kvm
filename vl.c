@@ -240,6 +240,7 @@ static struct {
     { .driver = "isa-cirrus-vga",       .flag = &default_vga       },
     { .driver = "vmware-svga",          .flag = &default_vga       },
     { .driver = "qxl-vga",              .flag = &default_vga       },
+    { .driver = "virtio-vga",           .flag = &default_vga       },
 };
 
 static QemuOptsList qemu_rtc_opts = {
@@ -1958,6 +1959,11 @@ static bool cg3_vga_available(void)
     return object_class_by_name("cgthree");
 }
 
+static bool virtio_vga_available(void)
+{
+    return object_class_by_name("virtio-vga");
+}
+
 static void select_vgahw (const char *p)
 {
     const char *opts;
@@ -1982,6 +1988,13 @@ static void select_vgahw (const char *p)
             vga_interface_type = VGA_VMWARE;
         } else {
             fprintf(stderr, "Error: VMWare SVGA not available\n");
+            exit(0);
+        }
+    } else if (strstart(p, "virtio", &opts)) {
+        if (virtio_vga_available()) {
+            vga_interface_type = VGA_VIRTIO;
+        } else {
+            fprintf(stderr, "Error: Virtio VGA not available\n");
             exit(0);
         }
     } else if (strstart(p, "xenfb", &opts)) {
