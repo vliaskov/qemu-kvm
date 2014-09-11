@@ -183,3 +183,20 @@ VIRTGPU_CMD_MOVE_CURSOR
   Command: struct virtgpu_update_cursor
 
   Move cursor.  Only virtgpu_update_cursor.pos field is used.
+
+
+[ WIP ] 3D mode
+---------------
+
+Capabilities:
+
+Config space identifies the number of capability sets.
+
+cap_set_info passes back that number of sets into guest, with id, max
+version, and max size.
+
+guest can then query individual cap sets using id and version number
+it supports. The host should return that data into the max sized
+buffer the guest allocated.
+
+The guest kernel can cache cap sets for faster app startup.
