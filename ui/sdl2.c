@@ -30,6 +30,7 @@
 
 #if SDL_MAJOR_VERSION == 2
 #include <SDL_syswm.h>
+#include <SDL_opengl.h>
 
 #include "qemu-common.h"
 #include "ui/console.h"
@@ -37,6 +38,10 @@
 #include "sysemu/sysemu.h"
 
 #include "sdl2-keymap.h"
+
+#ifdef CONFIG_VIRGL
+#include "virgl_helper.h"
+#endif
 
 static int sdl2_num_outputs;
 static struct sdl2_state {
@@ -49,6 +54,7 @@ static struct sdl2_state {
     int last_vm_running; /* per console for caption reasons */
     int x, y;
     int hidden;
+    SDL_GLContext winctx;
 } *sdl2_console;
 
 static SDL_Surface *guest_sprite_surface;
@@ -105,6 +111,7 @@ static void sdl_update(DisplayChangeListener *dcl,
     rect.w = w;
     rect.h = h;
 
+    SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
     SDL_UpdateTexture(scon->texture, NULL, surface_data(surf),
                       surface_stride(surf));
     SDL_RenderCopy(scon->real_renderer, scon->texture, &rect, &rect);
@@ -118,9 +125,11 @@ static void do_sdl_resize(struct sdl2_state *scon, int width, int height,
 
     if (scon->real_window && scon->real_renderer) {
         if (width && height) {
+            SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
             SDL_RenderSetLogicalSize(scon->real_renderer, width, height);
             SDL_SetWindowSize(scon->real_window, width, height);
         } else {
+            SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
             SDL_DestroyRenderer(scon->real_renderer);
             SDL_DestroyWindow(scon->real_window);
             scon->real_renderer = NULL;
@@ -140,10 +149,21 @@ static void do_sdl_resize(struct sdl2_state *scon, int width, int height,
             flags |= SDL_WINDOW_HIDDEN;
         }
 
+        SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                            SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
         scon->real_window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED,
                                              SDL_WINDOWPOS_UNDEFINED,
                                              width, height, flags);
+        if (!scon->real_window) {
+            fprintf(stderr, "failed to open real window\n");
+        }
         scon->real_renderer = SDL_CreateRenderer(scon->real_window, -1, 0);
+        if (!scon->real_renderer) {
+            fprintf(stderr, "failed to get real renderer\n");
+        }
+        scon->winctx = SDL_GL_GetCurrentContext();
         sdl_update_caption(scon);
     }
 }
@@ -173,6 +193,7 @@ static void sdl_switch(DisplayChangeListener *dcl,
     }
 
     if (old_surface && scon->texture) {
+        SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
         SDL_DestroyTexture(scon->texture);
         scon->texture = NULL;
     }
@@ -184,7 +205,7 @@ static void sdl_switch(DisplayChangeListener *dcl,
             } else if (surface_bits_per_pixel(scon->surface) == 32) {
                 format = SDL_PIXELFORMAT_ARGB8888;
             }
-
+            SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
             scon->texture = SDL_CreateTexture(scon->real_renderer, format,
                                               SDL_TEXTUREACCESS_STREAMING,
                                               surface_width(new_surface),
@@ -822,6 +843,94 @@ static void sdl_mouse_define(DisplayChangeListener *dcl,
     }
 }
 
+static qemu_gl_context sdl_create_context(DisplayChangeListener *dcl,
+                                          bool shared)
+{
+    struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
+    SDL_GLContext ctx;
+
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, shared ? 1 : 0);
+
+#if 1
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                        SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
+                        SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
+
+    ctx = SDL_GL_CreateContext(scon->real_window);
+    return (qemu_gl_context)ctx;
+}
+
+static void sdl_destroy_context(DisplayChangeListener *dcl, qemu_gl_context ctx)
+{
+    SDL_GLContext sdlctx = (SDL_GLContext)ctx;
+    SDL_GL_DeleteContext(sdlctx);
+}
+
+static int sdl_make_context_current(DisplayChangeListener *dcl,
+                                    qemu_gl_context ctx)
+{
+    struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
+    SDL_GLContext sdlctx = (SDL_GLContext)ctx;
+
+    return SDL_GL_MakeCurrent(scon->real_window, sdlctx);
+}
+
+static qemu_gl_context sdl_get_current_context(DisplayChangeListener *dcl)
+{
+    SDL_GLContext sdlctx;
+
+    sdlctx = SDL_GL_GetCurrentContext();
+    return (qemu_gl_context)sdlctx;
+}
+
+static void sdl_gl_scanout(DisplayChangeListener *dcl,
+                           uint32_t backing_id, bool backing_y_0_top,
+                           uint32_t x, uint32_t y,
+                           uint32_t w, uint32_t h)
+{
+    struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
+
+#ifdef CONFIG_VIRGL
+    virgl_helper_scanout_info(scon->idx, backing_id,
+                              backing_y_0_top ? VIRGL_HELPER_Y_0_TOP : 0,
+                              x, y, w, h);
+#endif
+    scon->x = x;
+    scon->y = y;
+}
+
+static void sdl_gl_update(DisplayChangeListener *dcl,
+                          uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
+
+#ifdef CONFIG_VIRGL
+    virgl_helper_flush_scanout(scon->idx, x, y, w, h);
+#endif
+    SDL_GL_SwapWindow(scon->real_window);
+}
+
+static const DisplayChangeListenerOps dcl_ops = {
+    .dpy_name                = "sdl-gl",
+    .dpy_gfx_update          = sdl_update,
+    .dpy_gfx_switch          = sdl_switch,
+    .dpy_refresh             = sdl_refresh,
+    .dpy_mouse_set           = sdl_mouse_warp,
+    .dpy_cursor_define       = sdl_mouse_define,
+
+    .dpy_gl_ctx_create       = sdl_create_context,
+    .dpy_gl_ctx_destroy      = sdl_destroy_context,
+    .dpy_gl_ctx_make_current = sdl_make_context_current,
+    .dpy_gl_ctx_get_current  = sdl_get_current_context,
+    .dpy_gl_scanout          = sdl_gl_scanout,
+    .dpy_gl_update           = sdl_gl_update,
+};
+
 static void sdl_cleanup(void)
 {
     if (guest_sprite) {
@@ -829,15 +938,6 @@ static void sdl_cleanup(void)
     }
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
-
-static const DisplayChangeListenerOps dcl_ops = {
-    .dpy_name          = "sdl",
-    .dpy_gfx_update    = sdl_update,
-    .dpy_gfx_switch    = sdl_switch,
-    .dpy_refresh       = sdl_refresh,
-    .dpy_mouse_set     = sdl_mouse_warp,
-    .dpy_cursor_define = sdl_mouse_define,
-};
 
 void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
 {
@@ -883,10 +983,10 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
         if (!qemu_console_is_graphic(con)) {
             sdl2_console[i].hidden = true;
         }
+        sdl2_console[i].idx = i;
         sdl2_console[i].dcl.ops = &dcl_ops;
         sdl2_console[i].dcl.con = con;
         register_displaychangelistener(&sdl2_console[i].dcl);
-        sdl2_console[i].idx = i;
     }
 
     /* Load a 32x32x4 image. White pixels are transparent. */
