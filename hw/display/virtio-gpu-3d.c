@@ -301,9 +301,9 @@ static void virgl_resource_detach_backing(VirtIOGPU *g,
     VIRTIO_GPU_FILL_CMD(detach_rb);
     trace_virtio_gpu_cmd_res_back_detach(detach_rb.resource_id);
 
-    virgl_renderer_resource_zap_iov(detach_rb.resource_id,
-                                    &res_iovs,
-                                    &num_iovs);
+    virgl_renderer_resource_detach_iov(detach_rb.resource_id,
+                                       &res_iovs,
+                                       &num_iovs);
     virtio_gpu_cleanup_mapping_iov(res_iovs, num_iovs);
 }
 
