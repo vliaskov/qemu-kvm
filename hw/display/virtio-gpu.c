@@ -66,7 +66,7 @@ static void update_cursor_data_virgl(VirtIOGPU *g,
     uint32_t width, height;
     uint32_t pixels, *data;
 
-    data = virgl_get_cursor_data(resource_id, &width, &height);
+    data = virgl_renderer_get_cursor_data(resource_id, &width, &height);
     if (!data) {
         return;
     }

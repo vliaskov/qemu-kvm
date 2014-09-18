@@ -478,17 +478,18 @@ static void virgl_write_fence(void *opaque, uint32_t fence)
     }
 }
 
-static virgl_gl_context virgl_create_context(void *opaque, int scanout_idx,
-                                             bool shared)
+static virgl_renderer_gl_context virgl_create_context(void *opaque,
+                                                      int scanout_idx,
+                                                      bool shared)
 {
     VirtIOGPU *g = opaque;
     qemu_gl_context ctx;
 
     ctx = dpy_gl_ctx_create(g->scanout[scanout_idx].con, shared);
-    return (virgl_gl_context)ctx;
+    return (virgl_renderer_gl_context)ctx;
 }
 
-static void virgl_destroy_context(void *opaque, virgl_gl_context ctx)
+static void virgl_destroy_context(void *opaque, virgl_renderer_gl_context ctx)
 {
     VirtIOGPU *g = opaque;
     qemu_gl_context qctx = (qemu_gl_context)ctx;
@@ -497,7 +498,7 @@ static void virgl_destroy_context(void *opaque, virgl_gl_context ctx)
 }
 
 static int virgl_make_context_current(void *opaque, int scanout_idx,
-                                      virgl_gl_context ctx)
+                                      virgl_renderer_gl_context ctx)
 {
     VirtIOGPU *g = opaque;
     qemu_gl_context qctx = (qemu_gl_context)ctx;
