@@ -3746,7 +3746,7 @@ fi
 if test "$virglrenderer" != "no" ; then
   cat > $TMPC << EOF
 #include <virglrenderer.h>
-int main(void) { virgl_renderer_check_fences(); return 0; }
+int main(void) { virgl_renderer_poll(); return 0; }
 EOF
   virgl_cflags=$($pkg_config --cflags virglrenderer 2>/dev/null)
   virgl_libs=$($pkg_config --libs virglrenderer 2>/dev/null)
