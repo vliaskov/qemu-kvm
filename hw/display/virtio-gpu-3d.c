@@ -295,8 +295,8 @@ static void virgl_resource_detach_backing(VirtIOGPU *g,
                                           struct virtio_gpu_ctrl_command *cmd)
 {
     struct virtio_gpu_resource_detach_backing detach_rb;
-    struct iovec *res_iovs;
-    int num_iovs;
+    struct iovec *res_iovs = NULL;
+    int num_iovs = 0;
 
     VIRTIO_GPU_FILL_CMD(detach_rb);
     trace_virtio_gpu_cmd_res_back_detach(detach_rb.resource_id);
@@ -304,6 +304,9 @@ static void virgl_resource_detach_backing(VirtIOGPU *g,
     virgl_renderer_resource_detach_iov(detach_rb.resource_id,
                                        &res_iovs,
                                        &num_iovs);
+    if (res_iovs == NULL || num_iovs == 0) {
+        return;
+    }
     virtio_gpu_cleanup_mapping_iov(res_iovs, num_iovs);
 }
 
