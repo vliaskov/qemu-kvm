@@ -22,6 +22,23 @@
 static struct virtio_gpu_simple_resource*
 virtio_gpu_find_resource(VirtIOGPU *g, uint32_t resource_id);
 
+#ifdef CONFIG_VIRGL
+#include "virglrenderer.h"
+#define VIRGL(_g, _virgl, _simple, ...)                     \
+    do {                                                    \
+        if (_g->use_virgl_renderer) {                       \
+            _virgl(__VA_ARGS__);                            \
+        } else {                                            \
+            _simple(__VA_ARGS__);                           \
+        }                                                   \
+    } while (0)
+#else
+#define VIRGL(_g, _virgl, _simple, ...)                 \
+    do {                                                \
+        _simple(__VA_ARGS__);                           \
+    } while (0)
+#endif
+
 static void update_cursor_data_simple(VirtIOGPU *g,
                                       struct virtio_gpu_scanout *s,
                                       uint32_t resource_id)
@@ -39,6 +56,27 @@ static void update_cursor_data_simple(VirtIOGPU *g,
            pixman_image_get_data(res->image),
            pixels * sizeof(uint32_t));
 }
+
+#ifdef CONFIG_VIRGL
+
+static void update_cursor_data_virgl(VirtIOGPU *g,
+                                     struct virtio_gpu_scanout *s,
+                                     uint32_t resource_id)
+{
+    uint32_t width, height;
+    uint32_t pixels, *data;
+
+    data = virgl_get_cursor_data(resource_id, &width, &height);
+    if (!data) {
+        return;
+    }
+
+    pixels = s->current_cursor->width * s->current_cursor->height;
+    memcpy(s->current_cursor->data, data, pixels * sizeof(uint32_t));
+    free(data);
+}
+
+#endif
 
 static void update_cursor(VirtIOGPU *g, struct virtio_gpu_update_cursor *cursor)
 {
@@ -58,7 +96,8 @@ static void update_cursor(VirtIOGPU *g, struct virtio_gpu_update_cursor *cursor)
         s->current_cursor->hot_y = cursor->hot_y;
 
         if (cursor->resource_id > 0) {
-            update_cursor_data_simple(g, s, cursor->resource_id);
+            VIRGL(g, update_cursor_data_virgl, update_cursor_data_simple,
+                  g, s, cursor->resource_id);
         }
         dpy_cursor_define(s->con, s->current_cursor);
     }
@@ -86,11 +125,21 @@ static void virtio_gpu_set_config(VirtIODevice *vdev, const uint8_t *config)
 
 static uint32_t virtio_gpu_get_features(VirtIODevice *vdev, uint32_t features)
 {
+    VirtIOGPU *g = VIRTIO_GPU(vdev);
+
+    if (g->conf.virgl_enable) {
+        features |= (1 << VIRTIO_GPU_FEATURE_VIRGL);
+    }
     return features;
 }
 
 static void virtio_gpu_set_features(VirtIODevice *vdev, uint32_t features)
 {
+    static const uint32_t virgl = (1 << VIRTIO_GPU_FEATURE_VIRGL);
+    VirtIOGPU *g = VIRTIO_GPU(vdev);
+
+    g->use_virgl_renderer = ((features & virgl) == virgl);
+    trace_virtio_gpu_features(g->use_virgl_renderer);
 }
 
 static void virtio_gpu_notify_event(VirtIOGPU *g, uint32_t event_type)
@@ -682,6 +731,13 @@ static void virtio_gpu_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
         return;
     }
 
+#ifdef CONFIG_VIRGL
+    if (!g->renderer_inited && g->use_virgl_renderer) {
+        virtio_gpu_virgl_init(g);
+        g->renderer_inited = true;
+    }
+#endif
+
     cmd = g_new(struct virtio_gpu_ctrl_command, 1);
     while (virtqueue_pop(vq, &cmd->elem)) {
         cmd->vq = vq;
@@ -689,7 +745,8 @@ static void virtio_gpu_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
         cmd->finished = false;
         g->stats.requests++;
 
-        virtio_gpu_simple_process_cmd(g, cmd);
+        VIRGL(g, virtio_gpu_virgl_process_cmd, virtio_gpu_simple_process_cmd,
+              g, cmd);
         if (!cmd->finished) {
             QTAILQ_INSERT_TAIL(&g->fenceq, cmd, next);
             g->stats.inflight++;
@@ -701,6 +758,12 @@ static void virtio_gpu_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
         }
     }
     g_free(cmd);
+
+#ifdef CONFIG_VIRGL
+    if (g->use_virgl_renderer) {
+        virtio_gpu_virgl_fence_poll(g);
+    }
+#endif
 }
 
 static void virtio_gpu_ctrl_bh(void *opaque)
@@ -815,6 +878,16 @@ static void virtio_gpu_device_realize(DeviceState *qdev, Error **errp)
             dpy_gfx_replace_surface(g->scanout[i].con, NULL);
         }
     }
+
+    /* virgl (3D) setup */
+    g->use_virgl_renderer = false;
+
+#ifndef CONFIG_VIRGL
+    g->conf.virgl_enable = false;
+#endif
+    if (g->conf.virgl_enable) {
+        g->virtio_config.num_capsets = 1;
+    }
 }
 
 static void virtio_gpu_instance_init(Object *obj)
@@ -852,6 +925,13 @@ static void virtio_gpu_reset(VirtIODevice *vdev)
         g->scanout[i].ds = NULL;
     }
     g->enabled_output_bitmask = 1;
+
+#ifdef CONFIG_VIRGL
+    if (g->use_virgl_renderer) {
+        virtio_gpu_virgl_reset(g);
+        g->use_virgl_renderer = 0;
+    }
+#endif
 }
 
 static Property virtio_gpu_properties[] = {
@@ -901,3 +981,14 @@ QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_mem_entry)               != 16);
 QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resource_attach_backing) != 32);
 QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resource_detach_backing) != 32);
 QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resp_display_info)       != 408);
+
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_transfer_host_3d)        != 72);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resource_create_3d)      != 72);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_ctx_create)              != 96);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_ctx_destroy)             != 24);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_ctx_resource)            != 32);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_cmd_submit)              != 32);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_get_capset_info)         != 32);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resp_capset_info)        != 40);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_get_capset)              != 32);
+QEMU_BUILD_BUG_ON(sizeof(struct virtio_gpu_resp_capset)             != 24);

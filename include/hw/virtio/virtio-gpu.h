@@ -60,6 +60,7 @@ struct virtio_gpu_requested_state {
 
 struct virtio_gpu_conf {
     uint32_t max_outputs;
+    uint32_t virgl_enable;
 };
 
 struct virtio_gpu_ctrl_command {
@@ -94,6 +95,8 @@ typedef struct VirtIOGPU {
     int enabled_output_bitmask;
     struct virtio_gpu_config virtio_config;
 
+    bool use_virgl_renderer;
+    bool renderer_inited;
     QEMUTimer *fence_poll;
     QEMUTimer *print_stats;
 
@@ -115,7 +118,8 @@ extern const GraphicHwOps virtio_gpu_ops;
     DEFINE_PROP_UINT32("vectors", _state, nvectors, 3)
 
 #define DEFINE_VIRTIO_GPU_PROPERTIES(_state, _conf_field)               \
-    DEFINE_PROP_UINT32("max_outputs", _state, _conf_field.max_outputs, 2)
+    DEFINE_PROP_UINT32("max_outputs", _state, _conf_field.max_outputs, 2), \
+    DEFINE_PROP_UINT32("virgl_enable", _state, _conf_field.virgl_enable, 1)
 
 #define VIRTIO_GPU_FILL_CMD(out) do {                                   \
         size_t s;                                                       \
@@ -143,5 +147,12 @@ int virtio_gpu_create_mapping_iov(struct virtio_gpu_resource_attach_backing *ab,
                                   struct virtio_gpu_ctrl_command *cmd,
                                   struct iovec **iov);
 void virtio_gpu_cleanup_mapping_iov(struct iovec *iov, uint32_t count);
+
+/* virtio-gpu-3d.c */
+void virtio_gpu_virgl_process_cmd(VirtIOGPU *g,
+                                  struct virtio_gpu_ctrl_command *cmd);
+void virtio_gpu_virgl_fence_poll(VirtIOGPU *g);
+void virtio_gpu_virgl_reset(VirtIOGPU *g);
+int virtio_gpu_virgl_init(VirtIOGPU *g);
 
 #endif
