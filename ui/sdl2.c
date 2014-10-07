@@ -123,6 +123,7 @@ static void do_sdl_resize(struct sdl2_state *scon, int width, int height,
 {
     int flags;
 
+    fprintf(stderr, "%s/%d: %dx%d\n", __func__, scon->idx, width, height);
     if (scon->real_window && scon->real_renderer) {
         if (width && height) {
             SDL_GL_MakeCurrent(scon->real_window, scon->winctx);
@@ -707,6 +708,8 @@ static void handle_windowevent(DisplayChangeListener *dcl, SDL_Event *ev)
             memset(&info, 0, sizeof(info));
             info.width = ev->window.data1;
             info.height = ev->window.data2;
+            fprintf(stderr, "%s/%d: ui_info: %dx%d\n", __func__,
+                    scon->idx, info.width, info.height);
             dpy_set_ui_info(scon->dcl.con, &info);
         }
         graphic_hw_invalidate(scon->dcl.con);
@@ -895,6 +898,9 @@ static void sdl_gl_scanout(DisplayChangeListener *dcl,
 {
     struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
 
+    fprintf(stderr, "%s/%d: %d, %dx%d+%d+%d, %s\n", __func__,
+            scon->idx, backing_id, w, h, x, y,
+            backing_y_0_top ? "y0-top" : "y0-bottom");
 #ifdef CONFIG_VIRGL
     virgl_helper_scanout_info(scon->idx, backing_id,
                               backing_y_0_top ? VIRGL_HELPER_Y_0_TOP : 0,

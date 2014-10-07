@@ -819,6 +819,9 @@ static int virtio_gpu_ui_info(void *opaque, uint32_t idx, QemuUIInfo *info)
 {
     VirtIOGPU *g = opaque;
 
+    fprintf(stderr, "%s: %d/%d, %dx%d\n", __func__,
+            idx, g->conf.max_outputs, info->width, info->height);
+
     if (idx > g->conf.max_outputs) {
         return -1;
     }

@@ -1404,6 +1404,7 @@ int dpy_set_ui_info(QemuConsole *con, QemuUIInfo *info)
 {
     assert(con != NULL);
     con->ui_info = *info;
+    fprintf(stderr, "%s: %p\n", __func__, con->hw_ops->ui_info);
     if (con->hw_ops->ui_info) {
         return con->hw_ops->ui_info(con->hw, con->head, info);
     }

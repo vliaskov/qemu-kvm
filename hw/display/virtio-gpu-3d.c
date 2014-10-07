@@ -575,7 +575,9 @@ int virtio_gpu_virgl_init(VirtIOGPU *g)
     g->print_stats = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                   virtio_gpu_print_stats, g);
 
+#if 0
     timer_mod(g->print_stats, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1000);
+#endif
     return 0;
 }
 
