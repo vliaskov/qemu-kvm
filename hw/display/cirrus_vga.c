@@ -2098,6 +2098,7 @@ static void cirrus_update_cursor(CirrusVGAState *s)
 {
     const uint8_t *color, *mask, *palette;
     uint32_t size, pitch, *img, *xor, x, y, bit, color0, color1;
+    bool have_xor;
 
     if (s->vga.hw_cursor_img) {
         pixman_image_unref(s->vga.hw_cursor_img);
@@ -2139,6 +2140,7 @@ static void cirrus_update_cursor(CirrusVGAState *s)
         (PIXMAN_a8r8g8b8, size, size, NULL, size * 4);
     img = pixman_image_get_data(s->vga.hw_cursor_img);
     xor = pixman_image_get_data(s->vga.hw_cursor_xor);
+    have_xor = false;
     for (y = 0; y < size; y++) {
         bit = 0x80;
         for (x = 0; x < size; x++, img++, xor++) {
@@ -2149,6 +2151,7 @@ static void cirrus_update_cursor(CirrusVGAState *s)
                 } else {
                     *img = 0x00000000;
                     *xor = 0x00ffffff;
+                    have_xor = true;
                 }
             } else {
                 if (!(color[x/8] & bit)) {
@@ -2167,7 +2170,10 @@ static void cirrus_update_cursor(CirrusVGAState *s)
         color += pitch;
         mask  += pitch;
     }
-
+    if (!have_xor) {
+        pixman_image_unref(s->vga.hw_cursor_xor);
+        s->vga.hw_cursor_xor = NULL;
+    }
 }
 
 static inline void invalidate_cursor1(CirrusVGAState *s)
