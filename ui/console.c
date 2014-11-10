@@ -1657,10 +1657,11 @@ out:
     memory_region_unref(mem);
 }
 
-qemu_gl_context dpy_gl_ctx_create(QemuConsole *con, bool shared)
+qemu_gl_context dpy_gl_ctx_create(QemuConsole *con,
+                                  struct qemu_gl_params *qparams)
 {
     assert(con->gl);
-    return con->gl->ops->dpy_gl_ctx_create(con->gl, shared);
+    return con->gl->ops->dpy_gl_ctx_create(con->gl, qparams);
 }
 
 void dpy_gl_ctx_destroy(QemuConsole *con, qemu_gl_context ctx)

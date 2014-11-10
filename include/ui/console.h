@@ -151,6 +151,12 @@ void cursor_get_mono_mask(QEMUCursor *c, int transparent, uint8_t *mask);
 
 typedef void *qemu_gl_context;
 
+struct qemu_gl_params {
+    bool shared;
+    int major_ver;
+    int minor_ver;
+};
+
 typedef struct DisplayChangeListenerOps {
     const char *dpy_name;
 
@@ -177,7 +183,7 @@ typedef struct DisplayChangeListenerOps {
                               QEMUCursor *cursor);
 
     qemu_gl_context (*dpy_gl_ctx_create)(DisplayChangeListener *dcl,
-                                         bool shared);
+                                         struct qemu_gl_params *params);
     void (*dpy_gl_ctx_destroy)(DisplayChangeListener *dcl,
                               qemu_gl_context ctx);
     int (*dpy_gl_ctx_make_current)(DisplayChangeListener *dcl,
@@ -259,7 +265,8 @@ void dpy_gl_scanout(QemuConsole *con,
 void dpy_gl_update(QemuConsole *con,
                    uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
-qemu_gl_context dpy_gl_ctx_create(QemuConsole *con, bool shared);
+qemu_gl_context dpy_gl_ctx_create(QemuConsole *con,
+                                  struct qemu_gl_params *params);
 void dpy_gl_ctx_destroy(QemuConsole *con, qemu_gl_context ctx);
 int dpy_gl_ctx_make_current(QemuConsole *con, qemu_gl_context ctx);
 qemu_gl_context dpy_gl_ctx_get_current(QemuConsole *con);
