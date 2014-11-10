@@ -847,21 +847,18 @@ static void sdl_mouse_define(DisplayChangeListener *dcl,
 }
 
 static qemu_gl_context sdl_create_context(DisplayChangeListener *dcl,
-                                          bool shared)
+                                          struct qemu_gl_params *params)
 {
     struct sdl2_state *scon = container_of(dcl, struct sdl2_state, dcl);
     SDL_GLContext ctx;
 
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, shared ? 1 : 0);
-
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT,
+                        params->shared ? 1 : 0);
 #if 1
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                         SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
-                        SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, params->major_ver);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, params->minor_ver);
 #endif
 
     ctx = SDL_GL_CreateContext(scon->real_window);
