@@ -485,14 +485,19 @@ static void virgl_write_fence(void *opaque, uint32_t fence)
     }
 }
 
-static virgl_renderer_gl_context virgl_create_context(void *opaque,
-                                                      int scanout_idx,
-                                                      bool shared)
+static virgl_renderer_gl_context
+virgl_create_context(void *opaque, int scanout_idx,
+                     struct virgl_renderer_gl_ctx_param *params)
 {
     VirtIOGPU *g = opaque;
     qemu_gl_context ctx;
+    struct qemu_gl_params qparams;
 
-    ctx = dpy_gl_ctx_create(g->scanout[scanout_idx].con, shared);
+    qparams.shared = params->shared;
+    qparams.major_ver = params->major_ver;
+    qparams.minor_ver = params->minor_ver;
+
+    ctx = dpy_gl_ctx_create(g->scanout[scanout_idx].con, &qparams);
     return (virgl_renderer_gl_context)ctx;
 }
 
